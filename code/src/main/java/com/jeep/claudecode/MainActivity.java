@@ -1128,6 +1128,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 if (data.optJSONArray("tools") != null) e.putString("tools", data.optJSONArray("tools").toString());
                 if (data.optJSONArray("mcp_servers") != null) e.putString("mcpServers", data.optJSONArray("mcp_servers").toString());
                 if (data.optJSONArray("skills") != null) e.putString("skills", data.optJSONArray("skills").toString());
+                if (data.optJSONArray("agents") != null) e.putString("agents", data.optJSONArray("agents").toString());
+                if (data.optJSONArray("slash_commands") != null) e.putString("slashCommands", data.optJSONArray("slash_commands").toString());
                 e.apply();
                 JSONArray cmds = data.optJSONArray("slash_commands");
                 if (cmds != null && cmds.length() > 0) {
@@ -2562,12 +2564,324 @@ public final class MainActivity extends Activity implements Bridge.Events {
         LinearLayout ext = card(box);
         int skills = skillList().size();
         option(ext, R.drawable.ic_spark, "技能", skills == 0 ? null : String.valueOf(skills), false, this::skillsSheet);
+        option(ext, R.drawable.ic_file_plus, "插件", null, false, this::pluginsSheet);
+        int servers = mcpList().size();
+        option(ext, R.drawable.ic_globe, "MCP", servers == 0 ? null : String.valueOf(servers), false, this::mcpSheet);
+        int agents = fileItems(AGENTS).size();
+        option(ext, R.drawable.ic_bot, "子代理", agents == 0 ? null : String.valueOf(agents), false, () -> itemsSheet(AGENTS));
+        int commands = fileItems(COMMANDS).size();
+        option(ext, R.drawable.ic_edit_lines, "命令", commands == 0 ? null : String.valueOf(commands), false, () -> itemsSheet(COMMANDS));
         if (launch != null) {
             int off = disallowed(launch).size();
             option(ext, R.drawable.ic_tool, "工具", off == 0 ? null : "关闭 " + off, false, () -> toolsSheet(launch));
         }
-        int servers = mcpList().size();
-        option(ext, R.drawable.ic_globe, "MCP", servers == 0 ? null : String.valueOf(servers), false, this::mcpSheet);
+        JSONObject hooks = settingsJson().optJSONObject("hooks");
+        option(ext, R.drawable.ic_refresh, "Hooks", hooks == null || hooks.length() == 0 ? null : String.valueOf(hooks.length()), false, this::hooksSheet);
+    }
+
+    // ---- 插件: Claude Code's own `claude plugin` ----
+
+    private void pluginsSheet() {
+        if (!linked) { toast("Claude Code 还没启动好"); return; }
+        Dialog sheet = sheet("插件", null);
+        LinearLayout card = card(sheet);
+        TextView wait = Ui.text(this, "…", 14, R.color.text3);
+        wait.setGravity(Gravity.CENTER);
+        wait.setPadding(0, dp(18), 0, dp(18));
+        card.addView(wait, Ui.fill());
+        LinearLayout more = card(sheet);
+        Ui.margins(more, this, 0, 10, 0, 0);
+        option(more, R.drawable.ic_plus, "安装", null, false, () -> {
+            sheet.dismiss();
+            textSheet("安装插件", "", "名称 或 名称@市场", false, (t, done) -> pluginDo("install", t.trim(), done), this::pluginsSheet);
+        });
+        option(more, R.drawable.ic_globe, "市场", null, false, () -> { sheet.dismiss(); marketsSheet(); });
+        sheet.show();
+        bridge.get("/plugins", (status, data) -> {
+            card.removeAllViews();
+            JSONArray list = status == 200 ? data.optJSONArray("plugins") : null;
+            for (int i = 0; list != null && i < list.length(); i++) {
+                JSONObject p = list.optJSONObject(i);
+                if (p == null) continue;
+                String id = p.optString("id");
+                String name = id.contains("@") ? id.substring(0, id.indexOf('@')) : id;
+                boolean on = p.optBoolean("enabled", true);
+                option(card, R.drawable.ic_file_plus, name, on ? p.optString("version") : "已停用", false, () -> { sheet.dismiss(); pluginActions(id, on); });
+            }
+            if (list == null || list.length() == 0) {
+                TextView none = Ui.text(this, status == 200 ? "还没有" : "读取失败", 14, R.color.text3);
+                none.setGravity(Gravity.CENTER);
+                none.setPadding(0, dp(18), 0, dp(18));
+                card.addView(none, Ui.fill());
+            }
+        });
+    }
+
+    private void pluginActions(String id, boolean on) {
+        Dialog sheet = sheet(id, null);
+        LinearLayout card = card(sheet);
+        option(card, on ? R.drawable.ic_stop_circle : R.drawable.ic_check, on ? "停用" : "启用", null, false,
+                () -> { sheet.dismiss(); pluginDo(on ? "disable" : "enable", id, null); });
+        option(card, R.drawable.ic_refresh, "更新", null, false, () -> { sheet.dismiss(); pluginDo("update", id, null); });
+        option(card, R.drawable.ic_trash, "卸载", null, true, () -> { sheet.dismiss(); pluginDo("uninstall", id, null); });
+        sheet.show();
+    }
+
+    /** One `claude plugin` change; its own message on failure. */
+    private void pluginDo(String action, String name, Runnable done) {
+        if (name.isEmpty()) return;
+        toast("正在处理…");
+        bridge.post("/plugin", obj("action", action, "name", name), (status, data) -> {
+            if (status != 200) { textSheetMessage("没有成功", data.optString("error")); return; }
+            toast("完成");
+            if (done != null) done.run();
+            refreshSettings();
+            if (action.startsWith("market")) marketsSheet(); else pluginsSheet();
+        });
+    }
+
+    private void marketsSheet() {
+        Dialog sheet = sheet("市场", null);
+        LinearLayout card = card(sheet);
+        TextView wait = Ui.text(this, "…", 14, R.color.text3);
+        wait.setGravity(Gravity.CENTER);
+        wait.setPadding(0, dp(18), 0, dp(18));
+        card.addView(wait, Ui.fill());
+        LinearLayout more = card(sheet);
+        Ui.margins(more, this, 0, 10, 0, 0);
+        option(more, R.drawable.ic_plus, "添加", null, false, () -> {
+            sheet.dismiss();
+            textSheet("添加市场", "", "GitHub 仓库（owner/repo）或网址", false, (t, done) -> pluginDo("market-add", t.trim(), done), this::marketsSheet);
+        });
+        sheet.show();
+        bridge.get("/plugins", (status, data) -> {
+            card.removeAllViews();
+            JSONArray list = status == 200 ? data.optJSONArray("marketplaces") : null;
+            for (int i = 0; list != null && i < list.length(); i++) {
+                JSONObject m = list.optJSONObject(i);
+                String name = m == null ? "" : m.optString("name");
+                if (name.isEmpty()) continue;
+                option(card, R.drawable.ic_globe, name, null, false, () -> {
+                    sheet.dismiss();
+                    Dialog ask = sheet(name, null);
+                    LinearLayout c2 = card(ask);
+                    option(c2, R.drawable.ic_trash, "删除", null, true, () -> { ask.dismiss(); pluginDo("market-remove", name, null); });
+                    ask.show();
+                });
+            }
+            if (card.getChildCount() == 0) {
+                TextView none = Ui.text(this, status == 200 ? "还没有" : "读取失败", 14, R.color.text3);
+                none.setGravity(Gravity.CENTER);
+                none.setPadding(0, dp(18), 0, dp(18));
+                card.addView(none, Ui.fill());
+            }
+        });
+    }
+
+    /** A message to read, such as what Claude Code said when something did not work. */
+    private void textSheetMessage(String title, String text) {
+        Dialog sheet = sheet(title, null);
+        TextView t = Ui.text(this, text, 13, R.color.text2);
+        t.setTypeface(Ui.MONO);
+        t.setTextIsSelectable(true);
+        content(sheet).addView(t, Ui.fill());
+        sheet.show();
+    }
+
+    // ---- 子代理 and 命令: Markdown files Claude Code reads, and those it reported ----
+
+    /** agents: subagents; commands: slash commands. Each a .md file under .claude/<kind>. */
+    private static final String AGENTS = "agents", COMMANDS = "commands";
+
+    /** A file extension: its name, its file when the user's or this folder's (editable), else where it comes from. */
+    private static final class Item {
+        final String name, from;
+        final java.io.File file;
+
+        Item(String name, java.io.File file, String from) {
+            this.name = name;
+            this.file = file;
+            this.from = from;
+        }
+    }
+
+    private java.io.File itemsDir(String kind) { return userland.file(Userland.HOME + "/.claude/" + kind); }
+
+    /**
+     * The user's and this folder's files (commands in subfolders are dir:name), then those Claude
+     * Code reported when a conversation last started: for subagents its own and plugins'; for
+     * commands only plugins' (its own commands are not extensions; skills have their own page).
+     */
+    private List<Item> fileItems(String kind) {
+        List<Item> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        java.io.File here = userland.file(mcpFolder() + "/.claude/" + kind);
+        addItems(out, seen, itemsDir(kind), itemsDir(kind), null);
+        if (!here.equals(itemsDir(kind))) addItems(out, seen, here, here, "本文件夹");
+        JSONArray reported = savedArray(kind.equals(AGENTS) ? "agents" : "slashCommands");
+        java.util.Set<String> skills = new java.util.HashSet<>();
+        JSONArray sk = savedArray("skills");
+        for (int i = 0; i < sk.length(); i++) skills.add(sk.optString(i));
+        for (int i = 0; i < reported.length(); i++) {
+            String n = reported.optString(i);
+            int colon = n.indexOf(':');
+            if (n.isEmpty() || seen.contains(n) || skills.contains(n)) continue;
+            if (kind.equals(COMMANDS) && colon <= 0) continue;
+            seen.add(n);
+            out.add(colon > 0 ? new Item(n.substring(colon + 1), null, n.substring(0, colon)) : new Item(n, null, "内置"));
+        }
+        return out;
+    }
+
+    private static void addItems(List<Item> out, java.util.Set<String> seen, java.io.File root, java.io.File dir, String from) {
+        java.io.File[] files = dir.listFiles();
+        if (files == null) return;
+        java.util.Arrays.sort(files);
+        for (java.io.File f : files) {
+            if (f.isDirectory()) { addItems(out, seen, root, f, from); continue; }
+            if (!f.getName().endsWith(".md")) continue;
+            String rel = root.toURI().relativize(f.toURI()).getPath();
+            String n = rel.substring(0, rel.length() - 3).replace('/', ':');
+            if (seen.add(n)) out.add(new Item(n, f, from));
+        }
+    }
+
+    private void itemsSheet(String kind) {
+        boolean agents = kind.equals(AGENTS);
+        Dialog sheet = sheet(agents ? "子代理" : "命令", null);
+        LinearLayout card = card(sheet);
+        List<Item> items = fileItems(kind);
+        for (Item it : items) {
+            option(card, agents ? R.drawable.ic_bot : R.drawable.ic_edit_lines, agents ? it.name : "/" + it.name, it.from, false,
+                    it.file == null ? null : () -> { sheet.dismiss(); itemActions(kind, it.file); });
+        }
+        if (items.isEmpty()) {
+            TextView none = Ui.text(this, "还没有", 14, R.color.text3);
+            none.setGravity(Gravity.CENTER);
+            none.setPadding(0, dp(18), 0, dp(18));
+            card.addView(none, Ui.fill());
+        }
+        LinearLayout add = card(sheet);
+        Ui.margins(add, this, 0, 10, 0, 0);
+        option(add, R.drawable.ic_plus, "新建", null, false, () -> {
+            sheet.dismiss();
+            textSheet(agents ? "新建子代理" : "新建命令", "", "名称：小写字母、数字和 -", false, (t, done) -> {
+                String n = t.trim();
+                if (!n.matches("[a-z0-9][a-z0-9-]*")) { toast("名称只能用小写字母、数字和 -"); return; }
+                java.io.File f = new java.io.File(itemsDir(kind), n + ".md");
+                if (f.exists()) { toast("已经有了"); return; }
+                String body = agents
+                        ? "---\nname: " + n + "\ndescription: 一句话写清楚什么时候该交给这个子代理\n---\n\n在这里写给它的指示。\n"
+                        : "在这里写 /" + n + " 要 Claude 做的事。$ARGUMENTS 是命令后面跟的内容。\n";
+                try {
+                    Userland.write(f, body);
+                } catch (java.io.IOException e) {
+                    toast("新建失败：" + e.getMessage());
+                    return;
+                }
+                done.run();
+                editItem(kind, f);
+            }, null);
+        });
+        sheet.show();
+    }
+
+    private void itemActions(String kind, java.io.File f) {
+        Dialog sheet = sheet(f.getName().replaceAll("\\.md$", ""), null);
+        LinearLayout card = card(sheet);
+        option(card, R.drawable.ic_pencil, "编辑", null, false, () -> { sheet.dismiss(); editItem(kind, f); });
+        option(card, R.drawable.ic_trash, "删除", null, true, () -> {
+            sheet.dismiss();
+            f.delete();
+            relaunch();
+            toast("已删除");
+            refreshSettings();
+            itemsSheet(kind);
+        });
+        sheet.show();
+    }
+
+    private void editItem(String kind, java.io.File f) {
+        textSheet(f.getName(), readFile(f), "", true, (t, done) -> {
+            try {
+                Userland.write(f, t);
+            } catch (java.io.IOException e) {
+                toast("保存失败：" + e.getMessage());
+                return;
+            }
+            relaunch();
+            toast("已保存");
+            done.run();
+            refreshSettings();
+        }, () -> itemsSheet(kind));
+    }
+
+    // ---- Hooks: settings.json's hooks ----
+
+    /** settings.json's hooks as JSON; an example rule to start from when there are none. */
+    private void hooksEdit() {
+        JSONObject hooks = settingsJson().optJSONObject("hooks");
+        String text;
+        try {
+            text = hooks != null && hooks.length() > 0 ? hooks.toString(2).replace("\\/", "/")
+                    : "{\n  \"PostToolUse\": [\n    {\n      \"matcher\": \"Edit|Write\",\n      \"hooks\": [\n        { \"type\": \"command\", \"command\": \"要运行的命令\" }\n      ]\n    }\n  ]\n}";
+        } catch (JSONException e) {
+            text = "{}";
+        }
+        textSheet("Hooks", text, "{ }", true, (t, done) -> {
+            JSONObject now = settingsJson();
+            try {
+                JSONObject h = t.trim().isEmpty() ? new JSONObject() : new JSONObject(t);
+                if (h.length() == 0) now.remove("hooks"); else now.put("hooks", h);
+            } catch (JSONException e) {
+                toast("不是有效的 JSON：" + e.getMessage());
+                return;
+            }
+            if (saveSettings(now)) { toast("已保存"); done.run(); refreshSettings(); }
+        }, this::hooksSheet);
+    }
+
+    private void hooksSheet() {
+        Dialog sheet = sheet("Hooks", null);
+        JSONObject json = settingsJson();
+        JSONObject hooks = json.optJSONObject("hooks");
+        LinearLayout card = card(sheet);
+        // Each event's rules: what they match, and the command they run.
+        for (java.util.Iterator<String> it = hooks == null ? null : hooks.keys(); it != null && it.hasNext(); ) {
+            String event = it.next();
+            JSONArray rules = hooks.optJSONArray(event);
+            for (int i = 0; rules != null && i < rules.length(); i++) {
+                JSONObject rule = rules.optJSONObject(i);
+                JSONArray hs = rule == null ? null : rule.optJSONArray("hooks");
+                for (int k = 0; hs != null && k < hs.length(); k++) {
+                    JSONObject h = hs.optJSONObject(k);
+                    String what = h == null ? "" : h.optString("command", h.optString("url", h.optString("prompt", h.optString("type"))));
+                    String matcher = rule.optString("matcher");
+                    option(card, R.drawable.ic_refresh, matcher.isEmpty() ? event : event + " · " + matcher, what, false,
+                            () -> { sheet.dismiss(); hooksEdit(); });
+                }
+            }
+        }
+        if (card.getChildCount() == 0) {
+            TextView none = Ui.text(this, "还没有", 14, R.color.text3);
+            none.setGravity(Gravity.CENTER);
+            none.setPadding(0, dp(18), 0, dp(18));
+            card.addView(none, Ui.fill());
+        }
+        LinearLayout more = card(sheet);
+        Ui.margins(more, this, 0, 10, 0, 0);
+        option(more, R.drawable.ic_pencil, "编辑", null, false, () -> { sheet.dismiss(); hooksEdit(); });
+        boolean off = json.optBoolean("disableAllHooks");
+        option(more, off ? R.drawable.ic_check : R.drawable.ic_stop_circle, off ? "全部启用" : "全部停用", null, false, () -> {
+            JSONObject now = settingsJson();
+            try {
+                if (off) now.remove("disableAllHooks"); else now.put("disableAllHooks", true);
+            } catch (JSONException e) {
+                return;
+            }
+            if (saveSettings(now)) { toast("已保存"); sheet.dismiss(); refreshSettings(); hooksSheet(); }
+        });
+        sheet.show();
     }
 
     // ---- 存储 ----

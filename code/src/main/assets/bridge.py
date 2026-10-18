@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 19  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 20  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -806,6 +806,25 @@ def settings_schema():
             return []
 
 
+def list_plugins():
+    """Installed plugins and marketplaces, as `claude plugin list --json` and `marketplace list --json` tell."""
+    def ask(*args):
+        try:
+            out = subprocess.run([claude_path(), 'plugin', *args, '--json'], cwd=HOME,
+                                 capture_output=True, text=True, timeout=120)
+            return json.loads(out.stdout or '[]')
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return []
+    found = {}
+    threads = [threading.Thread(target=lambda k=k, a=a: found.__setitem__(k, ask(*a)))
+               for k, a in (('plugins', ('list',)), ('marketplaces', ('marketplace', 'list')))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return found
+
+
 def read_config():
     models, settings = [], {}
     try:
@@ -919,6 +938,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200 if data else 404, data or {'error': 'not found'})
         elif url.path == '/config':
             self.reply(200, read_config())
+        elif url.path == '/plugins':
+            self.reply(200, list_plugins())
         elif url.path == '/settings-schema':
             self.reply(200, {'settings': settings_schema()})
         elif url.path == '/launch':
@@ -988,6 +1009,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'ok': True, 'path': target})
         elif path == '/mcp':
             self.mcp(data)
+        elif path == '/plugin':
+            self.plugin(data)
         elif path == '/stop':
             chat_for(data['chat']).stop()
             self.reply(200, {'ok': True})
@@ -1039,6 +1062,25 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': (out.stderr or out.stdout).strip()[-1000:]})
         launch.gen += 1  # conversations start again with it
         self.reply(200, {'ok': True})
+
+    def plugin(self, data):
+        """Installs, enables, disables, updates or uninstalls a plugin, or adds or removes a
+        marketplace, with Claude Code's own `claude plugin`."""
+        commands = {'install': ['install'], 'enable': ['enable'], 'disable': ['disable'], 'update': ['update'],
+                    'uninstall': ['uninstall'], 'market-add': ['marketplace', 'add'], 'market-remove': ['marketplace', 'remove']}
+        action, name = data.get('action'), str(data.get('name') or '').strip()
+        if action not in commands or not name or name.startswith('-') or re.search(r'\s', name):
+            return self.reply(400, {'error': 'bad request'})
+        try:
+            out = subprocess.run([claude_path(), 'plugin', *commands[action], name], cwd=HOME,
+                                 capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.SubprocessError) as e:
+            return self.reply(500, {'error': str(e)})
+        text = re.sub(r'\x1b\[[0-9;]*m', '', (out.stdout + out.stderr)).strip()[-1500:]
+        if out.returncode != 0:
+            return self.reply(400, {'error': text})
+        launch.gen += 1  # conversations start again with it
+        self.reply(200, {'ok': True, 'output': text})
 
     def events(self, since):
         self.send_response(200)

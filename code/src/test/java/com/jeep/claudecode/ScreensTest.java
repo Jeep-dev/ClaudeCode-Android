@@ -281,6 +281,30 @@ public class ScreensTest {
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-skills");
         ShadowDialog.getLatestDialog().dismiss();
+        Userland.write(land.file(Userland.HOME + "/.claude/agents/reviewer.md"), "---\nname: reviewer\n---\n");
+        Userland.write(land.file(Userland.HOME + "/.claude/commands/commit.md"), "提交\n");
+        Userland.write(land.file(Userland.HOME + "/.claude/commands/git/push.md"), "推送\n");
+        a.getSharedPreferences("app", 0).edit()
+                .putString("agents", "[\"general-purpose\",\"Explore\",\"Plan\",\"reviewer\",\"document-skills:writer\"]")
+                .putString("slashCommands", "[\"help\",\"clear\",\"compact\",\"commit\",\"git:push\",\"simplify\",\"document-skills:export\"]").apply();
+        JSONObject withHooks = new JSONObject(Userland.read(new java.io.FileInputStream(settingsFile)));
+        withHooks.put("hooks", new JSONObject("{\"PostToolUse\":[{\"matcher\":\"Edit|Write\",\"hooks\":[{\"type\":\"command\",\"command\":\"prettier --write\"}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"notify-send done\"}]}]}"));
+        Userland.write(settingsFile, withHooks.toString());
+        Method items = MainActivity.class.getDeclaredMethod("itemsSheet", String.class);
+        items.setAccessible(true);
+        for (String kind : new String[]{"agents", "commands"}) {
+            items.invoke(a, kind);
+            idle();
+            shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-" + kind);
+            ShadowDialog.getLatestDialog().dismiss();
+        }
+        call(a, "hooksSheet");
+        idle();
+        shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-hooks");
+        ShadowDialog.getLatestDialog().dismiss();
+        open.invoke(a, "ext");
+        idle();
+        shot(sheet, "09-settings-ext");
         call(a, "mcpSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-mcp");
