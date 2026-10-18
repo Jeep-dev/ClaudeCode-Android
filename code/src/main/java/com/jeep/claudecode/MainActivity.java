@@ -406,7 +406,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         // The buttons just under the status bar, and the box about as far from the bottom (or
         // just above the keyboard).
         int below = keyboard ? insetBottom + dp(8) : Math.max(insetBottom + dp(8), insetTop - dp(12));
-        composer.setPadding(dp(24), dp(4), dp(24), below);
+        composer.setPadding(dp(32), dp(4), dp(32), below);
         if (drawerPanel != null) drawerPanel.setPadding(0, insetTop, 0, keyboard ? 0 : insetBottom);
         ((FrameLayout.LayoutParams) topButtons.getLayoutParams()).topMargin = insetTop;
         ((FrameLayout.LayoutParams) banner.getLayoutParams()).setMargins(dp(12), insetTop + dp(52), dp(12), 0);
@@ -444,7 +444,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private View buildComposer() {
         LinearLayout wrap = Ui.column(this);
-        wrap.setPadding(dp(24), dp(4), dp(24), dp(18));
+        wrap.setPadding(dp(32), dp(4), dp(32), dp(18));
         LinearLayout card;
         if (immersive) {
             card = new Glass.Pane(this, host, dp(26), col(R.color.bg), Glass.alpha(col(R.color.surface), 0.55f),
