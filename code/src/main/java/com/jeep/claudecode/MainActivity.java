@@ -1257,15 +1257,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void updateLink() {
         if (linkDot == null) return;
-        // Connected only while the bridge keeps pinging: a frozen one keeps the connection open.
-        boolean silent = linked && Bridge.lastAlive > 0 && System.currentTimeMillis() - Bridge.lastAlive > 8000;
-        String label = silent ? "后台没有响应" : linked ? "Claude Code" : installing ? "正在准备…"
+        String label = linked ? "Claude Code" : installing ? "正在准备…"
                 : connecting ? "正在启动…" : "未运行 · 点此重试";
         int bannerShown = !linked && !connecting && setup == null && everLinked ? View.VISIBLE : View.GONE;
         if (banner.getVisibility() != bannerShown) banner.setVisibility(bannerShown);
         if (label.equals(shownLink)) return;
         shownLink = label;
-        int dot = silent ? R.color.warn : linked ? R.color.ok : connecting ? R.color.text3 : R.color.danger;
+        int dot = linked ? R.color.ok : connecting ? R.color.text3 : R.color.danger;
         linkDot.setBackground(Ui.round(col(dot), dp(4)));
         linkText.setText(label);
     }

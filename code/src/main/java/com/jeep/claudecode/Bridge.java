@@ -49,8 +49,6 @@ final class Bridge {
     private boolean flushQueued;
     /** When this app last asked for the bridge to start: a start still under way is not repeated. */
     private volatile long startedAt;
-    /** When the bridge last sent anything (it pings every 5 s); 0 before the first. */
-    static volatile long lastAlive;
 
     Bridge(Context context, Events listener) {
         this.context = context.getApplicationContext();
@@ -235,7 +233,6 @@ final class Bridge {
                 BufferedReader reader = new BufferedReader(
                         new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
                 for (String line; reading && (line = reader.readLine()) != null; ) {
-                    lastAlive = System.currentTimeMillis();
                     if (!line.startsWith("data: ")) continue;
                     try {
                         JSONObject event = new JSONObject(line.substring(6));

@@ -695,7 +695,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         tick(h);
     }
 
-    /** Animates the status rows: glyph, verb, elapsed time, retries or silence. */
+    /** Animates the status rows: glyph, verb, elapsed time, retries. */
     void tick() { for (Holder h : statusRows) tick(h); }
 
     private void tick(Holder h) {
@@ -705,11 +705,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         h.verb.setText(chat.verb + "…");
         long secs = (now - (chat.startedAt == 0 ? now : chat.startedAt)) / 1000;
         h.elapsed.setText(secs > 0 ? secs + "s" : "");
-        long quiet = (now - Math.max(chat.lastEvent, chat.startedAt)) / 1000;
-        // Retries, or the model silent (a quiet command is left alone).
-        String detail = !chat.detail.isEmpty() ? chat.detail
-                : quiet < 20 || toolRunning() ? ""
-                : "等模型回复，" + quiet + "s 没有输出";
+        String detail = chat.detail; // retries
         h.detail.setText(detail);
         h.detail.setVisibility(detail.isEmpty() ? View.GONE : View.VISIBLE);
         h.detail.setTextColor(Ui.color(c, detail.isEmpty() ? R.color.text3 : R.color.warn));
@@ -720,13 +716,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         for (Chat.Block b : chat.messages.get(chat.messages.size() - 1).blocks)
             if (b.kind == Chat.Block.THINKING && b.streaming) return b;
         return null;
-    }
-
-    private boolean toolRunning() {
-        if (chat.messages.isEmpty()) return false;
-        for (Chat.Block b : chat.messages.get(chat.messages.size() - 1).blocks)
-            if (b.kind == Chat.Block.TOOL && b.running) return true;
-        return false;
     }
 
     private void footer(LinearLayout box, Chat.Msg m) {
