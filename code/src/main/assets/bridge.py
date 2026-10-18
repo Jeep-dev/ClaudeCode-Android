@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 21  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 22  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -839,7 +839,7 @@ def models_stamp():
             parts.append('%d-%d' % (st.st_size, st.st_mtime))
         except OSError:
             parts.append('-')
-    return '/'.join(parts)
+    return 'v2/' + '/'.join(parts)  # v2: models carry their description
 
 
 def find_models():
@@ -886,7 +886,7 @@ def find_models():
             timer.cancel()
             proc.kill()
         if isinstance(found, list) and found:
-            claude_models = [{k: m.get(k) for k in ('value', 'displayName', 'resolvedModel')} for m in found
+            claude_models = [{k: m.get(k) for k in ('value', 'displayName', 'resolvedModel', 'description')} for m in found
                              if isinstance(m, dict) and m.get('value')]
             os.makedirs(STATE_DIR, exist_ok=True)
             with open(MODELS_FILE, 'w', encoding='utf-8') as f:

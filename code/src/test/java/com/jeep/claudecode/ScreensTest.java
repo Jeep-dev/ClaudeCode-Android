@@ -323,8 +323,8 @@ public class ScreensTest {
                 + "\"efforts\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"],\"effort\":\"max\","
                 + "\"permissionModes\":[\"acceptEdits\",\"auto\",\"bypassPermissions\",\"manual\",\"dontAsk\",\"plan\"],"
                 + "\"claudeModels\":[{\"value\":\"default\",\"displayName\":\"Default (recommended)\",\"resolvedModel\":\"claude-opus-5-5\"},"
-                + "{\"value\":\"opus\",\"displayName\":\"Opus\"},{\"value\":\"fable\",\"displayName\":\"Fable\"},"
-                + "{\"value\":\"sonnet\",\"displayName\":\"Sonnet\"},{\"value\":\"haiku\",\"displayName\":\"Haiku\"}]}"));
+                + "{\"value\":\"opus\",\"displayName\":\"Opus\",\"resolvedModel\":\"claude-opus-5-5\",\"description\":\"Opus 5.5 · Best for everyday\"},{\"value\":\"fable\",\"displayName\":\"Fable\"},"
+                + "{\"value\":\"sonnet\",\"displayName\":\"Sonnet\",\"description\":\"Sonnet 5.5 · Efficient\"},{\"value\":\"haiku\",\"displayName\":\"Haiku\"}]}"));
         call(a, "modelSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "11-model");

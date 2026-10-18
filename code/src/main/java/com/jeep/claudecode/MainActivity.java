@@ -910,6 +910,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
     /** Claude Code's own model list (as its /model shows it): value, name. */
     private JSONArray claudeModels = new JSONArray();
 
+    /** Whether Claude Code's default (no model chosen) is this model. */
+    private boolean defaultResolved(String resolved) {
+        for (int i = 0; i < claudeModels.length(); i++) {
+            JSONObject cm = claudeModels.optJSONObject(i);
+            if (cm != null && cm.optString("value").equals("default")) return !resolved.isEmpty() && resolved.equals(cm.optString("resolvedModel"));
+        }
+        return false;
+    }
+
     private void applyConfig(JSONObject data) {
         fill(models, data.optJSONArray("models"));
         JSONArray cm = data.optJSONArray("claudeModels");
@@ -1916,17 +1925,23 @@ public final class MainActivity extends Activity implements Bridge.Events {
             JSONObject cm = claudeModels.optJSONObject(i);
             if (cm == null) continue;
             String value = cm.optString("value");
-            String pick = value.equals("default") ? "" : value;
-            if (own == null) own = card(sheet);
+            String resolved = cm.optString("resolvedModel");
             listed.add(value);
-            listed.add(cm.optString("resolvedModel"));
-            option(own, 0, cm.optString("displayName", value), null, false, () -> {
+            listed.add(resolved);
+            // "default" is one of the others under another name: not listed twice.
+            if (value.equals("default")) continue;
+            String pick = value;
+            if (own == null) own = card(sheet);
+            // Its full name with the version, as Claude Code describes it ("Opus 5.5 · …").
+            String desc = cm.optString("description");
+            String name = desc.contains(" · ") ? desc.substring(0, desc.indexOf(" · ")) : cm.optString("displayName", value);
+            option(own, 0, name, null, false, () -> {
                 model = pick;
                 prefs.edit().putString("model", model).apply();
                 sheet.dismiss();
                 updateChrome();
             });
-            if (model.equals(pick)) check(own);
+            if (model.equals(pick) || (model.isEmpty() && defaultResolved(resolved))) check(own);
         }
         if (own != null) Ui.margins(own, this, 0, 0, 0, 10);
         List<String> all = new ArrayList<>();
