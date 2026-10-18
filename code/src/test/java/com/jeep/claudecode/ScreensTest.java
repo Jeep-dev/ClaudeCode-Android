@@ -274,6 +274,13 @@ public class ScreensTest {
         java.io.File claudeJson = land.file(Userland.HOME + "/.claude.json");
         claudeJson.getParentFile().mkdirs();
         Userland.write(claudeJson, "{\"mcpServers\":{\"exa\":{\"type\":\"http\",\"url\":\"https://mcp.exa.ai/mcp\"}},\"projects\":{}}");
+        Userland.write(land.file(Userland.HOME + "/.claude/skills/pdf-tools/SKILL.md"), "---\nname: pdf-tools\n---\n");
+        a.getSharedPreferences("app", 0).edit().putString("skills",
+                "[\"pdf-tools\",\"simplify\",\"code-review\",\"security-review\",\"document-skills:xlsx\"]").apply();
+        call(a, "skillsSheet");
+        idle();
+        shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-skills");
+        ShadowDialog.getLatestDialog().dismiss();
         call(a, "mcpSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-mcp");

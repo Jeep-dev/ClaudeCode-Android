@@ -1127,6 +1127,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 SharedPreferences.Editor e = prefs.edit();
                 if (data.optJSONArray("tools") != null) e.putString("tools", data.optJSONArray("tools").toString());
                 if (data.optJSONArray("mcp_servers") != null) e.putString("mcpServers", data.optJSONArray("mcp_servers").toString());
+                if (data.optJSONArray("skills") != null) e.putString("skills", data.optJSONArray("skills").toString());
                 e.apply();
                 JSONArray cmds = data.optJSONArray("slash_commands");
                 if (cmds != null && cmds.length() > 0) {
@@ -2559,7 +2560,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void fillExt(LinearLayout box, JSONObject launch) {
         LinearLayout ext = card(box);
-        int skills = skillNames().size();
+        int skills = skillList().size();
         option(ext, R.drawable.ic_spark, "技能", skills == 0 ? null : String.valueOf(skills), false, this::skillsSheet);
         if (launch != null) {
             int off = disallowed(launch).size();
@@ -2817,6 +2818,49 @@ public final class MainActivity extends Activity implements Bridge.Events {
         return out;
     }
 
+    /** A skill: its name, its folder when it is the user's or this folder's (editable), else where it comes from. */
+    private static final class Skill {
+        final String name, from;
+        final java.io.File dir;
+
+        Skill(String name, java.io.File dir, String from) {
+            this.name = name;
+            this.dir = dir;
+            this.from = from;
+        }
+    }
+
+    /**
+     * The skills Claude Code has: the user's and this folder's (their files, editable), then the
+     * rest it reported when a conversation last started (its own, a plugin's), shown only.
+     */
+    private List<Skill> skillList() {
+        List<Skill> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (String n : skillNames()) {
+            out.add(new Skill(n, new java.io.File(skillsDir(), n), null));
+            seen.add(n);
+        }
+        java.io.File here = userland.file(mcpFolder() + "/.claude/skills");
+        java.io.File[] dirs = here.equals(skillsDir()) ? null : here.listFiles(java.io.File::isDirectory);
+        if (dirs != null) {
+            java.util.Arrays.sort(dirs);
+            for (java.io.File d : dirs) {
+                if (!new java.io.File(d, "SKILL.md").isFile() || !seen.add(d.getName())) continue;
+                out.add(new Skill(d.getName(), d, "本文件夹"));
+            }
+        }
+        JSONArray reported = savedArray("skills");
+        for (int i = 0; i < reported.length(); i++) {
+            String n = reported.optString(i);
+            if (n.isEmpty() || !seen.add(n)) continue;
+            int colon = n.indexOf(':');
+            // A plugin's skill is plugin:skill: its name, and the plugin it comes from.
+            out.add(colon > 0 ? new Skill(n.substring(colon + 1), null, n.substring(0, colon)) : new Skill(n, null, "内置"));
+        }
+        return out;
+    }
+
     private String readFile(java.io.File f) {
         try {
             return Userland.read(new java.io.FileInputStream(f));
@@ -2833,11 +2877,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void skillsSheet() {
         Dialog sheet = sheet("技能", null);
         LinearLayout card = card(sheet);
-        List<String> names = skillNames();
-        for (String n : names) {
-            option(card, R.drawable.ic_spark, n, null, false, () -> { sheet.dismiss(); skillActions(n); });
+        List<Skill> skills = skillList();
+        for (Skill k : skills) {
+            option(card, R.drawable.ic_spark, k.name, k.from, false, k.dir == null ? null : () -> { sheet.dismiss(); skillActions(k.dir); });
         }
-        if (names.isEmpty()) {
+        if (skills.isEmpty()) {
             TextView none = Ui.text(this, "还没有", 14, R.color.text3);
             none.setGravity(Gravity.CENTER);
             none.setPadding(0, dp(18), 0, dp(18));
@@ -2859,19 +2903,19 @@ public final class MainActivity extends Activity implements Bridge.Events {
                     return;
                 }
                 done.run();
-                editSkill(n);
+                editSkill(f.getParentFile());
             }, null);
         });
         sheet.show();
     }
 
-    private void skillActions(String n) {
-        Dialog sheet = sheet(n, null);
+    private void skillActions(java.io.File dir) {
+        Dialog sheet = sheet(dir.getName(), null);
         LinearLayout card = card(sheet);
-        option(card, R.drawable.ic_pencil, "编辑", null, false, () -> { sheet.dismiss(); editSkill(n); });
+        option(card, R.drawable.ic_pencil, "编辑", null, false, () -> { sheet.dismiss(); editSkill(dir); });
         option(card, R.drawable.ic_trash, "删除", null, true, () -> {
             sheet.dismiss();
-            deleteTree(new java.io.File(skillsDir(), n));
+            deleteTree(dir);
             relaunch();
             toast("已删除");
             refreshSettings();
@@ -2880,9 +2924,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         sheet.show();
     }
 
-    private void editSkill(String n) {
-        java.io.File f = new java.io.File(skillsDir(), n + "/SKILL.md");
-        textSheet("技能 · " + n, readFile(f), "SKILL.md", true, (t, done) -> {
+    private void editSkill(java.io.File dir) {
+        java.io.File f = new java.io.File(dir, "SKILL.md");
+        textSheet("技能 · " + dir.getName(), readFile(f), "SKILL.md", true, (t, done) -> {
             try {
                 Userland.write(f, t);
             } catch (java.io.IOException e) {
