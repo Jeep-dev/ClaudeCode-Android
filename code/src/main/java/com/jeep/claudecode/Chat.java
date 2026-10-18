@@ -13,7 +13,7 @@ import org.json.JSONObject;
 /** One conversation, built from Claude Code's stream-json output or its saved transcript. */
 final class Chat {
     private static final AtomicLong IDS = new AtomicLong(1);
-    static final String[] VERBS = {"思考中", "琢磨中", "推敲中", "酝酿中", "构思中", "运转中"};
+    static final String[] VERBS = {"琢磨中", "推敲中", "酝酿中", "构思中", "运转中"};
 
     static final class Msg {
         static final int USER = 0, ASSISTANT = 1, NOTE = 2, DIVIDER = 3;
