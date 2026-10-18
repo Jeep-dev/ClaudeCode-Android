@@ -227,7 +227,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         list = new RecyclerView(this);
         list.setLayoutManager(new LinearLayoutManager(this));
         list.setClipToPadding(false);
-        list.setPadding(dp(30), dp(6), dp(30), dp(24));
+        list.setPadding(dp(22), dp(2), dp(22), dp(24));
         list.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         list.setItemAnimator(null); // rows change in place; animated moves overlap neighbours
         adapter = new ThreadAdapter(talkContext(), md, this::copy, row -> {
@@ -295,15 +295,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
         main.setBackgroundColor(col(R.color.bg));
         LinearLayout top = Ui.row(this);
         top.setPadding(dp(6), 0, dp(6), 0);
-        ImageView menu = Ui.iconButton(this, R.drawable.ic_sidebar, 38, 20, R.color.text2);
+        ImageView menu = Ui.iconButton(this, R.drawable.ic_sidebar, 34, 20, R.color.text2);
         menu.setOnClickListener(v -> frame.open());
-        top.addView(menu, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        top.addView(menu, new LinearLayout.LayoutParams(dp(34), dp(34)));
         top.addView(title, Ui.weight());
         if (!Themes.showTitle(this)) title.setVisibility(View.INVISIBLE);
-        ImageView terminal = Ui.iconButton(this, R.drawable.ic_terminal, 38, 20, R.color.text2);
+        ImageView terminal = Ui.iconButton(this, R.drawable.ic_terminal, 34, 20, R.color.text2);
         terminal.setOnClickListener(v -> openTerminal(null));
-        top.addView(terminal, new LinearLayout.LayoutParams(dp(38), dp(38)));
-        main.addView(top, new LinearLayout.LayoutParams(-1, dp(40)));
+        top.addView(terminal, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        main.addView(top, new LinearLayout.LayoutParams(-1, dp(34)));
         main.addView(banner, Ui.fill());
         Ui.margins(banner, this, 12, 4, 12, 0);
         FrameLayout content = new FrameLayout(this);
@@ -417,7 +417,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         ((FrameLayout.LayoutParams) jump.getLayoutParams()).bottomMargin = box + dp(8);
         int top = insetTop + dp(50);
         if (list.getPaddingTop() != top || list.getPaddingBottom() != box + dp(12)) {
-            list.setPadding(dp(30), top, dp(30), box + dp(12));
+            list.setPadding(dp(22), top, dp(22), box + dp(12));
             emptyView.setPadding(0, top, 0, box);
             if (stick) scrollToEnd(false);
         }
