@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+*.jks
+*.keystore
+
+# Built in CI by code/runtime/*.sh
+code/src/main/assets/runtime/

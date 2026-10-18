@@ -1,0 +1,66 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.jeep.claudecode'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'com.jeep.claudecode'
+        minSdk 26
+        // 28: Claude Code and the userland's programs run from this app's files, which Android
+        // allows only to apps targeting 28 or lower (as Termux does).
+        targetSdk 28
+        versionCode 56
+        versionName '0.4.28'
+    }
+    signingConfigs {
+        release {
+            storeFile file(System.getenv('CLAUDE_KEYSTORE_FILE') ?: 'missing.jks')
+            storePassword System.getenv('CLAUDE_KEYSTORE_PASSWORD') ?: ''
+            keyAlias 'claude'
+            keyPassword System.getenv('CLAUDE_KEY_PASSWORD') ?: ''
+        }
+    }
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+    testOptions {
+        unitTests {
+            includeAndroidResources = true
+            // ScreensTest: -Dshots=<dir>; offline Robolectric jars: -Drobolectric.offline=true -Drobolectric.dependency.dir=<dir>
+            all { test ->
+                ['shots', 'robolectric.offline', 'robolectric.dependency.dir'].each { k ->
+                    if (System.getProperty(k)) test.systemProperty k, System.getProperty(k)
+                }
+            }
+        }
+    }
+    androidResources {
+        noCompress 'xz' // already compressed; read as a stream when unpacked
+    }
+    lint {
+        checkReleaseBuilds false // targetSdk 28 on purpose
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    // Markdown in native TextViews.
+    implementation 'io.noties.markwon:core:4.6.2'
+    implementation 'io.noties.markwon:ext-tables:4.6.2'
+    implementation 'io.noties.markwon:ext-strikethrough:4.6.2'
+    implementation 'io.noties.markwon:linkify:4.6.2'
+    // Unpacks the userland (assets/runtime/rootfs.tar.xz).
+    implementation 'org.tukaani:xz:1.9'
+    // The terminal (Settings → 终端): Termux's emulator and view, Apache 2.0.
+    implementation 'com.github.termux.termux-app:terminal-view:v0.118.3'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.12.2'
+}

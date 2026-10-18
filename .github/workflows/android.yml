@@ -1,0 +1,73 @@
+name: Build APK
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the bridge
+        run: python3 -c "import ast; ast.parse(open('code/src/main/assets/bridge.py').read())"
+      - name: Userland id
+        run: echo "RUNTIME_ID=$(cat code/runtime/*.sh | sha256sum | cut -c1-16)" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        id: userland
+        with:
+          path: userland
+          key: userland-${{ env.RUNTIME_ID }}
+      - name: Build the userland (Alpine, Claude Code, proot)
+        if: steps.userland.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p userland
+          sudo code/runtime/build-rootfs.sh aarch64 userland/rootfs.tar.xz
+          code/runtime/fetch-proot.sh userland
+      - name: Publish the userland (once per userland)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="runtime-$RUNTIME_ID"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" userland/rootfs.tar.xz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --prerelease --title "Claude Code app userland $RUNTIME_ID" \
+              --notes "Alpine with Claude Code, downloaded by the Claude Code app on first launch."
+          fi
+      - name: Put proot and the userland's address in the app
+        run: |
+          mkdir -p code/src/main/assets/runtime
+          for f in userland/*; do [ "$(basename "$f")" = rootfs.tar.xz ] || cp "$f" code/src/main/assets/runtime/; done
+          echo "$RUNTIME_ID" > code/src/main/assets/runtime/id
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/download/runtime-$RUNTIME_ID/rootfs.tar.xz" > code/src/main/assets/runtime/rootfs.url
+          sha256sum userland/rootfs.tar.xz | cut -d' ' -f1 > code/src/main/assets/runtime/rootfs.sha256
+          ls -l code/src/main/assets/runtime
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+      - name: Build signed release APK
+        env:
+          KEY_B64: ${{ secrets.CLAUDE_KEYSTORE_B64 }}
+          CLAUDE_KEYSTORE_PASSWORD: ${{ secrets.CLAUDE_KEYSTORE_PASSWORD }}
+          CLAUDE_KEY_PASSWORD: ${{ secrets.CLAUDE_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEY_B64" ]; then
+            echo "::error::Signing secrets are missing: set CLAUDE_KEYSTORE_B64, CLAUDE_KEYSTORE_PASSWORD and CLAUDE_KEY_PASSWORD (the app's own key, or updates will not install over it)."
+            exit 1
+          fi
+          printf '%s' "$KEY_B64" | base64 --decode > "$RUNNER_TEMP/app.jks"
+          export CLAUDE_KEYSTORE_FILE="$RUNNER_TEMP/app.jks"
+          gradle --no-daemon :code:assembleRelease
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify code/build/outputs/apk/release/code-release.apk
+          CODE_VERSION=$(sed -n "s/^ *versionName '\(.*\)'.*/\1/p" code/build.gradle)
+          echo "CODE_VERSION=$CODE_VERSION" >> "$GITHUB_ENV"
+          mkdir -p out
+          cp code/build/outputs/apk/release/code-release.apk "out/ClaudeCode-v$CODE_VERSION.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-code-v${{ env.CODE_VERSION }}
+          path: out/ClaudeCode-v${{ env.CODE_VERSION }}.apk

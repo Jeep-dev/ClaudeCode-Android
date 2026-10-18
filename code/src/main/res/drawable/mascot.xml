@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pixel mascot (13×8). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="52dp" android:height="32dp" android:viewportWidth="13" android:viewportHeight="8">
+    <path android:fillColor="#D97757" android:pathData="M2,0h9v2H2zM0,2h13v2H0zM2,4h9v2H2zM2,6h1v2H2zM5,6h1v2H5zM7,6h1v2H7zM10,6h1v2h-1z" />
+    <path android:fillColor="#1F1E1D" android:pathData="M3,1h1v1H3zM9,1h1v1H9z" />
+</vector>

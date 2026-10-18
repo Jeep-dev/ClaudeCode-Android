@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:textColorHighlight">#40D97757</item>
+        <item name="android:colorControlActivated">@color/accent</item>
+    </style>
+    <!-- A full-screen page shown as a dialog (Settings). -->
+    <style name="Page" parent="AppTheme">
+        <item name="android:windowAnimationStyle">@android:style/Animation.Activity</item>
+    </style>
+    <style name="Sheet" parent="android:Theme.Material.Dialog.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
+        <item name="android:backgroundDimAmount">0.5</item>
+        <item name="android:colorAccent">@color/accent</item>
+    </style>
+</resources>

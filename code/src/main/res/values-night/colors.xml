@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cream">#262624</color>
+    <color name="bg">#262624</color>
+    <color name="sidebar">#1F1E1D</color>
+    <color name="surface">#30302E</color>
+    <color name="surface2">#2B2A28</color>
+    <color name="hover">#0FFAF9F5</color>
+    <color name="active">#1AFAF9F5</color>
+    <color name="border">#1FFAF9F5</color>
+    <color name="borderStrong">#33FAF9F5</color>
+    <color name="text">#F5F4EE</color>
+    <color name="text2">#C3C1B8</color>
+    <color name="text3">#8F8D86</color>
+    <color name="accentSoft">#2ED97757</color>
+    <color name="user">#3A3936</color>
+    <color name="codeBg">#1F1E1D</color>
+    <color name="inlineCode">#F0A587</color>
+    <color name="codeKeyword">#C678DD</color>
+    <color name="codeString">#98C379</color>
+    <color name="codeComment">#7F848E</color>
+    <color name="codeNumber">#D19A66</color>
+    <color name="diffDel">#F0A097</color>
+    <color name="diffDelBg">#29C4483B</color>
+    <color name="diffAdd">#8FD3AD</color>
+    <color name="diffAddBg">#292F8A5B</color>
+    <color name="dangerSoft">#29C4483B</color>
+</resources>
