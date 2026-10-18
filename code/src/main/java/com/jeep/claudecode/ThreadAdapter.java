@@ -707,11 +707,10 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         h.elapsed.setText(secs > 0 ? secs + "s" : "");
         long quiet = (now - Math.max(chat.lastEvent, chat.startedAt)) / 1000;
         long silent = Bridge.lastAlive == 0 ? 0 : (now - Bridge.lastAlive) / 1000;
-        // Whose turn it is: the bridge not answering at all, a command still running, or the model.
+        // The bridge not answering at all, or the model silent (a quiet command is left alone).
         String detail = silent >= 8 ? "后台 " + silent + "s 没有响应，可能被系统冻结"
                 : !chat.detail.isEmpty() ? chat.detail
-                : quiet < 20 ? ""
-                : toolRunning() ? "命令还在运行，" + quiet + "s 没有输出"
+                : quiet < 20 || toolRunning() ? ""
                 : "等模型回复，" + quiet + "s 没有输出";
         h.detail.setText(detail);
         h.detail.setVisibility(detail.isEmpty() ? View.GONE : View.VISIBLE);
