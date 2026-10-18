@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 20  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 21  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -825,7 +825,78 @@ def list_plugins():
     return found
 
 
+MODELS_FILE = os.path.join(STATE_DIR, 'models.json')
+claude_models = []  # Claude Code's own model list ({value, displayName, resolvedModel}), as /model shows it
+models_lock = threading.Lock()
+
+
+def models_stamp():
+    parts = []
+    for path in (os.path.realpath(claude_path()), os.path.join(CLAUDE_DIR, 'settings.json'),
+                 os.path.join(CLAUDE_DIR, '.credentials.json')):
+        try:
+            st = os.stat(path)
+            parts.append('%d-%d' % (st.st_size, st.st_mtime))
+        except OSError:
+            parts.append('-')
+    return '/'.join(parts)
+
+
+def find_models():
+    """The models Claude Code offers, from its reply to an SDK initialize request; asked again only
+    when Claude Code, its settings or the login change (kept in MODELS_FILE), at low priority."""
+    global claude_models
+    if not models_lock.acquire(blocking=False):
+        return
+    try:
+        stamp = models_stamp()
+        try:
+            with open(MODELS_FILE, encoding='utf-8') as f:
+                saved = json.load(f)
+            if saved.get('stamp') == stamp:
+                claude_models = saved.get('models', [])
+                return
+        except (OSError, ValueError, AttributeError):
+            pass
+        found = None
+        try:
+            proc = subprocess.Popen([claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
+                                     '--verbose'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    text=True, cwd=HOME, preexec_fn=lambda: os.nice(15))
+        except OSError:
+            return
+        timer = threading.Timer(120, proc.kill)
+        timer.start()
+        try:
+            proc.stdin.write(json.dumps({'type': 'control_request', 'request_id': 'models',
+                                         'request': {'subtype': 'initialize'}}) + '\n')
+            proc.stdin.flush()
+            for line in proc.stdout:
+                try:
+                    d = json.loads(line)
+                except ValueError:
+                    continue
+                if d.get('type') == 'control_response':
+                    r = d.get('response') or {}
+                    found = (r.get('response') or r).get('models')
+                    break
+        except (OSError, ValueError):
+            pass
+        finally:
+            timer.cancel()
+            proc.kill()
+        if isinstance(found, list) and found:
+            claude_models = [{k: m.get(k) for k in ('value', 'displayName', 'resolvedModel')} for m in found
+                             if isinstance(m, dict) and m.get('value')]
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(MODELS_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'stamp': stamp, 'models': claude_models}, f)
+    finally:
+        models_lock.release()
+
+
 def read_config():
+    threading.Thread(target=find_models, daemon=True).start()  # a no-op unless something changed
     models, settings = [], {}
     try:
         with open(os.path.join(CLAUDE_DIR, 'settings.json'), encoding='utf-8') as f:
@@ -848,7 +919,7 @@ def read_config():
     return {'models': models, 'defaultModel': default, 'baseUrl': base, 'auth': auth,
             'claudeVersion': claude_version, 'efforts': choices.get('effort', []),
             'effort': env.get('CLAUDE_CODE_EFFORT_LEVEL') or settings.get('effortLevel') or '',
-            'permissionModes': choices.get('permission-mode', [])}
+            'permissionModes': choices.get('permission-mode', []), 'claudeModels': claude_models}
 
 
 def list_dirs(path):
@@ -1226,7 +1297,7 @@ def main():
     server.daemon_threads = True
     server.token = args.token
     threading.Thread(target=reaper, daemon=True).start()
-    threading.Thread(target=find_claude_info, daemon=True).start()
+    threading.Thread(target=lambda: (find_claude_info(), find_models()), daemon=True).start()
     server.serve_forever()
 
 

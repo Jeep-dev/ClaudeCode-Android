@@ -321,7 +321,10 @@ public class ScreensTest {
         cfg.setAccessible(true);
         cfg.invoke(a, new JSONObject("{\"models\":[\"deepseek-flash[1m]\",\"deepseek-flash\"],\"defaultModel\":\"deepseek-flash[1m]\","
                 + "\"efforts\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"],\"effort\":\"max\","
-                + "\"permissionModes\":[\"acceptEdits\",\"auto\",\"bypassPermissions\",\"manual\",\"dontAsk\",\"plan\"]}"));
+                + "\"permissionModes\":[\"acceptEdits\",\"auto\",\"bypassPermissions\",\"manual\",\"dontAsk\",\"plan\"],"
+                + "\"claudeModels\":[{\"value\":\"default\",\"displayName\":\"Default (recommended)\",\"resolvedModel\":\"claude-opus-5-5\"},"
+                + "{\"value\":\"opus\",\"displayName\":\"Opus\"},{\"value\":\"fable\",\"displayName\":\"Fable\"},"
+                + "{\"value\":\"sonnet\",\"displayName\":\"Sonnet\"},{\"value\":\"haiku\",\"displayName\":\"Haiku\"}]}"));
         call(a, "modelSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "11-model");

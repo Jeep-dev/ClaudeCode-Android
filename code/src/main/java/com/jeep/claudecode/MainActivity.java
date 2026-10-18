@@ -130,6 +130,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         try {
             fill(efforts, new JSONArray(prefs.getString("efforts", "[]")));
             fill(permissionModes, new JSONArray(prefs.getString("permissionModes", "[]")));
+            claudeModels = new JSONArray(prefs.getString("claudeModels", "[]"));
         } catch (JSONException ignored) {
             // none saved
         }
@@ -906,8 +907,16 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     /** Takes what the bridge read from Claude Code and its settings. */
+    /** Claude Code's own model list (as its /model shows it): value, name. */
+    private JSONArray claudeModels = new JSONArray();
+
     private void applyConfig(JSONObject data) {
         fill(models, data.optJSONArray("models"));
+        JSONArray cm = data.optJSONArray("claudeModels");
+        if (cm != null && cm.length() > 0) {
+            claudeModels = cm;
+            prefs.edit().putString("claudeModels", cm.toString()).apply();
+        }
         defaultModel = data.optString("defaultModel");
         authSet = data.optBoolean("auth", true);
         claudeVersion = data.optString("claudeVersion");
@@ -1899,11 +1908,32 @@ public final class MainActivity extends Activity implements Bridge.Events {
             content(sheet).addView(bar, Ui.fill());
             Ui.margins(bar, this, 0, 0, 0, 12);
         }
-        // Models: Claude Code's, then ones typed here; each once.
+        // Claude Code's own list first ("default": no --model, its own choice), then ones from the
+        // settings and typed here; each once.
+        LinearLayout own = null;
+        List<String> listed = new ArrayList<>();
+        for (int i = 0; i < claudeModels.length(); i++) {
+            JSONObject cm = claudeModels.optJSONObject(i);
+            if (cm == null) continue;
+            String value = cm.optString("value");
+            String pick = value.equals("default") ? "" : value;
+            if (own == null) own = card(sheet);
+            listed.add(value);
+            listed.add(cm.optString("resolvedModel"));
+            option(own, 0, cm.optString("displayName", value), null, false, () -> {
+                model = pick;
+                prefs.edit().putString("model", model).apply();
+                sheet.dismiss();
+                updateChrome();
+            });
+            if (model.equals(pick)) check(own);
+        }
+        if (own != null) Ui.margins(own, this, 0, 0, 0, 10);
         List<String> all = new ArrayList<>();
         if (!defaultModel.isEmpty()) all.add(defaultModel);
         for (String m : models) if (!all.contains(m)) all.add(m);
         for (String m : usedModels()) if (!all.contains(m)) all.add(m);
+        all.removeAll(listed);
         String inUse = model.isEmpty() ? defaultModel : model;
         LinearLayout card = card(sheet);
         for (String m : all) {
