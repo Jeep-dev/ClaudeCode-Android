@@ -1656,9 +1656,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 Canvas canvas = new Canvas(out);
                 canvas.drawColor(Color.WHITE);
                 canvas.scale(scale, scale);
-                canvas.drawBitmap(bmp, 0, 0, null);
+                // Filtered: unfiltered scaling drops pixels and leaves text jagged and blurred.
+                canvas.drawBitmap(bmp, 0, 0, new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
                 ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
-                out.compress(Bitmap.CompressFormat.JPEG, 86, jpeg);
+                out.compress(Bitmap.CompressFormat.JPEG, 92, jpeg);
                 Bitmap thumb = Bitmap.createScaledBitmap(out, dp(64), Math.max(1, dp(64) * out.getHeight() / out.getWidth()), true);
                 return new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), jpeg.size(), thumb);
             }
