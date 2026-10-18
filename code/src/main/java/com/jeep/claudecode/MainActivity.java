@@ -533,7 +533,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private View buildDrawer() {
         LinearLayout d = Ui.column(this);
         drawerPanel = d;
-        d.setBackgroundColor(col(R.color.sidebar));
+        d.setBackgroundColor(col(R.color.bg)); // full screen: one colour with the status bar
         d.setClickable(true);
 
         LinearLayout head = Ui.row(this);

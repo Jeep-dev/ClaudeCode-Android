@@ -11,8 +11,8 @@ import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 
 /**
- * Main content with a drawer on the left that a horizontal swipe anywhere opens (right) or
- * closes (left), following the finger. Views that can scroll sideways keep their swipes.
+ * Main content with a full-width drawer from the left that a horizontal swipe anywhere opens
+ * (right) or closes (left), following the finger. Views that can scroll sideways keep their swipes.
  */
 final class DrawerFrame extends FrameLayout {
     interface Listener { void opened(); }
@@ -53,12 +53,12 @@ final class DrawerFrame extends FrameLayout {
 
     private int width() {
         int w = drawer.getWidth();
-        return w > 0 ? w : Math.min((int) (getResources().getDisplayMetrics().widthPixels * 0.86f), Ui.dp(getContext(), 320));
+        return w > 0 ? w : getResources().getDisplayMetrics().widthPixels;
     }
 
     @Override protected void onMeasure(int w, int h) {
         ViewGroup.LayoutParams p = drawer.getLayoutParams();
-        int target = Math.min((int) (MeasureSpec.getSize(w) * 0.86f), Ui.dp(getContext(), 320));
+        int target = MeasureSpec.getSize(w);
         if (p.width != target) p.width = target;
         super.onMeasure(w, h);
     }
