@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 18  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 19  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -986,6 +986,8 @@ class Handler(BaseHTTPRequestHandler):
                 f.write(data.get('text') or '')
             launch.gen += 1  # Claude Code reads CLAUDE.md when it starts
             self.reply(200, {'ok': True, 'path': target})
+        elif path == '/mcp':
+            self.mcp(data)
         elif path == '/stop':
             chat_for(data['chat']).stop()
             self.reply(200, {'ok': True})
@@ -1018,6 +1020,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(400, {'error': str(e)})
         else:
             self.reply(404, {'error': 'not found'})
+
+    def mcp(self, data):
+        """Adds, replaces or removes one of Claude Code's own MCP servers with its `claude mcp`
+        (which owns ~/.claude.json, written by running conversations too)."""
+        name, scope, action = str(data.get('name') or ''), data.get('scope') or 'user', data.get('action')
+        if not re.match(r'^[\w.-]+$', name) or scope not in ('user', 'local', 'project') or action not in ('set', 'remove'):
+            return self.reply(400, {'error': 'bad request'})
+        folder = os.path.expanduser(data.get('cwd') or HOME)
+        run = lambda *a: subprocess.run([claude_path(), 'mcp', *a], cwd=folder, capture_output=True, text=True, timeout=120)
+        try:
+            out = run('remove', name, '-s', scope)
+            if action == 'set':
+                out = run('add-json', name, json.dumps(data.get('config') or {}), '-s', scope)
+        except (OSError, subprocess.SubprocessError) as e:
+            return self.reply(500, {'error': str(e)})
+        if out.returncode != 0:
+            return self.reply(400, {'error': (out.stderr or out.stdout).strip()[-1000:]})
+        launch.gen += 1  # conversations start again with it
+        self.reply(200, {'ok': True})
 
     def events(self, since):
         self.send_response(200)

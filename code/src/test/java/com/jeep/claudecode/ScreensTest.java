@@ -189,7 +189,8 @@ public class ScreensTest {
                 {"Write", "{\"file_path\":\"/w/b.py\"}"}, {"Edit", "{\"file_path\":\"/w/c.py\"}"}, {"MultiEdit", "{\"file_path\":\"/w/d.py\"}"},
                 {"NotebookEdit", "{\"notebook_path\":\"/w/e.ipynb\"}"}, {"Glob", "{\"pattern\":\"**/*.py\"}"}, {"Grep", "{\"pattern\":\"TODO\"}"},
                 {"WebFetch", "{\"url\":\"https://example.com\"}"}, {"WebSearch", "{\"query\":\"termux python\"}"},
-                {"Task", "{\"description\":\"Explore repo\"}"}, {"TodoWrite", "{}"}, {"Skill", "{\"skill\":\"simplify\"}"}};
+                {"Task", "{\"description\":\"Explore repo\"}"}, {"TodoWrite", "{}"}, {"Skill", "{\"skill\":\"simplify\"}"},
+                {"mcp__exa__web_fetch_exa", "{\"urls\":[\"https://api-docs.deepseek.com/quick_start/pricing\"],\"maxCharacters\":1500}"}};
         for (String[] n : names) {
             Chat.Block th = new Chat.Block(Chat.Block.THINKING);
             th.text = "想一下";
@@ -268,6 +269,14 @@ public class ScreensTest {
         call(a, "addSettingSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-add");
+        ShadowDialog.getLatestDialog().dismiss();
+        Userland land = (Userland) get(a, "userland");
+        java.io.File claudeJson = land.file(Userland.HOME + "/.claude.json");
+        claudeJson.getParentFile().mkdirs();
+        Userland.write(claudeJson, "{\"mcpServers\":{\"exa\":{\"type\":\"http\",\"url\":\"https://mcp.exa.ai/mcp\"}},\"projects\":{}}");
+        call(a, "mcpSheet");
+        idle();
+        shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-mcp");
         ShadowDialog.getLatestDialog().dismiss();
         call(a, "envSheet");
         idle();

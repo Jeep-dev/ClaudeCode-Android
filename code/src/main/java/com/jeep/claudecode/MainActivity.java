@@ -2565,7 +2565,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             int off = disallowed(launch).size();
             option(ext, R.drawable.ic_tool, "工具", off == 0 ? null : "关闭 " + off, false, () -> toolsSheet(launch));
         }
-        int servers = mcpServers().length();
+        int servers = mcpList().size();
         option(ext, R.drawable.ic_globe, "MCP", servers == 0 ? null : String.valueOf(servers), false, this::mcpSheet);
     }
 
@@ -2973,6 +2973,70 @@ public final class MainActivity extends Activity implements Bridge.Events {
         return true;
     }
 
+    /** An MCP server: its name, where it is kept, and its settings. */
+    private static final class Mcp {
+        /** user, local (this folder), project (the folder's .mcp.json): Claude Code's; app: added here before. */
+        final String name, scope;
+        final JSONObject config;
+
+        Mcp(String name, String scope, JSONObject config) {
+            this.name = name;
+            this.scope = scope;
+            this.config = config;
+        }
+    }
+
+    private String mcpFolder() {
+        String f = current != null && current.cwd != null && !current.cwd.isEmpty() ? current.cwd : cwd;
+        return f.isEmpty() ? defaultCwd : f;
+    }
+
+    private JSONObject readJson(java.io.File f) {
+        try {
+            return new JSONObject(readFile(f));
+        } catch (JSONException e) {
+            return new JSONObject();
+        }
+    }
+
+    /** Every MCP server Claude Code has for this folder (as `claude mcp` keeps them), and those added here before. */
+    private List<Mcp> mcpList() {
+        List<Mcp> out = new ArrayList<>();
+        String folder = mcpFolder();
+        JSONObject cc = readJson(userland.file(Userland.HOME + "/.claude.json"));
+        JSONObject projects = cc.optJSONObject("projects");
+        JSONObject here = projects == null ? null : projects.optJSONObject(folder);
+        addMcp(out, cc.optJSONObject("mcpServers"), "user");
+        addMcp(out, here == null ? null : here.optJSONObject("mcpServers"), "local");
+        addMcp(out, readJson(userland.file(folder + "/.mcp.json")).optJSONObject("mcpServers"), "project");
+        addMcp(out, mcpServers(), "app");
+        return out;
+    }
+
+    private static void addMcp(List<Mcp> out, JSONObject servers, String scope) {
+        if (servers == null) return;
+        for (java.util.Iterator<String> it = servers.keys(); it.hasNext(); ) {
+            String n = it.next();
+            JSONObject cfg = servers.optJSONObject(n);
+            if (cfg != null) out.add(new Mcp(n, scope, cfg));
+        }
+    }
+
+    /** Has Claude Code itself add, replace or remove one of its servers; then shows the list again. */
+    private void mcpChange(String action, Mcp m, JSONObject config, Runnable done) {
+        if (!linked) { toast("Claude Code 还没启动好"); return; }
+        toast("正在保存…");
+        JSONObject body = obj("action", action, "name", m.name, "scope", m.scope, "cwd", mcpFolder());
+        try { if (config != null) body.put("config", config); } catch (JSONException ignored) { /* string key */ }
+        bridge.post("/mcp", body, (status, data) -> {
+            if (status != 200) { toast("失败：" + data.optString("error")); return; }
+            toast("remove".equals(action) ? "已删除" : "已保存");
+            if (done != null) done.run();
+            refreshSettings();
+            mcpSheet();
+        });
+    }
+
     private void mcpSheet() {
         Dialog sheet = sheet("MCP", null);
         LinearLayout card = card(sheet);
@@ -2983,19 +3047,19 @@ public final class MainActivity extends Activity implements Bridge.Events {
             JSONObject o = st.optJSONObject(i);
             if (o != null) state.put(o.optString("name"), o.optString("status"));
         }
-        JSONObject servers = mcpServers();
-        List<String> names = new ArrayList<>();
-        java.util.Iterator<String> it = servers.keys();
-        while (it.hasNext()) names.add(it.next());
-        for (String n : names) {
-            String s = state.get(n);
-            option(card, R.drawable.ic_globe, n, s == null ? null : mcpState(s), false, () -> { sheet.dismiss(); mcpActions(n); });
+        List<Mcp> servers = mcpList();
+        java.util.Set<String> shown = new java.util.HashSet<>();
+        for (Mcp m : servers) {
+            String s = state.get(m.name);
+            shown.add(m.name);
+            option(card, R.drawable.ic_globe, m.name, s == null ? null : mcpState(s), false, () -> { sheet.dismiss(); mcpActions(m); });
         }
+        // Servers Claude Code reported but keeps elsewhere (plugins, claude.ai): shown, not changed here.
         for (Map.Entry<String, String> e : state.entrySet()) {
-            if (servers.has(e.getKey())) continue;
-            option(card, R.drawable.ic_globe, e.getKey(), mcpState(e.getValue()), false, () -> toast("用 claude mcp 管理"));
+            if (shown.contains(e.getKey())) continue;
+            option(card, R.drawable.ic_globe, e.getKey(), mcpState(e.getValue()), false, null);
         }
-        if (names.isEmpty() && state.isEmpty()) {
+        if (servers.isEmpty() && state.isEmpty()) {
             TextView none = Ui.text(this, "还没有", 14, R.color.text3);
             none.setGravity(Gravity.CENTER);
             none.setPadding(0, dp(18), 0, dp(18));
@@ -3005,7 +3069,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         Ui.margins(add, this, 0, 10, 0, 0);
         option(add, R.drawable.ic_plus, "添加", null, false, () -> {
             sheet.dismiss();
-            textSheet("添加 MCP", "", "{\n  \"名称\": {\n    \"command\": \"npx\",\n    \"args\": [\"-y\", \"包名\"]\n  }\n}", true, (t, done) -> {
+            textSheet("添加 MCP", "", "{\n  \"名称\": {\n    \"type\": \"http\",\n    \"url\": \"https://…\"\n  }\n}", true, (t, done) -> {
                 JSONObject in;
                 try {
                     in = new JSONObject(t.trim());
@@ -3015,17 +3079,22 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 }
                 // Docs give {"mcpServers": {...}}, or just the servers.
                 JSONObject add2 = in.optJSONObject("mcpServers") != null ? in.optJSONObject("mcpServers") : in;
-                JSONObject all = mcpServers();
-                java.util.Iterator<String> keys = add2.keys();
-                int n = 0;
-                while (keys.hasNext()) {
+                List<Mcp> adding = new ArrayList<>();
+                for (java.util.Iterator<String> keys = add2.keys(); keys.hasNext(); ) {
                     String k = keys.next();
                     if (add2.optJSONObject(k) == null) { toast(k + " 的配置不是一个对象"); return; }
-                    try { all.put(k, add2.optJSONObject(k)); } catch (JSONException ignored) { /* string key */ }
-                    n++;
+                    adding.add(new Mcp(k, "user", add2.optJSONObject(k)));
                 }
-                if (n == 0) { toast("没有找到服务器配置"); return; }
-                if (saveMcp(all)) { toast("已添加"); done.run(); }
+                if (adding.isEmpty()) { toast("没有找到服务器配置"); return; }
+                // Into Claude Code's own list (user scope), one after another.
+                Runnable[] next = new Runnable[1];
+                int[] at = {0};
+                next[0] = () -> {
+                    if (at[0] >= adding.size()) { done.run(); return; }
+                    Mcp m = adding.get(at[0]++);
+                    mcpChange("set", m, m.config, next[0]);
+                };
+                next[0].run();
             }, this::mcpSheet);
         });
         sheet.show();
@@ -3041,25 +3110,27 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
     }
 
-    private void mcpActions(String n) {
-        Dialog sheet = sheet(n, null);
+    private void mcpActions(Mcp m) {
+        Dialog sheet = sheet(m.name, null);
         LinearLayout card = card(sheet);
         option(card, R.drawable.ic_pencil, "编辑", null, false, () -> {
             sheet.dismiss();
             String text;
-            try { text = mcpServers().optJSONObject(n).toString(2); } catch (Exception e) { text = "{}"; }
-            textSheet("MCP · " + n, text, "{ }", true, (t, done) -> {
+            try { text = m.config.toString(2).replace("\\/", "/"); } catch (JSONException e) { text = "{}"; }
+            textSheet("MCP · " + m.name, text, "{ }", true, (t, done) -> {
                 JSONObject cfg;
                 try { cfg = new JSONObject(t.trim()); } catch (JSONException e) { toast("不是有效的 JSON：" + e.getMessage()); return; }
+                if (!m.scope.equals("app")) { mcpChange("set", m, cfg, done); return; }
                 JSONObject all = mcpServers();
-                try { all.put(n, cfg); } catch (JSONException ignored) { /* string key */ }
+                try { all.put(m.name, cfg); } catch (JSONException ignored) { /* string key */ }
                 if (saveMcp(all)) { toast("已保存"); done.run(); }
             }, this::mcpSheet);
         });
         option(card, R.drawable.ic_trash, "删除", null, true, () -> {
             sheet.dismiss();
+            if (!m.scope.equals("app")) { mcpChange("remove", m, null, null); return; }
             JSONObject all = mcpServers();
-            all.remove(n);
+            all.remove(m.name);
             if (saveMcp(all)) toast("已删除");
             mcpSheet();
         });

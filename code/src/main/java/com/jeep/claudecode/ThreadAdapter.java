@@ -430,8 +430,26 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             case "Task": case "Agent": return new String[]{"bot", name, i.optString("description")};
             case "TodoWrite": return new String[]{"list", "TodoWrite", "Update Todos"};
             case "Skill": return new String[]{"spark", name, i.optString("skill", i.optString("command"))};
-            default: return new String[]{"tool", name, ""};
+            default: {
+                // An MCP tool (mcp__server__tool) or any other: its own name and what it was given first.
+                int cut = name.startsWith("mcp__") ? name.indexOf("__", 5) : -1;
+                String shown = cut > 0 ? name.substring(cut + 2) : name;
+                String arg = firstArg(i);
+                return new String[]{"tool", name, arg.isEmpty() ? shown : shown + " · " + arg};
+            }
         }
+    }
+
+    /** The first text a tool was given (a web address without its scheme), on one line. */
+    private static String firstArg(JSONObject input) {
+        for (java.util.Iterator<String> it = input.keys(); it.hasNext(); ) {
+            Object v = input.opt(it.next());
+            if (v instanceof JSONArray && ((JSONArray) v).length() > 0) v = ((JSONArray) v).opt(0);
+            if (!(v instanceof String) || ((String) v).trim().isEmpty()) continue;
+            String t = ((String) v).trim().split("\n")[0];
+            return t.replaceFirst("^https?://", "");
+        }
+        return "";
     }
 
     private static int iconRes(String name) {
@@ -537,7 +555,8 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     }
 
     private static String pretty(JSONObject o) {
-        try { return o.toString(2); } catch (Exception e) { return o.toString(); }
+        // JSONObject writes / as \/: shown as typed.
+        try { return o.toString(2).replace("\\/", "/"); } catch (Exception e) { return o.toString().replace("\\/", "/"); }
     }
 
     /** A box of monospace text, headed by the tool's name when given. */
