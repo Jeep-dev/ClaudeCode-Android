@@ -77,6 +77,7 @@ public final class BridgeService extends Service {
     @Override public void onDestroy() {
         worker.shutdownNow();
         Process p = proc;
+        proc = null; // its watcher must not start another on the stopped worker
         if (p != null) p.destroy();
         if (wake != null && wake.isHeld()) wake.release();
         super.onDestroy();
@@ -162,7 +163,12 @@ public final class BridgeService extends Service {
         } catch (InterruptedException e) {
             return;
         }
-        if (proc == p) worker.execute(() -> run("it exited with " + code));
+        if (proc != p) return;
+        try {
+            worker.execute(() -> run("it exited with " + code));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // the service was stopped meanwhile
+        }
     }
 
     private void log(String text) {

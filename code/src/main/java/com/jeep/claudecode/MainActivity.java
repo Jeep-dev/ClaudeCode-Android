@@ -227,7 +227,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         list = new RecyclerView(this);
         list.setLayoutManager(new LinearLayoutManager(this));
         list.setClipToPadding(false);
-        list.setPadding(dp(18), dp(6), dp(18), dp(24));
+        list.setPadding(dp(30), dp(6), dp(30), dp(24));
         list.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         list.setItemAnimator(null); // rows change in place; animated moves overlap neighbours
         adapter = new ThreadAdapter(talkContext(), md, this::copy, row -> {
@@ -417,7 +417,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         ((FrameLayout.LayoutParams) jump.getLayoutParams()).bottomMargin = box + dp(8);
         int top = insetTop + dp(50);
         if (list.getPaddingTop() != top || list.getPaddingBottom() != box + dp(12)) {
-            list.setPadding(dp(18), top, dp(18), box + dp(12));
+            list.setPadding(dp(30), top, dp(30), box + dp(12));
             emptyView.setPadding(0, top, 0, box);
             if (stick) scrollToEnd(false);
         }

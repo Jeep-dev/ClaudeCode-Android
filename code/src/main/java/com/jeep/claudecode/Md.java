@@ -172,9 +172,9 @@ final class Md {
         TextView t = new TextView(c);
         t.setTag("text");
         t.setLayoutParams(Ui.fill());
-        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16.5f);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
         t.setTextColor(Ui.color(c, R.color.text));
-        t.setLineSpacing(0, 1.15f);
+        t.setLineSpacing(0, 1.05f);
         t.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
         selectable(t);
         setProse(t, markdown);
