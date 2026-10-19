@@ -8,7 +8,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 curl -fsSL "$REPO/dists/stable/main/binary-aarch64/Packages" > "$work/Packages"
 for pkg in proot libtalloc libandroid-shmem; do
-    entry=$(awk -v RS= -v p="$pkg" '$0 ~ "(^|\n)Package: " p "\n"' "$work/Packages")
+    # The first entry: the index may list more than one version of a package.
+    entry=$(awk -v RS= -v p="$pkg" '$0 ~ "(^|\n)Package: " p "\n" {print; exit}' "$work/Packages")
     file=$(printf '%s\n' "$entry" | sed -n 's/^Filename: //p')
     sum=$(printf '%s\n' "$entry" | sed -n 's/^SHA256: //p')
     curl -fsSL -o "$work/$pkg.deb" "$REPO/$file"
