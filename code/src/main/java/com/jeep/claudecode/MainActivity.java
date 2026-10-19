@@ -140,6 +140,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             // none saved
         }
         bridge = new Bridge(this, this);
+        Images.saved = bridge::image;
         userland = new Userland(this);
         md = new Md(talkContext(), this::copy, this::openUrl, this::userFile);
         // The keyboard opens when the box is tapped, never by itself (coming back from the background).
@@ -256,6 +257,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             });
         });
         adapter.queue = queueActions;
+        adapter.asks = this::answer;
         list.setAdapter(adapter);
         list.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
@@ -1167,6 +1169,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     private void onEvent(JSONObject ev) {
+        if ("gap".equals(ev.optString("kind"))) { gap(); return; }
         Chat chat = chatFor(ev);
         chat.lastEvent = System.currentTimeMillis();
         String kind = ev.optString("kind");
@@ -1187,7 +1190,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
                     prefs.edit().putString("commands", new JSONArray(commands).toString()).apply();
                 }
             }
-            if (chat.apply(data)) loadSessions();
+            if (chat.apply(data)) {
+                loadSessions();
+                loadHistory(chat); // one not read yet (or since a gap) is read now that the turn is whole
+            }
             if (chat.sessionId != null) bySession.put(chat.sessionId, chat.key);
         } else if ("state".equals(kind)) {
             if (data != null && data.optBoolean("running") && !chat.running) {
@@ -1417,7 +1423,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (i >= attached.size()) { deliver(chat, attached, saved, text); return; }
         Chat.Attachment f = attached.get(i);
         int next = i + 1;
-        bridge.post("/upload", obj("cwd", chat.cwd, "name", f.name, "data", f.data), (status, data) -> {
+        bridge.upload(chat.cwd, f.name, f.uri, (status, data) -> {
             if (status != 200) {
                 fail(chat, "发送失败", f.name + " 没能存到 " + Ui.base(chat.cwd) + "：" + data.optString("error", String.valueOf(status)));
                 return;
@@ -1470,6 +1476,31 @@ public final class MainActivity extends Activity implements Bridge.Events {
         m.done = true;
         m.touch();
         render();
+    }
+
+    /**
+     * Events were dropped while the app was away (the bridge keeps only the last ones): the
+     * conversations are read again from their transcripts, a running one when its turn ends.
+     */
+    private void gap() {
+        for (Chat ch : chats.values()) if (ch.sessionId != null) ch.loaded = false;
+        if (!current.running) loadHistory(current);
+    }
+
+    /** Answers Claude Code's question whether a tool may run. */
+    private void answer(Chat chat, Chat.Block b, boolean allow) {
+        String request = b.ask;
+        if (request == null) return;
+        b.ask = null;
+        b.touch();
+        renderNow();
+        bridge.post("/permission", obj("chat", chat.key, "sessionId", chat.sessionId, "requestId", request, "allow", allow), (status, data) -> {
+            if (status == 200 || status == 409) return; // 409: not asked any more (the turn ended)
+            b.ask = request;
+            b.touch();
+            render();
+            toast("没能回复：" + data.optString("error", String.valueOf(status)));
+        });
     }
 
     private void stop(Chat chat) {
@@ -1685,19 +1716,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
                 out.compress(Bitmap.CompressFormat.JPEG, 92, jpeg);
                 Bitmap thumb = Bitmap.createScaledBitmap(out, dp(64), Math.max(1, dp(64) * out.getHeight() / out.getWidth()), true);
-                return new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), jpeg.size(), thumb);
+                return new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), null, jpeg.size(), thumb);
             }
-            if (size > 25L * 1024 * 1024) { ui.post(() -> toast("文件超过 25MB")); return null; }
-            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            // A file is read only when it is saved, straight into the folder: never held here.
             try (InputStream in = getContentResolver().openInputStream(uri)) {
                 if (in == null) return null;
-                byte[] buf = new byte[65536];
-                for (int n; (n = in.read(buf)) > 0; ) {
-                    bytes.write(buf, 0, n);
-                    if (bytes.size() > 25 * 1024 * 1024) { ui.post(() -> toast("文件超过 25MB")); return null; }
-                }
             }
-            return new Chat.Attachment(false, name, type, Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP), bytes.size(), null);
+            return new Chat.Attachment(false, name, type, null, uri, size, null);
         } catch (Exception e) {
             ui.post(() -> toast("这个文件读不了"));
             return null;
@@ -1732,7 +1757,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 n.setEllipsize(TextUtils.TruncateAt.MIDDLE);
                 n.setPadding(0, dp(4), 0, dp(2));
                 f.addView(n);
-                f.addView(Ui.text(this, Ui.size(a.size), 11, R.color.text3));
+                f.addView(Ui.text(this, a.size >= 0 ? Ui.size(a.size) : "", 11, R.color.text3));
                 cell.addView(f, new FrameLayout.LayoutParams(dp(150), dp(64)));
             }
             ImageView remove = Ui.icon(this, R.drawable.ic_x, 22, R.color.bg);
@@ -2588,24 +2613,38 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     // ---- 扩展 ----
 
+    /** The 扩展 page's counts (skills, MCP servers, agents, commands, hooks), read off the main thread; null until read. */
+    private int[] extCounts;
+
     private void fillExt(LinearLayout box, JSONObject launch) {
+        int[] n = extCounts;
+        extCounts = null; // read again next time
+        if (n == null) {
+            work.execute(() -> {
+                JSONObject hooks = readJson(settingsFile()).optJSONObject("hooks");
+                int[] read = {skillList().size(), mcpList().size(), fileItems(AGENTS).size(), fileItems(COMMANDS).size(),
+                        hooks == null ? 0 : hooks.length()};
+                ui.post(() -> {
+                    if (!"ext".equals(settingsAt) || settingsPage == null) return;
+                    extCounts = read;
+                    fillSettings(linked ? launchCache : null);
+                });
+            });
+        }
         LinearLayout ext = card(box);
-        int skills = skillList().size();
-        option(ext, R.drawable.ic_spark, "技能", skills == 0 ? null : String.valueOf(skills), false, this::skillsSheet);
+        option(ext, R.drawable.ic_spark, "技能", count(n, 0), false, this::skillsSheet);
         option(ext, R.drawable.ic_file_plus, "插件", null, false, this::pluginsSheet);
-        int servers = mcpList().size();
-        option(ext, R.drawable.ic_globe, "MCP", servers == 0 ? null : String.valueOf(servers), false, this::mcpSheet);
-        int agents = fileItems(AGENTS).size();
-        option(ext, R.drawable.ic_bot, "子代理", agents == 0 ? null : String.valueOf(agents), false, () -> itemsSheet(AGENTS));
-        int commands = fileItems(COMMANDS).size();
-        option(ext, R.drawable.ic_edit_lines, "命令", commands == 0 ? null : String.valueOf(commands), false, () -> itemsSheet(COMMANDS));
+        option(ext, R.drawable.ic_globe, "MCP", count(n, 1), false, this::mcpSheet);
+        option(ext, R.drawable.ic_bot, "子代理", count(n, 2), false, () -> itemsSheet(AGENTS));
+        option(ext, R.drawable.ic_edit_lines, "命令", count(n, 3), false, () -> itemsSheet(COMMANDS));
         if (launch != null) {
             int off = disallowed(launch).size();
             option(ext, R.drawable.ic_tool, "工具", off == 0 ? null : "关闭 " + off, false, () -> toolsSheet(launch));
         }
-        JSONObject hooks = settingsJson().optJSONObject("hooks");
-        option(ext, R.drawable.ic_refresh, "Hooks", hooks == null || hooks.length() == 0 ? null : String.valueOf(hooks.length()), false, this::hooksSheet);
+        option(ext, R.drawable.ic_refresh, "Hooks", count(n, 4), false, this::hooksSheet);
     }
+
+    private static String count(int[] n, int i) { return n == null || n[i] == 0 ? null : String.valueOf(n[i]); }
 
     // ---- 插件: Claude Code's own `claude plugin` ----
 
@@ -3590,9 +3629,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
             if (e == null) e = new JSONObject();
             put(e, "ANTHROPIC_BASE_URL", url.getText().toString().trim());
             String k = token.getText().toString().trim();
-            // One key variable: an auth token works with every provider (and Anthropic's own).
+            // Anthropic's own API takes a key as an API key (x-api-key); other providers take theirs
+            // as a bearer token.
+            boolean anthropic = url.getText().toString().trim().isEmpty();
             e.remove("ANTHROPIC_API_KEY");
-            put(e, "ANTHROPIC_AUTH_TOKEN", k);
+            e.remove("ANTHROPIC_AUTH_TOKEN");
+            put(e, anthropic ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN", k);
             put(e, "ANTHROPIC_MODEL", name.getText().toString().trim());
             try { json.put("env", e); } catch (JSONException ignored) { /* string key */ }
             if (saveSettings(json)) { toast("已保存"); sheet.dismiss(); refreshSettings(); }

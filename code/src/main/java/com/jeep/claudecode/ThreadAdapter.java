@@ -1,16 +1,13 @@
 package com.jeep.claudecode;
 
 import android.content.Context;
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
-import android.util.Base64;
-import android.util.LruCache;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -62,10 +59,12 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     /** A row was opened or closed; gets the row's view. */
     private final Consumer<View> changed;
     Queue queue;
+    /** Answers Claude Code's question whether a tool may run. */
+    interface Asks { void answer(Chat chat, Chat.Block b, boolean allow); }
+    Asks asks;
     private List<Item> items = new ArrayList<>();
     private Chat chat;
     final List<Holder> statusRows = new ArrayList<>();
-    private final LruCache<String, Bitmap> images = new LruCache<>(24);
 
     ThreadAdapter(Context c, Md md, Consumer<String> copy, Consumer<View> changed) {
         this.c = c;
@@ -156,6 +155,9 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         TextView thinkLabel, thinkBody;
         MaxScroll thinkScroll;
         boolean thinkOpen;
+        // reply text: when it may be rendered again while it streams
+        long nextRender;
+        boolean renderPending;
 
         Holder(LinearLayout box) {
             super(box);
@@ -175,7 +177,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         h.item = it;
         if (same && it.type == TEXT) { // the same reply text, grown: update its views in place
             h.box.setPadding(0, Ui.dp(c, it.gap), 0, 0);
-            md.render(h.box, it.block.text);
+            text(h, it);
             return;
         }
         if (same && it.type == THINKING && h.thinkOpen == it.block.open) { // same: no rebuild, no jump
@@ -196,7 +198,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             case USER: user(h.box, it.msg); break;
             case NOTE: note(h.box, it.msg); break;
             case DIVIDER: divider(h.box, it.msg); break;
-            case TEXT: md.render(h.box, it.block.text); break;
+            case TEXT: h.nextRender = 0; text(h, it); break;
             case THINKING: thinking(h, it.block); break;
             case TOOL: tool(h.box, it.block); break;
             case ERROR: error(h.box, it.block); break;
@@ -209,6 +211,28 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     }
 
     @Override public void onViewRecycled(@NonNull Holder h) { statusRows.remove(h); }
+
+    /**
+     * A reply's text, rendered again as it grows. A long one costs more each time: while it
+     * streams, it is rendered again only after a pause three times as long as the last rendering
+     * took, so the screen keeps up however long it gets. The last version is always rendered.
+     */
+    private void text(Holder h, Item it) {
+        long now = SystemClock.uptimeMillis();
+        if (!it.msg.done && now < h.nextRender) {
+            if (!h.renderPending) {
+                h.renderPending = true;
+                h.box.postDelayed(() -> {
+                    h.renderPending = false;
+                    if (h.item != null && h.item.type == TEXT) text(h, h.item);
+                }, h.nextRender - now);
+            }
+            return;
+        }
+        md.render(h.box, it.block.text);
+        long end = SystemClock.uptimeMillis();
+        h.nextRender = end + 3 * (end - now);
+    }
 
     // ---- rows ----
 
@@ -223,9 +247,8 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
                 img.setScaleType(ImageView.ScaleType.CENTER_CROP);
                 img.setBackground(Ui.round(Ui.color(c, R.color.surface2), Ui.dp(c, 14), Ui.dp(c, 1), Ui.color(c, R.color.border)));
                 img.setClipToOutline(true);
-                Bitmap bmp = src == null ? null : decode(src);
-                if (bmp != null) {
-                    img.setImageBitmap(bmp);
+                if (src != null) {
+                    Images.load(img, src, null, Ui.dp(c, 224), null);
                     img.setOnClickListener(v -> Images.show(c, src, null));
                 }
                 LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(Ui.dp(c, 112), Ui.dp(c, 112));
@@ -296,25 +319,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         }
         box.addView(row, Ui.wrap());
         Ui.margins(row, c, 0, 4, 0, 0);
-    }
-
-    private Bitmap decode(String dataUrl) {
-        Bitmap cached = images.get(dataUrl);
-        if (cached != null) return cached;
-        try {
-            int comma = dataUrl.indexOf(',');
-            byte[] bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT);
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inJustDecodeBounds = true;
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
-            o.inSampleSize = Math.max(1, Math.min(o.outWidth, o.outHeight) / Ui.dp(c, 224));
-            o.inJustDecodeBounds = false;
-            Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
-            if (b != null) images.put(dataUrl, b);
-            return b;
-        } catch (RuntimeException e) {
-            return null;
-        }
     }
 
     private void note(LinearLayout box, Chat.Msg m) {
@@ -497,8 +501,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
             thumb.setBackground(Ui.round(Ui.color(c, R.color.surface2), Ui.dp(c, 8), Ui.dp(c, 1), Ui.color(c, R.color.border)));
             thumb.setClipToOutline(true);
-            Bitmap bmp = decode(src);
-            if (bmp != null) thumb.setImageBitmap(bmp);
+            Images.load(thumb, src, null, Ui.dp(c, 56), null);
             thumb.setOnClickListener(v -> Images.show(c, src, null));
             head.addView(thumb, new LinearLayout.LayoutParams(Ui.dp(c, 28), Ui.dp(c, 28)));
             Ui.margins(thumb, c, 8, 0, 0, 0);
@@ -509,7 +512,31 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         head.setOnClickListener(v -> toggle(b, (View) v.getParent()));
         box.addView(head);
         if ("TodoWrite".equals(b.name)) todos(box, b);
-        if (!b.open) return;
+        // Asked whether it may run: what it would do is shown, and the answer.
+        if (b.open || b.ask != null) toolBody(box, b);
+        if (b.ask != null) ask(box, b);
+    }
+
+    /** Allow or deny, for Claude Code's question whether this tool may run. */
+    private void ask(LinearLayout box, Chat.Block b) {
+        LinearLayout row = Ui.row(c);
+        row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        for (boolean allow : new boolean[]{false, true}) {
+            TextView t = Ui.text(c, allow ? "允许" : "拒绝", 14.5f, allow ? R.color.bg : R.color.text);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(Ui.dp(c, 18), 0, Ui.dp(c, 18), 0);
+            t.setMinHeight(Ui.dp(c, 36));
+            t.setBackground(Ui.press(c, allow ? Ui.round(Ui.color(c, R.color.text), Ui.dp(c, 10))
+                    : Ui.round(Ui.color(c, R.color.surface), Ui.dp(c, 10), Ui.dp(c, 1), Ui.color(c, R.color.borderStrong)), Ui.dp(c, 10)));
+            t.setOnClickListener(v -> { if (asks != null) asks.answer(chat, b, allow); });
+            row.addView(t, Ui.wrap());
+            if (allow) Ui.margins(t, c, 8, 0, 0, 0);
+        }
+        box.addView(row, Ui.fill());
+        Ui.margins(row, c, 32, 8, 0, 6);
+    }
+
+    private void toolBody(LinearLayout box, Chat.Block b) {
         LinearLayout body = Ui.column(c);
         JSONObject i = b.input;
         switch (b.name == null ? "" : b.name) {

@@ -280,15 +280,39 @@ final class Md {
         return out;
     }
 
-    /** A picture in the reply: a file Claude made or a web address; a tap shows it whole. */
+    /**
+     * A picture in the reply: a file Claude made or a web address; a tap shows it whole. One on the
+     * web is fetched only when tapped: what a reply shows must not send what Claude read anywhere.
+     */
     private View picture(String where, String alt) {
         LinearLayout box = Ui.column(c);
         box.setTag("image");
         box.setTag(R.id.markdown, where);
         box.setLayoutParams(Ui.fill());
-        boolean remote = where.startsWith("http://") || where.startsWith("https://") || where.startsWith("data:");
-        java.io.File file = remote ? null : files.apply(where.startsWith("file://") ? where.substring(7) : where);
-        String src = remote ? where : null;
+        if (where.startsWith("http://") || where.startsWith("https://")) {
+            LinearLayout ask = Ui.row(c);
+            ask.setPadding(Ui.dp(c, 12), Ui.dp(c, 10), Ui.dp(c, 14), Ui.dp(c, 10));
+            ask.setBackground(Ui.press(c, Ui.round(Ui.color(c, R.color.surface2), Ui.dp(c, 12), Ui.dp(c, 1), Ui.color(c, R.color.border)), Ui.dp(c, 12)));
+            ask.addView(Ui.icon(c, R.drawable.ic_image, 17, R.color.text2));
+            String host = android.net.Uri.parse(where).getHost();
+            TextView name = Ui.text(c, alt.trim().isEmpty() ? (host != null ? host : where) : alt.trim(), 14, R.color.text2);
+            name.setSingleLine(true);
+            name.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            name.setPadding(Ui.dp(c, 8), 0, 0, 0);
+            ask.addView(name);
+            ask.setOnClickListener(v -> {
+                box.removeAllViews();
+                show(box, where, where, null, alt);
+            });
+            box.addView(ask, Ui.wrap());
+            return box;
+        }
+        boolean data = where.startsWith("data:");
+        show(box, where, data ? where : null, data ? null : files.apply(where.startsWith("file://") ? where.substring(7) : where), alt);
+        return box;
+    }
+
+    private void show(LinearLayout box, String where, String src, java.io.File file, String alt) {
         ImageView img = new ImageView(c);
         img.setAdjustViewBounds(true);
         img.setScaleType(ImageView.ScaleType.FIT_START);
@@ -304,7 +328,6 @@ final class Md {
             t.setTypeface(Ui.MONO);
             box.addView(t);
         });
-        return box;
     }
 
     private void updateCode(View card, String code, String lang) {

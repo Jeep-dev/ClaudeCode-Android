@@ -41,10 +41,12 @@ final class Chat {
         String title = "";
         // tools
         String toolId, name, partial = "", result;
-        /** Images in the tool's result (a picture Read), as data: URLs. */
+        /** Images in the tool's result (a picture Read): data: URLs, or ccimg: references to a saved one. */
         final List<String> images = new ArrayList<>();
         JSONObject input = new JSONObject();
         boolean running, error;
+        /** Claude Code asks whether this tool may run: the question to answer; null once answered. */
+        String ask;
         // thinking
         boolean streaming;
         long started, millis;
@@ -70,12 +72,14 @@ final class Chat {
 
     static final class Attachment {
         final boolean image;
-        final String name, type, data; // base64
+        final String name, type, data; // a picture: base64
+        /** A file: where it is, read when it is saved (never held here). */
+        final android.net.Uri uri;
         final long size;
         final android.graphics.Bitmap thumb;
 
-        Attachment(boolean image, String name, String type, String data, long size, android.graphics.Bitmap thumb) {
-            this.image = image; this.name = name; this.type = type; this.data = data; this.size = size; this.thumb = thumb;
+        Attachment(boolean image, String name, String type, String data, android.net.Uri uri, long size, android.graphics.Bitmap thumb) {
+            this.image = image; this.name = name; this.type = type; this.data = data; this.uri = uri; this.size = size; this.thumb = thumb;
         }
     }
 
@@ -159,6 +163,31 @@ final class Chat {
         String t = d.optString("type");
         String sub = d.optString("subtype");
         boolean sideChain = !d.isNull("parent_tool_use_id") && d.has("parent_tool_use_id");
+        if ("control_request".equals(t)) {
+            // Claude Code asks whether a tool may run (a permission mode that asks): its row asks the user.
+            JSONObject r = d.optJSONObject("request");
+            if (r == null || !"can_use_tool".equals(r.optString("subtype"))) return false;
+            String id = r.optString("tool_use_id");
+            Block b = id.isEmpty() ? null : tool(id);
+            if (b == null) {
+                Msg m = reply(true);
+                b = new Block(Block.TOOL);
+                b.toolId = id;
+                b.name = r.optString("tool_name");
+                b.running = true;
+                m.blocks.add(b);
+                m.touch();
+            }
+            if (r.optJSONObject("input") != null) b.input = r.optJSONObject("input");
+            b.ask = d.optString("request_id");
+            b.touch();
+            return false;
+        }
+        if ("control_cancel_request".equals(t)) {
+            String id = d.optString("request_id");
+            for (Msg m : messages) for (Block b : m.blocks) if (id.equals(b.ask)) { b.ask = null; b.touch(); }
+            return false;
+        }
         if ("system".equals(t)) {
             if ("init".equals(sub)) {
                 if (d.has("session_id")) sessionId = d.optString("session_id");
@@ -305,6 +334,7 @@ final class Chat {
                 b.images.addAll(resultImages(c.opt("content")));
                 b.error = c.optBoolean("is_error");
                 b.running = false;
+                b.ask = null;
                 b.touch();
             }
             verb = randomVerb();
@@ -313,7 +343,7 @@ final class Chat {
         if ("result".equals(t)) {
             Msg m = reply(true);
             for (Block b : m.blocks) {
-                if (b.kind == Block.TOOL && b.running) { b.running = false; b.touch(); }
+                if (b.kind == Block.TOOL && (b.running || b.ask != null)) { b.running = false; b.ask = null; b.touch(); }
                 if (b.kind == Block.THINKING && b.streaming) { b.streaming = false; b.touch(); }
             }
             if ("error_during_execution".equals(sub) || stopping) {

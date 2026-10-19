@@ -31,6 +31,8 @@ import java.util.List;
 public final class TerminalActivity extends Activity implements TerminalSessionClient, TerminalViewClient {
     /** The running shell, kept across visits to this screen. */
     private static TerminalSession session;
+    /** The screen showing it; when none does, it reports to {@link #AWAY}. */
+    private static TerminalActivity shown;
     private static int textSizeDp = 12;
 
     private TerminalView view;
@@ -59,23 +61,67 @@ public final class TerminalActivity extends Activity implements TerminalSessionC
         root.addView(keys(), new LinearLayout.LayoutParams(-1, Ui.dp(this, 40)));
         setContentView(root);
 
-        if (session == null || !session.isRunning()) {
+        if (session != null && session.isRunning()) {
+            session.updateTerminalSessionClient(this);
+            attach();
+            return;
+        }
+        // Getting the userland ready writes files (and may copy Shizuku's dex): not on the main thread.
+        new Thread(() -> {
+            List<String> cmd;
             try {
-                List<String> cmd = userland.command("/bin/bash", "-l");
-                session = new TerminalSession(cmd.get(0), userland.base.getPath(), cmd.toArray(new String[0]),
-                        userland.env(), 3000, this);
+                cmd = userland.command("/bin/bash", "-l");
             } catch (IOException e) {
-                Toast.makeText(this, "启动终端失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
-                finish();
+                runOnUiThread(() -> {
+                    Toast.makeText(this, "启动终端失败：" + e.getMessage(), Toast.LENGTH_LONG).show();
+                    finish();
+                });
                 return;
             }
-        } else {
-            session.updateTerminalSessionClient(this);
-        }
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                session = new TerminalSession(cmd.get(0), userland.base.getPath(), cmd.toArray(new String[0]),
+                        userland.env(), 3000, this);
+                attach();
+            });
+        }, "terminal-start").start();
+    }
+
+    private void attach() {
+        shown = this;
         view.attachSession(session);
         if (session.getEmulator() != null) session.getEmulator().mColors.reset(); // a shell from before: new colours
         view.requestFocus();
     }
+
+    /** The shell lives on after the screen; it must not keep the screen (and its views) with it. */
+    @Override protected void onDestroy() {
+        if (shown == this) {
+            shown = null;
+            if (session != null) session.updateTerminalSessionClient(AWAY);
+        }
+        super.onDestroy();
+    }
+
+    /** The shell's reports while no screen shows it: only its end matters. */
+    private static final TerminalSessionClient AWAY = new TerminalSessionClient() {
+        @Override public void onTextChanged(TerminalSession s) {}
+        @Override public void onTitleChanged(TerminalSession s) {}
+        @Override public void onSessionFinished(TerminalSession s) { if (session == s) session = null; }
+        @Override public void onCopyTextToClipboard(TerminalSession s, String text) {}
+        @Override public void onPasteTextFromClipboard(TerminalSession s) {}
+        @Override public void onBell(TerminalSession s) {}
+        @Override public void onColorsChanged(TerminalSession s) {}
+        @Override public void onTerminalCursorStateChange(boolean state) {}
+        @Override public Integer getTerminalCursorStyle() { return null; }
+        @Override public void logError(String tag, String message) {}
+        @Override public void logWarn(String tag, String message) {}
+        @Override public void logInfo(String tag, String message) {}
+        @Override public void logDebug(String tag, String message) {}
+        @Override public void logVerbose(String tag, String message) {}
+        @Override public void logStackTraceWithMessage(String tag, String message, Exception e) {}
+        @Override public void logStackTrace(String tag, Exception e) {}
+    };
 
     /**
      * The app's own colours: its background and text, and in the light theme ANSI colours dark
@@ -141,7 +187,7 @@ public final class TerminalActivity extends Activity implements TerminalSessionC
         k.setGravity(Gravity.CENTER);
         k.setPadding(Ui.dp(this, 14), 0, Ui.dp(this, 14), 0);
         k.setMinWidth(Ui.dp(this, 44));
-        k.setOnClickListener(v -> action.run());
+        k.setOnClickListener(v -> { if (shown == this) action.run(); }); // once the shell is up
         row.addView(k, new LinearLayout.LayoutParams(-2, -1));
         return k;
     }

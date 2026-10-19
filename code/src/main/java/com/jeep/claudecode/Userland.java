@@ -211,6 +211,8 @@ final class Userland {
 
     private static void untar(InputStream in, File into) throws IOException {
         String root = into.getCanonicalPath();
+        // Folders checked to be inside (a symbolic link made later may lead out: checked again).
+        Set<String> inside = new java.util.HashSet<>();
         byte[] header = new byte[512];
         String longName = null, longLink = null;
         while (true) {
@@ -239,11 +241,11 @@ final class Userland {
             while (name.startsWith("./")) name = name.substring(2);
             while (name.endsWith("/")) name = name.substring(0, name.length() - 1);
             File target = new File(into, name);
-            boolean inside = !name.isEmpty() && !name.contains("../") && !name.startsWith("/");
-            if (!inside) { skip(in, size); continue; }
+            // Only inside the userland: no "..", and no folder that a symbolic link leads elsewhere.
+            if (!relative(name) || !within(target.getParentFile(), root, inside)) { skip(in, size); continue; }
             switch (type) {
                 case '5':
-                    if (!target.isDirectory()) { remove(target); mkdirs(target); }
+                    if (!target.isDirectory() || java.nio.file.Files.isSymbolicLink(target.toPath())) { remove(target); mkdirs(target); }
                     chmod(target, mode & 07777);
                     break;
                 case '2':
@@ -254,10 +256,14 @@ final class Userland {
                     } catch (ErrnoException e) {
                         throw new IOException("symlink " + name + ": " + e.getMessage());
                     }
+                    String made = target.getPath();
+                    inside.removeIf(d -> d.equals(made) || d.startsWith(made + "/"));
                     break;
                 case '1': {
-                    // Hard links become copies (the archive is made without them anyway).
-                    File source = new File(into, link.startsWith("./") ? link.substring(2) : link);
+                    // Hard links become copies (the archive is made without them anyway), of a file inside.
+                    String from = link.startsWith("./") ? link.substring(2) : link;
+                    File source = new File(into, from);
+                    if (!relative(from) || !within(source, root, inside)) break;
                     remove(target);
                     try (InputStream src = new FileInputStream(source); OutputStream out = new FileOutputStream(target)) {
                         copy(src, out);
@@ -287,6 +293,22 @@ final class Userland {
             }
             skip(in, (size + 511) / 512 * 512);
         }
+    }
+
+    /** A path in the archive that stays where it is put: not absolute, no "..". */
+    private static boolean relative(String name) {
+        if (name.isEmpty() || name.startsWith("/")) return false;
+        for (String part : name.split("/")) if (part.equals("..")) return false;
+        return true;
+    }
+
+    /** f, with every link on its way followed, is in root; folders found inside are remembered. */
+    private static boolean within(File f, String root, Set<String> inside) throws IOException {
+        if (inside.contains(f.getPath())) return true;
+        String real = f.getCanonicalPath();
+        boolean in = real.equals(root) || real.startsWith(root + "/");
+        if (in && f.isDirectory()) inside.add(f.getPath());
+        return in;
     }
 
     private static boolean readFully(InputStream in, byte[] buf) throws IOException {
@@ -358,9 +380,11 @@ final class Userland {
         return null;
     }
 
+    /** Removes what is there unless it is a real folder: a file, or a symbolic link (to a folder too). */
     private static void remove(File f) {
         try {
-            if (Os.lstat(f.getPath()) != null && !f.isDirectory()) Os.remove(f.getPath());
+            int mode = Os.lstat(f.getPath()).st_mode;
+            if (OsConstants.S_ISLNK(mode) || !OsConstants.S_ISDIR(mode)) Os.remove(f.getPath());
         } catch (ErrnoException ignored) {
             // nothing there
         }
@@ -566,8 +590,20 @@ final class Userland {
         }
     }
 
-    /** Per-start files: DNS servers of the current network, hosts, and stand-ins for /proc files Android hides. */
+    /** One at a time: the bridge's start and the terminal's may run together. */
+    private static final Object PREPARING = new Object();
+
+    /**
+     * Per-start files: DNS servers of the current network, hosts, and stand-ins for /proc files
+     * Android hides. Each is replaced whole: programs running meanwhile read them.
+     */
     private void prepare() throws IOException {
+        synchronized (PREPARING) {
+            prepareFiles();
+        }
+    }
+
+    private void prepareFiles() throws IOException {
         mkdirs(tmp);
         writeRish();
         Set<String> dns = new LinkedHashSet<>();
@@ -583,24 +619,24 @@ final class Userland {
         dns.add("8.8.8.8");
         StringBuilder resolv = new StringBuilder();
         for (String d : dns) if (!d.contains("%")) resolv.append("nameserver ").append(d).append('\n');
-        write(new File(rootfs, "etc/resolv.conf"), resolv.toString());
-        write(new File(rootfs, "etc/hosts"), "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n");
+        replace(new File(rootfs, "etc/resolv.conf"), resolv.toString());
+        replace(new File(rootfs, "etc/hosts"), "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n");
         File procs = new File(base, "proc");
         mkdirs(procs);
         int cpus = java.lang.Runtime.getRuntime().availableProcessors();
         StringBuilder stat = new StringBuilder("cpu  1000 0 1000 100000 0 0 0 0 0 0\n");
         for (int i = 0; i < cpus; i++) stat.append("cpu").append(i).append(" 100 0 100 10000 0 0 0 0 0 0\n");
         stat.append("intr 0\nctxt 0\nbtime 0\nprocesses 1\nprocs_running 1\nprocs_blocked 0\n");
-        write(new File(procs, "stat"), stat.toString());
-        write(new File(procs, "loadavg"), "0.10 0.10 0.10 1/100 1\n");
+        replace(new File(procs, "stat"), stat.toString());
+        replace(new File(procs, "loadavg"), "0.10 0.10 0.10 1/100 1\n");
         long up = android.os.SystemClock.elapsedRealtime() / 1000;
-        write(new File(procs, "uptime"), up + ".00 " + up + ".00\n");
-        write(new File(procs, "version"), "Linux version " + System.getProperty("os.version") + " (android)\n");
-        write(new File(procs, "vmstat"), "nr_free_pages 100000\n");
+        replace(new File(procs, "uptime"), up + ".00 " + up + ".00\n");
+        replace(new File(procs, "version"), "Linux version " + System.getProperty("os.version") + " (android)\n");
+        replace(new File(procs, "vmstat"), "nr_free_pages 100000\n");
     }
 
     void writeBridge() throws IOException {
-        write(new File(rootfs, "opt/ccapp/bridge.py"), read(context.getAssets().open("bridge.py")));
+        replace(new File(rootfs, "opt/ccapp/bridge.py"), read(context.getAssets().open("bridge.py")));
     }
 
     // ---- files ----

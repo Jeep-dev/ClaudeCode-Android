@@ -30,8 +30,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Images in a conversation: a data: URL (what Claude Code passes), a web address, or a file in
- * the userland. Read off the main thread, scaled down to what is shown, and kept for a while.
+ * Images in a conversation: a data: URL (what Claude Code passes), a picture of a saved
+ * conversation (ccimg:, read from the bridge when shown), a web address, or a file in the
+ * userland. Read off the main thread, scaled down to what is shown, and kept for a while.
  */
 final class Images {
     private static final int MAX_BYTES = 20 << 20;
@@ -40,6 +41,8 @@ final class Images {
     };
     private static final ExecutorService pool = Executors.newFixedThreadPool(2);
     private static final Handler main = new Handler(Looper.getMainLooper());
+    /** Reads a saved conversation's picture by its reference (ccimg:…), from the bridge. */
+    static volatile java.util.function.Function<String, byte[]> saved;
 
     private Images() {}
 
@@ -48,6 +51,10 @@ final class Images {
         try {
             if (src != null && src.startsWith("data:")) {
                 return Base64.decode(src.substring(src.indexOf(',') + 1), Base64.DEFAULT);
+            }
+            if (src != null && src.startsWith("ccimg:")) {
+                java.util.function.Function<String, byte[]> read = saved;
+                return read == null ? null : read.apply(src);
             }
             if (src != null && (src.startsWith("http://") || src.startsWith("https://"))) {
                 HttpURLConnection http = (HttpURLConnection) new URL(src).openConnection();

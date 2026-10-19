@@ -215,8 +215,14 @@ public class ScreensTest {
         opened.open = true;
         tm.blocks.add(1, opened);
         Chat.Block says = new Chat.Block(Chat.Block.TEXT);
-        says.text = "画好了：\n\n![图](" + png + ")\n\n![没有的](/root/work/none.png)";
+        says.text = "画好了：\n\n![图](" + png + ")\n\n![没有的](/root/work/none.png)\n\n![网上的](https://example.com/a.png)";
         tm.blocks.add(2, says);
+        Chat.Block asking = new Chat.Block(Chat.Block.TOOL); // Claude Code asks whether it may run
+        asking.name = "Bash";
+        asking.input = new JSONObject("{\"command\":\"rm -rf build\",\"description\":\"Clean the build\"}");
+        asking.running = true;
+        asking.ask = "request-1";
+        tm.blocks.add(3, asking);
         tm.done = true;
         tools.messages.add(tm);
         Method sw = MainActivity.class.getDeclaredMethod("switchTo", Chat.class);

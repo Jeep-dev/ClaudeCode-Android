@@ -3,12 +3,14 @@
 Runs inside the app's own Linux userland (Alpine under proot, started by the app's foreground
 service) and lets the app talk to Claude Code: each conversation is a `claude -p` process in stream-json mode, kept
 alive between turns and resumed from its saved session when needed. Listens on 127.0.0.1
-only, and every request must carry the token the app started it with.
+only. Every request is signed with the token the app started it with, and every answer proves
+this bridge knows it too; the token itself never goes over the connection.
 
 Standard library only.
 """
 import argparse
 import base64
+import collections
 import hmac
 import json
 import mmap
@@ -22,9 +24,9 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 25  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 26  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -55,6 +57,11 @@ class Hub:
             if len(self.events) > self.keep:
                 del self.events[:len(self.events) - self.keep]
             self.cond.notify_all()
+
+    def oldest(self):
+        """The first event still kept; seq + 1 when none is."""
+        with self.cond:
+            return self.events[0]['seq'] if self.events else self.seq + 1
 
     def after(self, seq, timeout):
         with self.cond:
@@ -152,13 +159,16 @@ class Chat:
         self.last_out = time.time()
         self.quiet_logged = False
         self.turn = 0  # counts messages sent: a forced stop is for the turn it was asked in
+        self.asks = {}  # request id -> Claude Code's question whether a tool may run, not answered yet
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
 
     def start(self):
+        # Questions whether a tool may run come here (the app answers them); in a mode that asks
+        # nothing, there are none.
         args = [claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-                '--verbose', '--include-partial-messages']
+                '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
         if self.session_id:
             args += ['--resume', self.session_id]
         if self.model:
@@ -199,6 +209,11 @@ class Chat:
             if msg.get('session_id'):
                 self.session_id = msg['session_id']
             kind, sub = msg.get('type'), msg.get('subtype')
+            if kind == 'control_request' and (msg.get('request') or {}).get('subtype') == 'can_use_tool':
+                self.asks[msg.get('request_id')] = msg
+                log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
+            elif kind == 'control_cancel_request':
+                self.asks.pop(msg.get('request_id'), None)
             if kind == 'system' and sub == 'api_retry':
                 log('chat %s: API retry %s/%s in %sms: %s %s' % (
                     self.key[:8], msg.get('attempt'), msg.get('max_retries'), msg.get('retry_delay_ms'),
@@ -224,6 +239,7 @@ class Chat:
             was_running = self.running
             self.running = False
             self.proc = None
+            self.asks.clear()
             hub.emit(self.key, 'exit', {'code': code, 'running': was_running,
                                         'stderr': '\n'.join(self.stderr[-12:])})
 
@@ -257,6 +273,24 @@ class Chat:
             self.proc.stdin.write(line + '\n')
             self.proc.stdin.flush()
             hub.emit(self.key, 'state', {'running': True})
+
+    def answer(self, request_id, allow):
+        """Answers Claude Code's question whether a tool may run; False when it is not asked any more."""
+        with self.lock:
+            ask = self.asks.pop(request_id, None)
+            if ask is None or not self.alive():
+                return False
+            if allow:
+                response = {'behavior': 'allow', 'updatedInput': ask['request'].get('input') or {}}
+            else:  # what Claude Code itself tells the model when the user says no
+                response = {'behavior': 'deny', 'message': "The user doesn't want to proceed with this tool use. The tool use "
+                            "was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what "
+                            "you are doing and wait for the user to tell you how to proceed."}
+            line = {'type': 'control_response', 'response': {'subtype': 'success', 'request_id': request_id, 'response': response}}
+            self.proc.stdin.write(json.dumps(line, ensure_ascii=False) + '\n')
+            self.proc.stdin.flush()
+            log('chat %s: %s %s' % (self.key[:8], 'allowed' if allow else 'denied', ask['request'].get('tool_name')))
+            return True
 
     def stop(self):
         with self.lock:
@@ -503,15 +537,19 @@ def list_sessions():
     return items[:300]
 
 
-_text_cache = {}
+_text_cache = collections.OrderedDict()  # path -> (mtime, text), the least recently searched first
+TEXT_CACHE_CHARS = 16_000_000  # kept for searching again; more is read again when searched
+text_lock = threading.Lock()
 
 
 def session_text(path):
     """What was said in a session (the prompts and the replies' text), for search."""
     st = os.stat(path)
-    cached = _text_cache.get(path)
-    if cached and cached[0] == st.st_mtime:
-        return cached[1]
+    with text_lock:
+        cached = _text_cache.get(path)
+        if cached and cached[0] == st.st_mtime:
+            _text_cache.move_to_end(path)
+            return cached[1]
     parts = []
     with open(path, encoding='utf-8', errors='replace') as f:
         for line in f:
@@ -531,7 +569,12 @@ def session_text(path):
             elif e.get('type') == 'assistant' and isinstance(content, list):
                 parts.extend(b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text')
     text = '\n'.join(parts)
-    _text_cache[path] = (st.st_mtime, text)
+    with text_lock:
+        _text_cache[path] = (st.st_mtime, text)
+        _text_cache.move_to_end(path)
+        total = sum(len(t) for _, t in _text_cache.values())
+        while total > TEXT_CACHE_CHARS and len(_text_cache) > 1:
+            total -= len(_text_cache.popitem(last=False)[1][1])
     return text
 
 
@@ -541,7 +584,11 @@ def search_sessions(query):
     out = []
     if not q:
         return out
-    for path in session_files():
+    paths = session_files()
+    with text_lock:
+        for gone in [p for p in _text_cache if p not in set(paths)]:
+            del _text_cache[gone]
+    for path in paths:
         try:
             text = session_text(path)
         except OSError:
@@ -571,14 +618,34 @@ def tool_result_text(content):
     return ''
 
 
-def tool_result_images(content):
-    """The images in a tool result (a picture Claude Code read), as data: URLs; very large ones left out."""
+def entry_images(entry):
+    """The pictures in a transcript entry, in order, from its own blocks and its tool results:
+    (media type, base64). The n-th is what a reference ccimg:<session>:<offset>:<n> names."""
     out = []
+    content = (entry.get('message') or {}).get('content') if isinstance(entry, dict) else None
     for b in content if isinstance(content, list) else []:
-        src = b.get('source') if isinstance(b, dict) and b.get('type') == 'image' else None
-        if isinstance(src, dict) and src.get('type') == 'base64' and 0 < len(src.get('data') or '') < 1_500_000:
-            out.append('data:%s;base64,%s' % (src.get('media_type', 'image/png'), src['data']))
+        if not isinstance(b, dict):
+            continue
+        inner = b.get('content') if b.get('type') == 'tool_result' else [b]
+        for x in inner if isinstance(inner, list) else []:
+            src = x.get('source') if isinstance(x, dict) and x.get('type') == 'image' else None
+            if isinstance(src, dict) and src.get('type') == 'base64' and src.get('data'):
+                out.append((src.get('media_type') or 'image/png', src['data']))
     return out
+
+
+def session_image(session_id, at, n):
+    """A picture of a transcript by its reference: the entry at that offset, its n-th picture."""
+    path = find_session(session_id) if re.match(r'^[\w-]+$', session_id or '') else None
+    if not path:
+        return None
+    with open(path, 'rb') as f:
+        f.seek(at)
+        try:
+            images = entry_images(json.loads(f.readline().decode('utf-8', 'replace')))
+        except ValueError:
+            return None
+    return images[n] if 0 <= n < len(images) else None
 
 
 def load_history(session_id):
@@ -587,12 +654,19 @@ def load_history(session_id):
         return None
     messages, tools, cwd, custom, skipped = [], {}, None, None, 0
     context, model = 0, None  # of the last reply: tokens it read, and its model
-    with open(path, encoding='utf-8', errors='replace') as f:
-        for line in f:
+    with open(path, 'rb') as f:
+        offset = 0
+        for raw in f:
+            at, offset = offset, offset + len(raw)
             try:
-                e = json.loads(line)
+                e = json.loads(raw.decode('utf-8', 'replace'))
             except ValueError:
                 continue
+            # Pictures go as references, read when shown: a conversation of screenshots stays small.
+            pictures = iter(range(1 << 30))
+
+            def picture():
+                return 'ccimg:%s:%d:%d' % (session_id, at, next(pictures))
             if not isinstance(e, dict):
                 continue
             try:
@@ -618,19 +692,20 @@ def load_history(session_id):
                             continue
                         if b.get('type') == 'tool_result':
                             tool = tools.get(b.get('tool_use_id'))
+                            inner = b.get('content') if isinstance(b.get('content'), list) else []
+                            shown = [picture() for x in inner if isinstance(x, dict) and x.get('type') == 'image'
+                                     and isinstance(x.get('source'), dict) and x['source'].get('type') == 'base64'
+                                     and x['source'].get('data')]
                             if tool is not None:
                                 tool['result'] = tool_result_text(b.get('content'))[:20000]
-                                tool['images'] = tool_result_images(b.get('content'))
+                                tool['images'] = shown
                                 tool['isError'] = bool(b.get('is_error'))
                                 tool['status'] = 'error' if tool['isError'] else 'done'
                         elif b.get('type') == 'text' and is_prompt_text(b.get('text', '')):
                             text_parts.append(b['text'])
                         elif b.get('type') == 'image':
                             src = b.get('source') or {}
-                            if src.get('type') == 'base64' and len(src.get('data', '')) < 1_500_000:
-                                images.append('data:%s;base64,%s' % (src.get('media_type', 'image/png'), src['data']))
-                            else:
-                                images.append(None)
+                            images.append(picture() if src.get('type') == 'base64' and src.get('data') else None)
                     if text_parts or images:
                         messages.append({'role': 'user', 'text': '\n'.join(text_parts), 'images': images})
                 elif kind == 'assistant' and isinstance(content, list):
@@ -1034,16 +1109,36 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def authorized(self):
-        token = self.headers.get('X-Token', '')
-        if hmac.compare_digest(token.encode(), self.server.token.encode()):
-            return True
+        """A request signed with the token (X-Auth: time.nonce.HMAC of time.nonce.method.path, the path
+        decoded: what the app's connection re-encodes on the way does not matter), recent, and not
+        seen before. Whatever else listens on this port never learns the token from it."""
+        self.nonce = None
+        parts = self.headers.get('X-Auth', '').split('.')
+        if len(parts) == 3 and parts[0].isdigit():
+            ms, nonce, sig = parts
+            now = time.time()
+            expected = sign(self.server.token, '%s.%s.%s.%s' % (ms, nonce, self.command, unquote(self.path)))
+            if abs(now - int(ms) / 1000) < AUTH_WINDOW and hmac.compare_digest(sig, expected):
+                with nonce_lock:
+                    for old in [n for n, until in seen_nonces.items() if until < now]:
+                        del seen_nonces[old]
+                    if nonce not in seen_nonces:
+                        seen_nonces[nonce] = now + AUTH_WINDOW
+                        self.nonce = nonce
+                        return True
         self.reply(401, {'error': 'token'})
         return False
+
+    def proof(self):
+        """Tells the app this answer is from the bridge it started: the request's nonce, signed."""
+        if getattr(self, 'nonce', None):
+            self.send_header('X-Proof', sign(self.server.token, 'reply.' + self.nonce))
 
     def reply(self, status, data):
         self.status = status
         body = json.dumps(data, ensure_ascii=False).encode('utf-8', 'replace')  # lone surrogates
         self.send_response(status)
+        self.proof()
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
@@ -1089,7 +1184,12 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'ok': True, 'version': VERSION, 'started': STARTED, 'home': HOME, 'defaultCwd': DEFAULT_CWD,
                              'claude': shutil.which('claude')})
         elif url.path == '/events':
-            self.events(int(q.get('since') or 0))
+            self.events(int(q.get('since') or 0), q.get('bridge'))
+        elif url.path == '/image':
+            found = session_image(q.get('id'), int(q.get('at') or 0), int(q.get('n') or 0))
+            if not found:
+                return self.reply(404, {'error': 'not found'})
+            self.reply(200, {'type': found[0], 'data': found[1]})
         elif url.path == '/sessions':
             self.reply(200, {'sessions': list_sessions()})
         elif url.path == '/search':
@@ -1122,8 +1222,10 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized():
             return
         try:
-            data = self.body()
-            self.post(urlparse(self.path).path, data)
+            path = urlparse(self.path).path
+            if path == '/upload':
+                return self.upload()
+            self.post(path, self.body())
         except (ValueError, KeyError, TypeError) as e:
             self.reply(400, {'error': 'bad request: %s' % e})
         except (BrokenPipeError, ConnectionResetError):
@@ -1197,20 +1299,11 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(target)
                 shutil.rmtree(target[:-6], ignore_errors=True)
             self.reply(200, {'ok': bool(target)})
-        elif path == '/upload':
-            folder = os.path.expanduser(data.get('cwd') or DEFAULT_CWD)
-            name = os.path.basename(str(data.get('name') or 'file')).strip() or 'file'
-            os.makedirs(folder, exist_ok=True)
-            stem, ext = os.path.splitext(name)
-            target, n = os.path.join(folder, name), 1
-            while os.path.exists(target):  # never overwrite: name (1).ext, name (2).ext …
-                target, n = os.path.join(folder, '%s (%d)%s' % (stem, n, ext)), n + 1
-            try:
-                with open(target, 'wb') as f:
-                    f.write(base64.b64decode(data.get('data') or ''))
-            except (OSError, ValueError) as e:
-                return self.reply(400, {'error': str(e)})
-            self.reply(200, {'ok': True, 'path': target})
+        elif path == '/permission':
+            chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+            if not chat or not chat.answer(data['requestId'], bool(data.get('allow'))):
+                return self.reply(409, {'error': 'not asked any more'})
+            self.reply(200, {'ok': True})
         elif path == '/mkdir':
             try:
                 os.makedirs(os.path.expanduser(data['path']), exist_ok=True)
@@ -1219,6 +1312,34 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(400, {'error': str(e)})
         else:
             self.reply(404, {'error': 'not found'})
+
+    def upload(self):
+        """A file the app attached, its bytes as the body (streamed to disk, never held whole), into
+        the folder given; never over a file already there: name (1).ext, name (2).ext …"""
+        q = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+        folder = os.path.expanduser(q.get('cwd') or DEFAULT_CWD)
+        name = os.path.basename(str(q.get('name') or 'file')).strip() or 'file'
+        left = int(self.headers.get('Content-Length') or 0)
+        os.makedirs(folder, exist_ok=True)
+        stem, ext = os.path.splitext(name)
+        target, n = os.path.join(folder, name), 1
+        while os.path.exists(target):
+            target, n = os.path.join(folder, '%s (%d)%s' % (stem, n, ext)), n + 1
+        try:
+            with open(target, 'wb') as f:
+                while left > 0:
+                    chunk = self.rfile.read(min(left, 1 << 16))
+                    if not chunk:
+                        raise OSError('the upload was cut short')
+                    f.write(chunk)
+                    left -= len(chunk)
+        except OSError as e:
+            try:
+                os.remove(target)
+            except OSError:
+                pass
+            return self.reply(400, {'error': str(e)})
+        self.reply(200, {'ok': True, 'path': target})
 
     def mcp(self, data):
         """Adds, replaces or removes one of Claude Code's own MCP servers with its `claude mcp`
@@ -1258,19 +1379,39 @@ class Handler(BaseHTTPRequestHandler):
         launch.gen += 1  # conversations start again with it
         self.reply(200, {'ok': True, 'output': text})
 
-    def events(self, since):
+    def events(self, since, bridge=None):
+        """The events after `since`, then each as it happens. `bridge` is the start the app's count
+        is from: another bridge's count starts over here. Events dropped meanwhile (only the last
+        ones are kept) are told as one 'gap'. A new app (since -1), or one after a gap, is told what
+        is still asked."""
         self.send_response(200)
+        self.proof()
         self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'close')
         self.end_headers()
         self.close_connection = True
         try:
-            if since < 0:  # only what happens from now on
+            fresh = since < 0
+            if fresh:  # only what happens from now on
                 since = hub.seq
-            elif since > hub.seq:  # the bridge restarted: start over
+            elif since > hub.seq or (bridge and bridge != str(STARTED)):  # another bridge's count: start over
                 since = 0
-            self.wfile.write(b': hello\n\n')
+            self.wfile.write((': hello %s\n\n' % STARTED).encode())
+
+            def send(e):
+                self.wfile.write(b'data: ' + json.dumps(e, ensure_ascii=False).encode('utf-8', 'replace') + b'\n\n')
+            oldest = hub.oldest()
+            gap = since < oldest - 1
+            if gap:
+                since = oldest - 1
+                send({'seq': since, 'chat': '', 'kind': 'gap', 'data': None})
+            if fresh or gap:
+                with chats_lock:
+                    live = list(chats.values())
+                for chat in live:
+                    for ask in list(chat.asks.values()):
+                        send({'seq': since, 'chat': chat.key, 'kind': 'cc', 'data': dict(ask, session_id=chat.session_id)})
             self.wfile.flush()
             log('events: app connected')
             while True:
@@ -1279,10 +1420,19 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(b': ping\n\n')
                 for e in batch:
                     since = e['seq']
-                    self.wfile.write(b'data: ' + json.dumps(e, ensure_ascii=False).encode('utf-8', 'replace') + b'\n\n')
+                    send(e)
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             log('events: app gone')
+
+
+AUTH_WINDOW = 120  # seconds a signed request is good for
+seen_nonces = {}  # nonce -> until when it is kept: a request is never taken twice
+nonce_lock = threading.Lock()
+
+
+def sign(token, text):
+    return hmac.new(token.encode(), text.encode('utf-8'), 'sha256').hexdigest()
 
 
 def running_bridge():
