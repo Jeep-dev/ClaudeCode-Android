@@ -7,7 +7,7 @@ ARCH=$1
 OUT=$(realpath "$2")
 ALPINE=3.24
 ALPINE_RELEASE=3.24.2
-CLAUDE=2.1.302
+RELEASES=https://downloads.claude.ai/claude-code-releases
 PACKAGES="bash python3 git ripgrep libgcc libstdc++ curl less"
 MIRROR=https://dl-cdn.alpinelinux.org/alpine
 # What the app's apk installs from later (fast from China, works anywhere).
@@ -38,12 +38,32 @@ printf '%s/v%s/main\n%s/v%s/community\n' "$APP_MIRROR" "$ALPINE" "$APP_MIRROR" "
 echo /bin/bash >> "$root/etc/shells"
 sed -i 's|^root:x:0:0:root:/root:/bin/sh$|root:x:0:0:root:/root:/bin/bash|' "$root/etc/passwd"
 
-# Claude Code, checked against its release manifest.
-base=https://downloads.claude.ai/claude-code-releases/$CLAUDE
+# Claude Code, the latest when this is built, checked against its release manifest. It is the
+# app's own (/opt/ccapp/claude); /usr/local/bin/claude leads to it until the user puts another
+# version there with claude-update, which app updates then leave alone.
+CLAUDE=$(curl -fsSL "$RELEASES/latest")
+base=$RELEASES/$CLAUDE
 sum=$(curl -fsSL "$base/manifest.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['platforms']['$PLATFORM']['checksum'])")
-curl -fsSL -o "$root/usr/local/bin/claude" "$base/$PLATFORM/claude"
-echo "$sum  $root/usr/local/bin/claude" | sha256sum -c -
-chmod 755 "$root/usr/local/bin/claude"
+mkdir -p "$root/opt/ccapp"
+curl -fsSL -o "$root/opt/ccapp/claude" "$base/$PLATFORM/claude"
+echo "$sum  $root/opt/ccapp/claude" | sha256sum -c -
+chmod 755 "$root/opt/ccapp/claude"
+cat > "$root/usr/local/bin/claude-update" <<'UPDATE'
+#!/bin/sh
+# claude-update [version]: puts that version of Claude Code (the latest when none is given) in
+# /usr/local/bin/claude, checked against its release manifest. It stays there: app updates leave it.
+set -eu
+B=https://downloads.claude.ai/claude-code-releases
+V=${1:-$(curl -fsSL "$B/latest")}
+case $(uname -m) in aarch64) P=linux-arm64-musl ;; *) P=linux-x64-musl ;; esac
+sum=$(curl -fsSL "$B/$V/manifest.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['platforms']['$P']['checksum'])")
+curl -fL -o /tmp/claude.new "$B/$V/$P/claude"
+echo "$sum  /tmp/claude.new" | sha256sum -c -
+chmod 755 /tmp/claude.new
+/tmp/claude.new --version
+mv -f /tmp/claude.new /usr/local/bin/claude
+UPDATE
+chmod 755 "$root/usr/local/bin/claude-update"
 
 rm -rf "$root/var/cache/apk/"*
 tar --numeric-owner --hard-dereference -C "$root" -cf - . | xz -T0 -6 > "$OUT"

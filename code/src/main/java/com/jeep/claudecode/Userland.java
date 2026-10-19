@@ -493,7 +493,7 @@ final class Userland {
         c.add("TMPDIR=/tmp");
         // Root in proot is this app's own user: let Claude Code skip permission prompts as root.
         c.add("IS_SANDBOX=1");
-        // Claude Code comes with the app; updates arrive with app updates.
+        // Claude Code changes only when the user runs claude-update (or with a new userland, if not).
         c.add("DISABLE_AUTOUPDATER=1");
         c.add("USE_BUILTIN_RIPGREP=0");
         for (String a : args) c.add(a);
@@ -605,6 +605,17 @@ final class Userland {
 
     private void prepareFiles() throws IOException {
         mkdirs(tmp);
+        // Claude Code: the app's own until the user puts another version here (claude-update).
+        File claude = new File(rootfs, "usr/local/bin/claude");
+        try {
+            Os.lstat(claude.getPath());
+        } catch (ErrnoException missing) {
+            try {
+                Os.symlink("/opt/ccapp/claude", claude.getPath());
+            } catch (ErrnoException e) {
+                throw new IOException("claude: " + e.getMessage());
+            }
+        }
         writeRish();
         Set<String> dns = new LinkedHashSet<>();
         try {
