@@ -86,7 +86,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private String installStatus = "";
     private String installError = "";
     /** Claude Code has an API key or login to use; assumed until the bridge says otherwise. */
-    private boolean authSet = true;
     private String claudeVersion = "";
     /** From Claude Code itself (its --help and settings.json): thinking levels, permission modes, the level set. */
     private final List<String> efforts = new ArrayList<>(), permissionModes = new ArrayList<>();
@@ -771,20 +770,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         TextView p = Ui.text(this, sub, 15, R.color.text2);
         p.setGravity(Gravity.CENTER);
         box.addView(p, Ui.fill());
-        if (linked && !authSet) {
-            TextView none = Ui.text(this, "还没有配置模型服务：填上 API 地址和 Key，或从 Termux 导入原来的配置。", 14, R.color.danger);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(0, dp(18), 0, dp(10));
-            box.addView(none, Ui.fill());
-            LinearLayout row = Ui.row(this);
-            row.setGravity(Gravity.CENTER);
-            row.addView(button("填写 API", true, v -> apiSheet()));
-            TextView imp = button("从 Termux 导入", false, v -> importSheet());
-            row.addView(imp);
-            Ui.margins(imp, this, 8, 0, 0, 0);
-            box.addView(row, Ui.fill());
-            return;
-        }
         LinearLayout chips = Ui.column(this);
         chips.setGravity(Gravity.CENTER_HORIZONTAL);
         chips.setPadding(0, dp(24), 0, 0);
@@ -927,7 +912,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             prefs.edit().putString("claudeModels", cm.toString()).apply();
         }
         defaultModel = data.optString("defaultModel");
-        authSet = data.optBoolean("auth", true);
         claudeVersion = data.optString("claudeVersion");
         configEffort = data.optString("effort").toLowerCase(Locale.ROOT);
         // Found a moment after the bridge starts: until then, the last ones it gave.
@@ -2292,7 +2276,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void fillModel(LinearLayout box) {
         LinearLayout api = card(box);
-        option(api, R.drawable.ic_link, "API", null, false, this::apiSheet);
+        option(api, R.drawable.ic_link, "API Key", null, false, this::apiSheet);
     }
 
     // ---- Claude Code: its settings.json, as its own schema describes it ----
@@ -3601,94 +3585,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         f.setBackground(Ui.round(col(R.color.surface), dp(10), dp(1), col(R.color.borderStrong)));
         content(sheet).addView(f, new LinearLayout.LayoutParams(-1, dp(44)));
         return f;
-    }
-
-    private static final String TERMUX_HOME = "/data/data/com.termux/files/home";
-
-    private void importSheet() {
-        String command = "mkdir -p /sdcard/Download/ccapp && cp -r ~/.claude ~/work /sdcard/Download/ccapp/";
-        Dialog sheet = sheet("从 Termux 导入", "在 Termux 里运行这行，再点导入");
-        TextView code = Ui.text(this, command, 12.5f, R.color.text);
-        code.setTypeface(Ui.MONO);
-        code.setTextIsSelectable(true);
-        code.setPadding(dp(11), dp(9), dp(11), dp(9));
-        code.setBackground(Ui.round(col(R.color.codeBg), dp(10), dp(1), col(R.color.border)));
-        content(sheet).addView(code, Ui.fill());
-        LinearLayout actions = Ui.row(this);
-        TextView cp = button("复制命令", false, v -> copy(command));
-        TextView go = button("导入", true, v -> {
-            sheet.dismiss();
-            if (hasStorage()) importFromTermux();
-            else { afterStorage = this::importFromTermux; requestStorage(); }
-        });
-        go.setBackground(Ui.press(this, Ui.round(col(R.color.text), dp(10)), dp(10)));
-        go.setTextColor(col(R.color.bg));
-        actions.addView(cp, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(go, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(go, this, 10, 0, 0, 0);
-        content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, this, 0, 14, 0, 0);
-        sheet.show();
-    }
-
-    /** Copies what Termux put in Download/ccapp into /root, moving Termux's home paths to /root. */
-    private void importFromTermux() {
-        java.io.File from = new java.io.File(android.os.Environment.getExternalStorageDirectory(), "Download/ccapp");
-        if (!new java.io.File(from, ".claude").isDirectory() && !new java.io.File(from, "work").isDirectory()) {
-            toast("没找到 Download/ccapp，先在 Termux 里运行那行命令");
-            return;
-        }
-        toast("正在导入…");
-        work.execute(() -> {
-            int[] count = {0};
-            String error = null;
-            try {
-                java.io.File home = userland.file(Userland.HOME);
-                copyTree(new java.io.File(from, ".claude"), new java.io.File(home, ".claude"), count);
-                copyTree(new java.io.File(from, "work"), new java.io.File(home, "work"), count);
-            } catch (Exception e) {
-                error = e.getMessage() != null ? e.getMessage() : e.toString();
-            }
-            String err = error;
-            ui.post(() -> {
-                if (err != null) { toast("导入出错：" + err); return; }
-                toast("已导入 " + count[0] + " 个文件");
-                refreshSettings();
-                if (linked) {
-                    bridge.post("/launch", new JSONObject(), null);
-                    afterLink();
-                }
-            });
-        });
-    }
-
-    private static final java.util.Set<String> SKIP_IMPORT = new java.util.HashSet<>(java.util.Arrays.asList(
-            "downloads", "local", "shell-snapshots", "ide", "statsig", "debug", "cache", "telemetry"));
-
-    private void copyTree(java.io.File from, java.io.File to, int[] count) throws java.io.IOException {
-        if (!from.exists()) return;
-        if (from.isDirectory()) {
-            if (SKIP_IMPORT.contains(from.getName()) && ".claude".equals(from.getParentFile().getName())) return;
-            java.io.File[] items = from.listFiles();
-            if (items == null) return;
-            for (java.io.File f : items) {
-                // Claude Code keeps a project's sessions under its folder's path with / as -.
-                String name = f.getName().replace(TERMUX_HOME.replace('/', '-').replace('.', '-'), Userland.HOME.replace('/', '-'));
-                copyTree(f, new java.io.File(to, name), count);
-            }
-            return;
-        }
-        if (!to.getParentFile().isDirectory() && !to.getParentFile().mkdirs()) throw new java.io.IOException("mkdir " + to.getParent());
-        String n = from.getName();
-        if (n.endsWith(".jsonl") || n.endsWith(".json") || n.endsWith(".md")) {
-            String text = Userland.read(new java.io.FileInputStream(from));
-            Userland.write(to, text.replace(TERMUX_HOME, Userland.HOME));
-        } else {
-            try (InputStream in = new java.io.FileInputStream(from); java.io.OutputStream out = new java.io.FileOutputStream(to)) {
-                Userland.copy(in, out);
-            }
-        }
-        count[0]++;
     }
 
     private void logSheet() {
