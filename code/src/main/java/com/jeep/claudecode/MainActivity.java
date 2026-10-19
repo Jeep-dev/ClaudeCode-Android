@@ -148,8 +148,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
         night = getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         build();
         switchTo(newChat());
-        sessions = keptSessions();
         renderSessions();
+        work.execute(() -> {
+            JSONArray kept = keptSessions();
+            ui.post(() -> {
+                if (sessionsRead || kept.length() == 0) return; // the bridge's own list came first
+                sessions = kept;
+                renderSessions();
+            });
+        });
         connect(false);
         ui.postDelayed(ticker, 120);
     }
@@ -879,6 +886,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
     /** The conversation list as last read, kept so it shows at once on the next start. */
     private java.io.File sessionsFile() { return new java.io.File(getFilesDir(), "sessions.json"); }
 
+    /** The list was read from the bridge (or changed here) in this run: the kept one is older. */
+    private boolean sessionsRead;
+
     private JSONArray keptSessions() {
         try {
             JSONArray kept = new JSONArray(Userland.read(new java.io.FileInputStream(sessionsFile())));
@@ -894,14 +904,22 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void keepSessions(JSONArray next) {
         sessions = next;
+        sessionsRead = true;
         String text = next.toString();
-        work.execute(() -> {
-            try {
-                Userland.write(sessionsFile(), text);
-            } catch (java.io.IOException ignored) {
-                // read from the bridge again next time
-            }
-        });
+        try {
+            work.execute(() -> {
+                // Written aside, then moved in: a write cut short leaves the last list whole.
+                java.io.File f = sessionsFile(), part = new java.io.File(f.getPath() + ".tmp");
+                try {
+                    Userland.write(part, text);
+                    if (!part.renameTo(f)) part.delete();
+                } catch (java.io.IOException ignored) {
+                    // read from the bridge again next time
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // closing
+        }
     }
 
     /** Asks the bridge which conversations contain the words being searched for. */
@@ -1065,7 +1083,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         bridge.get("/history?id=" + Uri.encode(target.sessionId), (status, data) -> {
             if (status != 200) {
                 target.loaded = false;
-                toast(status == -2 ? "读取对话失败：桥接 30 秒没有回应" : status == -1 ? "读取对话失败：连不上桥接" : "读取对话失败：" + data.optString("error", "HTTP " + status));
+                toast(status == -2 ? "读取对话失败：桥接 30 秒没有回应" : status == -1 || status == Bridge.REFUSED ? "读取对话失败：连不上桥接" : "读取对话失败：" + data.optString("error", "HTTP " + status));
                 return;
             }
             target.load(data);
@@ -1443,7 +1461,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 return;
             }
             if (chat.lastEvent > sentAt) return; // it is running after all
-            fail(chat, "发送失败", status == -2 ? "后台没有回应。" : status == -1 ? "连不上后台。" : data.optString("error", String.valueOf(status)));
+            fail(chat, "发送失败", status == -2 ? "后台没有回应。" : status == -1 || status == Bridge.REFUSED ? "连不上后台。" : data.optString("error", String.valueOf(status)));
         });
     }
 
@@ -2933,7 +2951,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }));
         option(clean, R.drawable.ic_trash, "清空对话记录", null, true, () -> confirm("清空对话记录", "所有对话都会被删除，不能恢复", true, () -> {
             clear(userland.file(Userland.HOME + "/.claude/projects"));
-            ui.post(this::loadSessions);
+            ui.post(() -> {
+                keepSessions(new JSONArray());
+                loadSessions();
+            });
         }));
     }
 

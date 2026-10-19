@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 23  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 24  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -346,40 +346,42 @@ def entry_text(content):
 SUMMARY_FILE = os.path.join(STATE_DIR, 'sessions.json')  # the summaries, kept for the next start
 _summary_cache = None
 _summary_changed = False
-summary_lock = threading.Lock()
+summary_lock = threading.Lock()  # held while the summaries are read, changed or saved
 
 
 def summary_cache():
     """path -> (mtime, summary); read from SUMMARY_FILE on first use, so a new bridge does not read
-    every transcript again."""
+    every transcript again. Those of another bridge version are read again: its titles may differ."""
     global _summary_cache
     if _summary_cache is None:
+        _summary_cache = {}
         try:
             with open(SUMMARY_FILE, encoding='utf-8') as f:
-                _summary_cache = {p: tuple(v) for p, v in json.load(f).items()}
-        except (OSError, ValueError, AttributeError, TypeError):
-            _summary_cache = {}
+                saved = json.load(f)
+            if saved.get('version') == VERSION:
+                _summary_cache = {p: tuple(v) for p, v in saved['sessions'].items()}
+        except (OSError, ValueError, AttributeError, TypeError, KeyError):
+            pass
     return _summary_cache
 
 
 def save_summaries(paths):
     """Keeps the summaries of the transcripts still there, when any changed."""
     global _summary_changed
-    with summary_lock:
-        cache = summary_cache()
-        for gone in [p for p in cache if p not in paths]:
-            del cache[gone]
-            _summary_changed = True
-        if not _summary_changed:
-            return
-        _summary_changed = False
-        try:
-            os.makedirs(STATE_DIR, exist_ok=True)
-            with open(SUMMARY_FILE + '.tmp', 'w', encoding='utf-8') as f:
-                json.dump(cache, f, ensure_ascii=False)
-            os.replace(SUMMARY_FILE + '.tmp', SUMMARY_FILE)
-        except OSError:
-            pass
+    cache = summary_cache()
+    for gone in [p for p in cache if p not in paths]:
+        del cache[gone]
+        _summary_changed = True
+    if not _summary_changed:
+        return
+    _summary_changed = False
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(SUMMARY_FILE + '.tmp', 'w', encoding='utf-8') as f:
+            json.dump({'version': VERSION, 'sessions': cache}, f, ensure_ascii=False)
+        os.replace(SUMMARY_FILE + '.tmp', SUMMARY_FILE)
+    except OSError:
+        pass
 
 
 def session_summary(path):
@@ -441,15 +443,16 @@ def find_session(session_id):
 
 def list_sessions():
     items = []
-    paths = session_files()
-    for path in paths:
-        try:
-            info = session_summary(path)
-        except OSError:
-            continue
-        if info:
-            items.append(info)
-    save_summaries(set(paths))
+    with summary_lock:
+        paths = session_files()
+        for path in paths:
+            try:
+                info = session_summary(path)
+            except OSError:
+                continue
+            if info:
+                items.append(dict(info))  # a copy: 'running' below stays out of the saved summaries
+        save_summaries(set(paths))
     items.sort(key=lambda i: -i['mtime'])
     for chat in chats.values():
         for item in items:

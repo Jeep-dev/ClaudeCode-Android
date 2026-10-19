@@ -108,7 +108,13 @@ final class Bridge {
         });
     }
 
-    /** One HTTP exchange; status -1 when the bridge cannot be reached, -2 when it does not answer in time. */
+    /** Status of an exchange when nothing listens on the bridge's port. */
+    static final int REFUSED = -3;
+
+    /**
+     * One HTTP exchange; status REFUSED when nothing listens, -1 when the bridge cannot be reached
+     * otherwise, -2 when it does not answer in time.
+     */
     private Object[] exchange(String method, String path, String body) {
         HttpURLConnection c = null;
         try {
@@ -132,6 +138,8 @@ final class Bridge {
             return new Object[]{status, in == null ? "" : read(in)};
         } catch (java.net.SocketTimeoutException e) {
             return new Object[]{-2, ""};
+        } catch (java.net.ConnectException e) {
+            return new Object[]{REFUSED, ""};
         } catch (IOException e) {
             return new Object[]{-1, ""};
         } finally {
@@ -193,11 +201,11 @@ final class Bridge {
             status = (int) health[0];
             if (status == 200) return "another version was running";
             if (status == 401) return "a bridge with another token was running";
-            if (status == -1) return "no bridge was running";
+            if (status == REFUSED) return "no bridge was running";
             try { Thread.sleep(500); } catch (InterruptedException e) { return "interrupted"; }
         }
         return status == -2 ? "the running bridge did not answer within 3 s, three times"
-                : "the running bridge answered " + status;
+                : status == -1 ? "the running bridge could not be reached, three times" : "the running bridge answered " + status;
     }
 
     /** Waits at most 30 s for the bridge just started (proot and Python take a while on a phone). */
