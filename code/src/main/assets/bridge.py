@@ -27,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 33  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 34  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -1867,6 +1867,7 @@ def main():
     server.daemon_threads = True
     server.token = args.token
     threading.Thread(target=reaper, daemon=True).start()
+    threading.Thread(target=spare.fill, daemon=True).start()  # ready for the first new conversation
     threading.Thread(target=lambda: (find_claude_info(), find_models()), daemon=True).start()
     server.serve_forever()
 
