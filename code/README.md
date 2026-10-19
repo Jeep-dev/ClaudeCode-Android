@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.63)
+# Claude Code for Android (v0.4.64)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the

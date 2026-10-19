@@ -1326,7 +1326,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void updateLink() {
         if (linkDot == null) return;
-        String label = linked ? "Claude Code" : installing ? "正在准备…"
+        // Linked: the user's own words (a setting), nothing when they wrote none.
+        String label = linked ? prefs.getString("footer", "") : installing ? "正在准备…"
                 : connecting ? "正在启动…" : "未运行 · 点此重试";
         int bannerShown = !linked && !connecting && setup == null && everLinked ? View.VISIBLE : View.GONE;
         if (banner.getVisibility() != bannerShown) banner.setVisibility(bannerShown);
@@ -1334,6 +1335,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         shownLink = label;
         int dot = linked ? R.color.ok : connecting ? R.color.text3 : R.color.danger;
         linkDot.setBackground(Ui.round(col(dot), dp(4)));
+        linkDot.setVisibility(linked ? View.GONE : View.VISIBLE);
+        linkText.setPadding(linked ? 0 : dp(9), 0, 0, 0);
         linkText.setText(label);
     }
 
@@ -2272,6 +2275,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
             renderNow();
         }));
         themes.addView(thought, Ui.fill());
+        String footer = prefs.getString("footer", "");
+        option(themes, 0, "底部文字", footer, false, () -> textSheet("底部文字", footer, "", false, (t, done) -> {
+            prefs.edit().putString("footer", t.trim()).apply();
+            shownLink = null;
+            updateLink();
+            done.run();
+        }, this::refreshSettings));
         option(text, 0, "中文字体", Fonts.name(Fonts.cjk(this)), false, () -> fontSheet(true));
         option(text, 0, "英文字体", Fonts.name(Fonts.latin(this)), false, () -> fontSheet(false));
     }
