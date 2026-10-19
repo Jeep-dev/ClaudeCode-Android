@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 26  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 27  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -227,6 +227,8 @@ class Chat:
                     msg.get('num_turns')))
                 if msg.get('is_error') and msg.get('result'):
                     log('chat %s: %s' % (self.key[:8], str(msg.get('result'))[:500]))
+                if self.session_id and not msg.get('is_error'):
+                    name_later(self.key, self.session_id)
             elif kind == 'assistant':
                 err = msg.get('error')
                 if err:
@@ -457,6 +459,71 @@ def last_custom_title(path):
         return None
 
 
+TITLES_FILE = os.path.join(STATE_DIR, 'titles.json')
+TITLE_PROMPT = ('Name this conversation for a list of conversations: a short title, at most 12 words '
+                '(in Chinese, about 4 to 12 characters, when it is in Chinese), in its language, no quotes, '
+                'no punctuation at the end. Reply with the title only.')
+titles = {}  # session id -> a short name made for it (a name given with /rename comes first)
+titles_lock = threading.Lock()
+naming = set()
+try:
+    with open(TITLES_FILE, encoding='utf-8') as f:
+        titles = {k: v for k, v in json.load(f).items() if isinstance(v, str)}
+except (OSError, ValueError, AttributeError):
+    pass
+
+
+def first_prompt(path, limit=2000):
+    """What the user first wrote in a transcript, to name it by."""
+    with open(path, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(e, dict) and e.get('type') == 'user' and not e.get('isMeta') and not e.get('isSidechain'):
+                text = entry_text((e.get('message') or {}).get('content'))
+                if is_prompt_text(text):
+                    return text[:limit]
+    return ''
+
+
+def name_later(key, session_id):
+    """Names a conversation after its first turn, with Haiku in a process of its own (the
+    conversation's own requests, and so its prompt cache, are not touched); once."""
+    with titles_lock:
+        if session_id in titles or session_id in naming:
+            return
+        naming.add(session_id)
+
+    def run():
+        try:
+            path = find_session(session_id)
+            text = first_prompt(path) if path else ''
+            if not text:
+                return
+            out = subprocess.run(low([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
+                                      '--strict-mcp-config', '--system-prompt', TITLE_PROMPT, '--output-format', 'text']),
+                                 input=text, capture_output=True, text=True, timeout=120, cwd=HOME)
+            title = ' '.join(out.stdout.split()).strip('"\'“”「」 ')[:80]
+            if out.returncode != 0 or not title:
+                log('naming %s failed: %s' % (session_id[:8], (out.stderr or out.stdout).strip()[-300:]))
+                return
+            with titles_lock:
+                titles[session_id] = title
+                os.makedirs(STATE_DIR, exist_ok=True)
+                with open(TITLES_FILE + '.tmp', 'w', encoding='utf-8') as f:
+                    json.dump(titles, f, ensure_ascii=False)
+                os.replace(TITLES_FILE + '.tmp', TITLES_FILE)
+            hub.emit(key, 'title', {'session_id': session_id, 'title': title})
+        except (OSError, subprocess.SubprocessError) as e:
+            log('naming %s failed: %s' % (session_id[:8], e))
+        finally:
+            with titles_lock:
+                naming.discard(session_id)
+    threading.Thread(target=run, daemon=True).start()
+
+
 def session_summary(path):
     global _summary_changed
     st = os.stat(path)
@@ -487,7 +554,7 @@ def session_summary(path):
                     title = ' '.join(text.split())[:80]
     info = None
     if title:
-        info = {'id': os.path.basename(path)[:-6], 'title': custom or title, 'cwd': cwd or '',
+        info = {'id': os.path.basename(path)[:-6], 'title': custom or title, 'named': bool(custom), 'cwd': cwd or '',
                 'mtime': st.st_mtime, 'size': st.st_size}
     summary_cache()[path] = (st.st_mtime, info)
     _summary_changed = True
@@ -525,7 +592,10 @@ def list_sessions():
             except OSError:
                 continue
             if info:
-                items.append(dict(info))  # a copy: 'running' below stays out of the saved summaries
+                item = dict(info)  # a copy: 'running' and names below stay out of the saved summaries
+                if not item.pop('named', False) and titles.get(item['id']):
+                    item['title'] = titles[item['id']]
+                items.append(item)
         save_summaries(set(paths))
     items.sort(key=lambda i: -i['mtime'])
     with chats_lock:
@@ -736,7 +806,7 @@ def load_history(session_id):
                     import traceback
                     log('history %s: skipped an entry\n%s' % (session_id, traceback.format_exc()))
                 skipped += 1
-    return {'id': session_id, 'cwd': cwd, 'title': custom, 'messages': messages,
+    return {'id': session_id, 'cwd': cwd, 'title': custom or titles.get(session_id), 'messages': messages,
             'context': context, 'model': model}
 
 

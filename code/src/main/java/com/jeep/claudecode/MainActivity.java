@@ -1195,6 +1195,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 loadHistory(chat); // one not read yet (or since a gap) is read now that the turn is whole
             }
             if (chat.sessionId != null) bySession.put(chat.sessionId, chat.key);
+        } else if ("title".equals(kind)) {
+            if (data != null && !data.optString("title").isEmpty()) {
+                chat.title = data.optString("title"); // a short name made after the first turn
+                updateChrome();
+                loadSessions();
+            }
         } else if ("state".equals(kind)) {
             if (data != null && data.optBoolean("running") && !chat.running) {
                 chat.running = true;
