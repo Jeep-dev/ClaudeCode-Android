@@ -148,6 +148,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         night = getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         build();
         switchTo(newChat());
+        sessions = keptSessions();
         renderSessions();
         connect(false);
         ui.postDelayed(ticker, 120);
@@ -870,8 +871,36 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void loadSessions() {
         if (!linked) { renderSessions(); return; }
         bridge.get("/sessions", (status, data) -> {
-            if (status == 200 && data.optJSONArray("sessions") != null) sessions = data.optJSONArray("sessions");
+            if (status == 200 && data.optJSONArray("sessions") != null) keepSessions(data.optJSONArray("sessions"));
             renderSessions();
+        });
+    }
+
+    /** The conversation list as last read, kept so it shows at once on the next start. */
+    private java.io.File sessionsFile() { return new java.io.File(getFilesDir(), "sessions.json"); }
+
+    private JSONArray keptSessions() {
+        try {
+            JSONArray kept = new JSONArray(Userland.read(new java.io.FileInputStream(sessionsFile())));
+            for (int i = 0; i < kept.length(); i++) {
+                JSONObject s = kept.optJSONObject(i);
+                if (s != null) s.remove("running"); // a new start: nothing runs yet
+            }
+            return kept;
+        } catch (java.io.IOException | JSONException e) {
+            return new JSONArray();
+        }
+    }
+
+    private void keepSessions(JSONArray next) {
+        sessions = next;
+        String text = next.toString();
+        work.execute(() -> {
+            try {
+                Userland.write(sessionsFile(), text);
+            } catch (java.io.IOException ignored) {
+                // read from the bridge again next time
+            }
         });
     }
 
@@ -1072,7 +1101,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                     JSONObject s = sessions.optJSONObject(i);
                     if (s != null && !id.equals(s.optString("id"))) next.put(s);
                 }
-                sessions = next;
+                keepSessions(next);
                 String key = bySession.containsKey(id) ? bySession.get(id) : id;
                 if (current.key.equals(key)) switchTo(newChat());
                 chats.remove(key);

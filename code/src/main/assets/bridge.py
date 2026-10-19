@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 22  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 23  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -343,12 +343,49 @@ def entry_text(content):
     return ''
 
 
-_summary_cache = {}
+SUMMARY_FILE = os.path.join(STATE_DIR, 'sessions.json')  # the summaries, kept for the next start
+_summary_cache = None
+_summary_changed = False
+summary_lock = threading.Lock()
+
+
+def summary_cache():
+    """path -> (mtime, summary); read from SUMMARY_FILE on first use, so a new bridge does not read
+    every transcript again."""
+    global _summary_cache
+    if _summary_cache is None:
+        try:
+            with open(SUMMARY_FILE, encoding='utf-8') as f:
+                _summary_cache = {p: tuple(v) for p, v in json.load(f).items()}
+        except (OSError, ValueError, AttributeError, TypeError):
+            _summary_cache = {}
+    return _summary_cache
+
+
+def save_summaries(paths):
+    """Keeps the summaries of the transcripts still there, when any changed."""
+    global _summary_changed
+    with summary_lock:
+        cache = summary_cache()
+        for gone in [p for p in cache if p not in paths]:
+            del cache[gone]
+            _summary_changed = True
+        if not _summary_changed:
+            return
+        _summary_changed = False
+        try:
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(SUMMARY_FILE + '.tmp', 'w', encoding='utf-8') as f:
+                json.dump(cache, f, ensure_ascii=False)
+            os.replace(SUMMARY_FILE + '.tmp', SUMMARY_FILE)
+        except OSError:
+            pass
 
 
 def session_summary(path):
+    global _summary_changed
     st = os.stat(path)
-    cached = _summary_cache.get(path)
+    cached = summary_cache().get(path)
     if cached and cached[0] == st.st_mtime:
         return cached[1]
     title, cwd, custom = None, None, None
@@ -376,7 +413,8 @@ def session_summary(path):
     if title:
         info = {'id': os.path.basename(path)[:-6], 'title': custom or title, 'cwd': cwd or '',
                 'mtime': st.st_mtime, 'size': st.st_size}
-    _summary_cache[path] = (st.st_mtime, info)
+    summary_cache()[path] = (st.st_mtime, info)
+    _summary_changed = True
     return info
 
 
@@ -403,13 +441,15 @@ def find_session(session_id):
 
 def list_sessions():
     items = []
-    for path in session_files():
+    paths = session_files()
+    for path in paths:
         try:
             info = session_summary(path)
         except OSError:
             continue
         if info:
             items.append(info)
+    save_summaries(set(paths))
     items.sort(key=lambda i: -i['mtime'])
     for chat in chats.values():
         for item in items:

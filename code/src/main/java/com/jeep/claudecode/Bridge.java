@@ -181,8 +181,9 @@ final class Bridge {
     }
 
     /**
-     * Null when the bridge answers, else why it is to be started (for its log); three tries, so a
-     * busy bridge is not taken for a dead one.
+     * Null when the bridge answers, else why it is to be started (for its log). Nothing listening
+     * means no bridge: started at once; one that does not answer gets three tries, so a busy
+     * bridge is not taken for a dead one.
      */
     private String isUp() {
         int status = 0;
@@ -192,17 +193,18 @@ final class Bridge {
             status = (int) health[0];
             if (status == 200) return "another version was running";
             if (status == 401) return "a bridge with another token was running";
+            if (status == -1) return "no bridge was running";
             try { Thread.sleep(500); } catch (InterruptedException e) { return "interrupted"; }
         }
         return status == -2 ? "the running bridge did not answer within 3 s, three times"
-                : status == -1 ? "no bridge was running" : "the running bridge answered " + status;
+                : "the running bridge answered " + status;
     }
 
     /** Waits at most 30 s for the bridge just started (proot and Python take a while on a phone). */
     private String waitUntilUp() {
         long end = System.currentTimeMillis() + 30_000;
         while (System.currentTimeMillis() < end) {
-            try { Thread.sleep(300); } catch (InterruptedException e) { return "timeout"; }
+            try { Thread.sleep(100); } catch (InterruptedException e) { return "timeout"; }
             if (isCurrent(exchange("GET", "/health", null))) return "ok";
         }
         return "timeout";
