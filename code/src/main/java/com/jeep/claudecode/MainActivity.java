@@ -2293,9 +2293,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void fillModel(LinearLayout box) {
         LinearLayout api = card(box);
         option(api, R.drawable.ic_link, "API", null, false, this::apiSheet);
-        LinearLayout login = card(box);
-        Ui.margins(login, this, 0, 12, 0, 0);
-        option(login, R.drawable.ic_bot, "登录 Claude 账号", null, false, () -> openTerminal("claude\r"));
     }
 
     // ---- Claude Code: its settings.json, as its own schema describes it ----
