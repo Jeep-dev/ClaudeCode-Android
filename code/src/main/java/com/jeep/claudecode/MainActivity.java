@@ -2129,7 +2129,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         String url = settingsEnv().optString("ANTHROPIC_BASE_URL");
         String host = url.isEmpty() ? "Anthropic" : Uri.parse(url).getHost() != null ? Uri.parse(url).getHost() : url;
         String folderNow = cwd.isEmpty() ? defaultCwd : cwd;
-        int set = settingsJson().length();
         android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
         boolean todo = !hasStorage() || !pm.isIgnoringBatteryOptimizations(getPackageName());
 
@@ -2140,7 +2139,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         page(a, R.drawable.ic_link, "model", host);
         LinearLayout b = card(box);
         Ui.margins(b, this, 0, 12, 0, 0);
-        page(b, R.drawable.ic_gear, "claude", set == 0 ? null : set + " 项");
+        page(b, R.drawable.ic_gear, "claude", null);
         page(b, R.drawable.ic_tool, "ext", null);
         LinearLayout c = card(box);
         Ui.margins(c, this, 0, 12, 0, 0);
