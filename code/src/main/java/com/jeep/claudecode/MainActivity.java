@@ -1076,6 +1076,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (chat.title.isEmpty()) chat.title = titleText;
         switchTo(chat);
         loadHistory(chat);
+        // Its Claude Code starts now: the next message does not wait for it to start.
+        if (linked) bridge.post("/open", obj("chat", chat.key, "sessionId", id, "cwd", chat.cwd,
+                "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort), null);
     }
 
     /** Reads a saved conversation once; a failed read is tried again on the next link or tap. */

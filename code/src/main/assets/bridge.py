@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 30  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 31  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -135,6 +135,90 @@ def claude_path():
     return shutil.which('claude') or os.path.join(os.environ.get('PREFIX', '/usr'), 'bin', 'claude')
 
 
+def claude_args(session_id, model, effort):
+    # Questions whether a tool may run come here (the app answers them); in a mode that asks
+    # nothing, there are none.
+    args = [claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
+            '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
+    if session_id:
+        args += ['--resume', session_id]
+    if model:
+        args += ['--model', model]
+    if effort:
+        # Through --settings: CLAUDE_CODE_EFFORT_LEVEL in the user's settings would otherwise
+        # override both --effort and /effort.
+        args += ['--settings', json.dumps({'env': {'CLAUDE_CODE_EFFORT_LEVEL': effort}})]
+    return args + launch.args()
+
+
+last_spawn = 0.0  # when a conversation's claude was last started
+
+
+def spawn(args, cwd):
+    global last_spawn
+    last_spawn = time.time()
+    os.makedirs(cwd, exist_ok=True)
+    return subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                            bufsize=1, start_new_session=True)
+
+
+class Spare:
+    """A claude started ahead for the next new conversation: starting one is most of the wait for
+    a first reply (seconds on a phone, where every process runs under proot). Started only while
+    no turn runs; its output waits in the pipe until a conversation takes it and reads it."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.proc = None
+        self.key = None
+        self.want = (DEFAULT_CWD, None, None)  # folder, model and effort of the last new conversation
+        self.retry_at = 0.0
+        self.failures = 0
+
+    def take(self, args, cwd):
+        with self.lock:
+            proc, key, self.proc = self.proc, self.key, None
+        if proc is None:
+            return None
+        if key == (tuple(args), cwd, launch.gen) and proc.poll() is None:
+            self.failures = 0
+            return proc
+        threading.Thread(target=end, args=(proc,), daemon=True).start()
+        return None
+
+    def fill(self):
+        cwd, model, effort = self.want
+        args = claude_args(None, model, effort)
+        key = (tuple(args), cwd, launch.gen)
+        with self.lock:
+            if self.proc is not None:
+                if self.proc.poll() is None and self.key == key:
+                    return
+                old, self.proc = self.proc, None
+                if old.poll() is not None:  # it ended by itself: wait longer each time
+                    self.failures += 1
+                    self.retry_at = time.time() + min(600, 30 * 2 ** self.failures)
+                    log('spare claude exited with %s' % old.returncode)
+                else:
+                    threading.Thread(target=end, args=(old,), daemon=True).start()
+            if time.time() < self.retry_at:
+                return
+            try:
+                self.proc = spawn(args, cwd)
+            except OSError as e:
+                self.failures += 1
+                self.retry_at = time.time() + min(600, 30 * 2 ** self.failures)
+                log('spare claude not started: %s' % e)
+                return
+            self.key = key
+            pid = self.proc.pid
+        log('spare claude pid %d started for a new conversation in %s' % (pid, cwd))
+
+
+spare = Spare()
+
+
 def low(args):
     """args run at low priority, through nice when there is one: preexec_fn is not safe in a
     process with threads."""
@@ -161,35 +245,25 @@ class Chat:
         self.turn = 0  # counts messages sent: a forced stop is for the turn it was asked in
         self.asks = {}  # request id -> Claude Code's question whether a tool may run, not answered yet
         self.titling = False  # a name is being made from its first message
+        self.opened = False  # started when the app opened it, no message sent since
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
 
     def start(self):
-        # Questions whether a tool may run come here (the app answers them); in a mode that asks
-        # nothing, there are none.
-        args = [claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-                '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
-        if self.session_id:
-            args += ['--resume', self.session_id]
-        if self.model:
-            args += ['--model', self.model]
-        if self.effort:
-            # Through --settings: CLAUDE_CODE_EFFORT_LEVEL in the user's settings would otherwise
-            # override both --effort and /effort.
-            args += ['--settings', json.dumps({'env': {'CLAUDE_CODE_EFFORT_LEVEL': self.effort}})]
-        args += launch.args()
+        args = claude_args(self.session_id, self.model, self.effort)
         self.launch_gen = launch.gen
-        os.makedirs(self.cwd, exist_ok=True)
         self.stderr = []
-        self.proc = subprocess.Popen(args, cwd=self.cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
-                                     bufsize=1, start_new_session=True)
-        proc = self.proc
+        proc = None if self.session_id else spare.take(args, self.cwd)
+        taken = proc is not None
+        if not taken:
+            proc = spawn(args, self.cwd)
+        self.proc = proc
         self.last_out = time.time()
         self.quiet_logged = False
-        log('chat %s: claude pid %d started, %s, model %s, effort %s, folder %s' % (
-            self.key[:8], proc.pid, 'resuming ' + self.session_id if self.session_id else 'new session',
+        log('chat %s: claude pid %d %s, %s, model %s, effort %s, folder %s' % (
+            self.key[:8], proc.pid, 'taken (started ahead)' if taken else 'started',
+            'resuming ' + self.session_id if self.session_id else 'new session',
             self.model or 'default', self.effort or 'default', self.cwd))
         threading.Thread(target=self.read_out, args=(proc,), daemon=True).start()
         threading.Thread(target=self.read_err, args=(proc,), daemon=True).start()
@@ -261,9 +335,13 @@ class Chat:
                 self.model, self.effort = model, effort
                 if self.alive() and not self.running:
                     self.close()  # restarts with the new settings, resuming the session
+            new = not self.session_id and not self.alive()
+            if new:  # the next spare is started like this one
+                spare.want = (self.cwd, model, effort)
             if not self.alive():
                 self.start()
-            if not self.session_id and not self.titling:
+            self.opened = False
+            if new and not self.titling:
                 name_new(self, content)  # alongside the first turn, not after it
             self.running = True
             self.turn += 1
@@ -278,6 +356,28 @@ class Chat:
             self.proc.stdin.write(line + '\n')
             self.proc.stdin.flush()
             hub.emit(self.key, 'state', {'running': True})
+
+    def open(self, session_id, cwd=None, model=None, effort=None):
+        """Starts the claude of a saved conversation the app opened, so its next message does not
+        wait for one to start. Only the last one opened waits like this."""
+        global last_opened
+        with self.lock:
+            if not self.alive():
+                self.session_id = self.session_id or session_id
+                if cwd:
+                    self.cwd = cwd
+                self.model, self.effort = model, effort
+                self.start()
+                self.opened = True
+                self.used = time.time()
+        with chats_lock:
+            before, last_opened = last_opened, self
+        if before is not None and before is not self:
+            with before.lock:
+                if before.opened and before.alive() and not before.running:
+                    log('chat %s: opened without a message, stopping its claude' % before.key[:8])
+                    before.opened = False
+                    before.close()
 
     def answer(self, request_id, allow):
         """Answers Claude Code's question whether a tool may run; False when it is not asked any more."""
@@ -345,6 +445,7 @@ def end(proc):
 
 chats = {}
 chats_lock = threading.Lock()
+last_opened = None  # the conversation the app opened last (Chat.open)
 seen_messages = []  # ids of messages already sent: the app may repeat a request whose answer it lost
 
 
@@ -389,6 +490,9 @@ def reaper():
             if chat.running and not chat.quiet_logged and time.time() - chat.last_out > 60:
                 chat.quiet_logged = True
                 log('chat %s: no output from claude for 60s (alive: %s)' % (chat.key[:8], chat.alive()))
+        # Not while a turn runs or a claude was just started: it would slow them down.
+        if not any(chat.running for chat in live) and time.time() - last_spawn > 10:
+            spare.fill()
 
 
 # ---- Saved sessions (Claude Code's own transcripts) ----
@@ -513,12 +617,14 @@ def chat_key(session_id):
 
 
 def make_title(text):
-    """A short name for a conversation that starts with text, from Haiku in a process of its own
-    (the conversation's own requests, and so its prompt cache, are not touched); None on failure."""
+    """A short name for a conversation that starts with text, from a small fast model in a process
+    of its own (the conversation's own requests, and so its prompt cache, are not touched); None on
+    failure."""
     # Only the message and a short system prompt: no tools, MCP servers, CLAUDE.md or hooks.
-    out = subprocess.run([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
-                          '--strict-mcp-config', '--settings', '{"disableAllHooks": true}',
-                          '--system-prompt', TITLE_PROMPT, '--output-format', 'text'],
+    # At low priority: it runs alongside the conversation's own turn.
+    out = subprocess.run(low([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
+                              '--strict-mcp-config', '--settings', '{"disableAllHooks": true}',
+                              '--system-prompt', TITLE_PROMPT, '--output-format', 'text']),
                          input=text, capture_output=True, text=True, timeout=120, cwd=HOME,
                          env=dict(os.environ, CLAUDE_CODE_DISABLE_CLAUDE_MDS='1'))
     title = ' '.join(out.stdout.split()).strip('"\'“”「」 ')[:80]
@@ -563,9 +669,9 @@ def name_new(chat, content):
 
 
 def name_later(key, session_id, again=False):
-    """Names a conversation after its first turn, with Haiku in a process of its own (the
-    conversation's own requests, and so its prompt cache, are not touched); once. Asked again,
-    the new name is given as /rename gives one."""
+    """Names a conversation after its first turn, with a small fast model in a process of its own
+    (the conversation's own requests, and so its prompt cache, are not touched); once. Asked
+    again, the new name is given as /rename gives one."""
     with titles_lock:
         if (session_id in titles and not again) or session_id in naming:
             return
@@ -1402,6 +1508,15 @@ class Handler(BaseHTTPRequestHandler):
                     return self.reply(500, {'error': str(e)})
                 raise
             self.reply(200, {'ok': True})
+        elif path == '/open':
+            if data.get('sessionId'):
+                chat = chat_for(data['chat'], data['sessionId'])
+                try:
+                    chat.open(data['sessionId'], cwd=data.get('cwd'), model=data.get('model') or None,
+                              effort=data.get('effort') or None)
+                except OSError as e:
+                    return self.reply(500, {'error': str(e)})
+            self.reply(200, {'ok': True})
         elif path == '/launch':
             launch.set(data)
             self.reply(200, launch.data)
@@ -1660,6 +1775,8 @@ def main():
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         log('stop pid %d: signal %d' % (os.getpid(), signum))
         procs = [chat.proc for chat in list(chats.values()) if chat.proc is not None]
+        if spare.proc is not None:
+            procs.append(spare.proc)
         for proc in procs:
             try:
                 proc.stdin.close()
