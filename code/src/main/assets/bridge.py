@@ -23,10 +23,11 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 31  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 32  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -176,21 +177,23 @@ class Spare:
         self.retry_at = 0.0
         self.failures = 0
 
-    def take(self, args, cwd):
+    def take(self, cwd, model, effort):
+        """The spare's process and the model and effort it was started with, when it fits a new
+        conversation in cwd (a different model or effort is changed in it); None otherwise."""
         with self.lock:
             proc, key, self.proc = self.proc, self.key, None
         if proc is None:
             return None
-        if key == (tuple(args), cwd, launch.gen) and proc.poll() is None:
+        if key[0] == cwd and key[3] == launch.gen and not (effort is None and key[2] is not None) \
+                and proc.poll() is None:
             self.failures = 0
-            return proc
+            return proc, key[1], key[2]
         threading.Thread(target=end, args=(proc,), daemon=True).start()
         return None
 
     def fill(self):
         cwd, model, effort = self.want
-        args = claude_args(None, model, effort)
-        key = (tuple(args), cwd, launch.gen)
+        key = (cwd, model, effort, launch.gen)
         with self.lock:
             if self.proc is not None:
                 if self.proc.poll() is None and self.key == key:
@@ -205,7 +208,7 @@ class Spare:
             if time.time() < self.retry_at:
                 return
             try:
-                self.proc = spawn(args, cwd)
+                self.proc = spawn(claude_args(None, model, effort), cwd)
             except OSError as e:
                 self.failures += 1
                 self.retry_at = time.time() + min(600, 30 * 2 ** self.failures)
@@ -251,14 +254,13 @@ class Chat:
         return self.proc is not None and self.proc.poll() is None
 
     def start(self):
-        args = claude_args(self.session_id, self.model, self.effort)
         self.launch_gen = launch.gen
         self.stderr = []
-        proc = None if self.session_id else spare.take(args, self.cwd)
-        taken = proc is not None
-        if not taken:
-            proc = spawn(args, self.cwd)
+        taken = None if self.session_id else spare.take(self.cwd, self.model, self.effort)
+        proc = taken[0] if taken else spawn(claude_args(self.session_id, self.model, self.effort), self.cwd)
         self.proc = proc
+        if taken:
+            self.switch(taken[1], taken[2])
         self.last_out = time.time()
         self.quiet_logged = False
         log('chat %s: claude pid %d %s, %s, model %s, effort %s, folder %s' % (
@@ -289,6 +291,10 @@ class Chat:
                 log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
             elif kind == 'control_cancel_request':
                 self.asks.pop(msg.get('request_id'), None)
+            elif kind == 'control_response' and (msg.get('response') or {}).get('subtype') == 'error' \
+                    and str((msg.get('response') or {}).get('request_id')).startswith('set-'):
+                log('chat %s: change refused: %s' % (self.key[:8], msg['response'].get('error')))
+                self.launch_gen = None  # started again with it on the next message
             if kind == 'system' and sub == 'api_retry':
                 log('chat %s: API retry %s/%s in %sms: %s %s' % (
                     self.key[:8], msg.get('attempt'), msg.get('max_retries'), msg.get('retry_delay_ms'),
@@ -331,10 +337,16 @@ class Chat:
                 self.session_id = session_id
             if cwd and not self.alive():
                 self.cwd = cwd
-            if model != self.model or effort != self.effort or self.launch_gen != launch.gen:
+            if self.launch_gen != launch.gen or (effort is None and self.effort is not None):
+                # Read only when it starts (an effort set can not be taken back but by starting again)
                 self.model, self.effort = model, effort
                 if self.alive() and not self.running:
                     self.close()  # restarts with the new settings, resuming the session
+            else:
+                old_model, old_effort = self.model, self.effort
+                self.model, self.effort = model, effort
+                if self.alive():  # changed in the running claude: no wait for one to start again
+                    self.switch(old_model, old_effort)
             new = not self.session_id and not self.alive()
             if new:  # the next spare is started like this one
                 spare.want = (self.cwd, model, effort)
@@ -356,6 +368,21 @@ class Chat:
             self.proc.stdin.write(line + '\n')
             self.proc.stdin.flush()
             hub.emit(self.key, 'state', {'running': True})
+
+    def switch(self, model, effort):
+        """Changes the running claude, started with model and effort, to this chat's."""
+        if model != self.model:
+            self.control({'subtype': 'set_model', 'model': self.model} if self.model else {'subtype': 'set_model'})
+        if effort != self.effort:
+            self.control({'subtype': 'apply_flag_settings',
+                          'settings': {'env': {'CLAUDE_CODE_EFFORT_LEVEL': self.effort}}})
+
+    def control(self, request):
+        line = {'type': 'control_request', 'request_id': 'set-%s' % uuid.uuid4().hex[:12], 'request': request}
+        self.proc.stdin.write(json.dumps(line) + '\n')
+        self.proc.stdin.flush()
+        log('chat %s: %s %s' % (self.key[:8], request['subtype'], request.get('model') or
+                                (request.get('settings') or {}).get('env') or 'default'))
 
     def open(self, session_id, cwd=None, model=None, effort=None):
         """Starts the claude of a saved conversation the app opened, so its next message does not
