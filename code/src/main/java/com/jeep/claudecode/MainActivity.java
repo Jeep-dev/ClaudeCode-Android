@@ -2100,58 +2100,27 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
     }
 
-    /** The first level: Claude Code's state, then a row for each page. */
+    /** The first level: a row for each page. */
     private void fillPages(LinearLayout box) {
-        LinearLayout run = card(box);
-        LinearLayout status = Ui.row(this);
-        status.setPadding(dp(14), 0, dp(6), 0);
-        status.setMinimumHeight(dp(54));
-        View dot = new View(this);
-        dot.setBackground(Ui.round(col(linked ? R.color.ok : installing || connecting ? R.color.text3 : R.color.danger), dp(4)));
-        status.addView(dot, new LinearLayout.LayoutParams(dp(8), dp(8)));
-        TextView title = Ui.text(this, "Claude Code", 16, R.color.text);
-        title.setTypeface(Ui.MEDIUM);
-        title.setPadding(dp(12), 0, dp(8), 0);
-        status.addView(title);
-        status.addView(Ui.text(this, claudeVersion, 13, R.color.text3), new LinearLayout.LayoutParams(0, -2, 1));
-        TextView restart = Ui.text(this, "重启", 14.5f, R.color.accentPress);
-        restart.setPadding(dp(10), dp(8), dp(10), dp(8));
-        restart.setBackground(Ui.press(this, null, dp(8)));
-        restart.setOnClickListener(v -> {
-            toast("正在重启…");
-            linked = false;
-            connect(true);
-            fillSettings(null);
-        });
-        status.addView(restart);
-        run.addView(status, Ui.fill());
-
-        String url = settingsEnv().optString("ANTHROPIC_BASE_URL");
-        String host = url.isEmpty() ? "Anthropic" : Uri.parse(url).getHost() != null ? Uri.parse(url).getHost() : url;
-        String folderNow = cwd.isEmpty() ? defaultCwd : cwd;
-        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
-        boolean todo = !hasStorage() || !pm.isIgnoringBatteryOptimizations(getPackageName());
-
         LinearLayout a = card(box);
-        Ui.margins(a, this, 0, 12, 0, 0);
-        page(a, R.drawable.ic_image, "look", Themes.current(this).name);
-        page(a, R.drawable.ic_compose, "talk", folderNow.isEmpty() ? "~/work" : tilde(folderNow));
-        page(a, R.drawable.ic_link, "model", host);
+        page(a, R.drawable.ic_image, "look");
+        page(a, R.drawable.ic_compose, "talk");
+        page(a, R.drawable.ic_link, "model");
         LinearLayout b = card(box);
         Ui.margins(b, this, 0, 12, 0, 0);
-        page(b, R.drawable.ic_gear, "claude", null);
-        page(b, R.drawable.ic_tool, "ext", null);
+        page(b, R.drawable.ic_gear, "claude");
+        page(b, R.drawable.ic_tool, "ext");
         LinearLayout c = card(box);
         Ui.margins(c, this, 0, 12, 0, 0);
-        page(c, R.drawable.ic_folder, "storage", null);
-        page(c, R.drawable.ic_refresh, "keep", todo ? "待设置" : null);
-        page(c, R.drawable.ic_book, "about", "v" + appVersion());
+        page(c, R.drawable.ic_folder, "storage");
+        page(c, R.drawable.ic_refresh, "keep");
+        page(c, R.drawable.ic_book, "about");
     }
 
-    private void page(LinearLayout card, int icon, String id, String value) {
+    private void page(LinearLayout card, int icon, String id) {
         String label = id;
         for (String[] p : PAGES) if (p[0].equals(id)) label = p[1];
-        option(card, icon, label, value, false, () -> settingsOpen(id));
+        option(card, icon, label, null, false, () -> settingsOpen(id));
         LinearLayout row = (LinearLayout) card.getChildAt(card.getChildCount() - 1);
         View more = Ui.icon(this, R.drawable.ic_chevron_right, 16, R.color.text3);
         row.addView(more);
@@ -2322,20 +2291,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
     // ---- 模型 ----
 
     private void fillModel(LinearLayout box) {
-        JSONObject env = settingsEnv();
         LinearLayout api = card(box);
-        String url = env.optString("ANTHROPIC_BASE_URL");
-        String key = env.optString("ANTHROPIC_AUTH_TOKEN", env.optString("ANTHROPIC_API_KEY"));
-        option(api, R.drawable.ic_link, "地址", url.isEmpty() ? "Anthropic" : url, false, this::apiSheet);
-        option(api, R.drawable.ic_gear, "API Key", key.isEmpty() ? null : mask(key), false, this::apiSheet);
-        option(api, R.drawable.ic_bot, "模型", env.optString("ANTHROPIC_MODEL"), false, this::apiSheet);
+        option(api, R.drawable.ic_link, "地址", null, false, () -> apiValue("地址", "ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
+        option(api, R.drawable.ic_gear, "API Key", null, false, () -> apiValue("API Key", "ANTHROPIC_AUTH_TOKEN", "sk-…"));
+        option(api, R.drawable.ic_bot, "模型", null, false, () -> apiValue("模型", "ANTHROPIC_MODEL", ""));
         LinearLayout login = card(box);
         Ui.margins(login, this, 0, 12, 0, 0);
         option(login, R.drawable.ic_bot, "登录 Claude 账号", null, false, () -> openTerminal("claude\r"));
-    }
-
-    private static String mask(String secret) {
-        return secret.length() <= 8 ? "••••" : secret.substring(0, 4) + "••••" + secret.substring(secret.length() - 4);
     }
 
     // ---- Claude Code: its settings.json, as its own schema describes it ----
@@ -3623,15 +3585,41 @@ public final class MainActivity extends Activity implements Bridge.Events {
         sheet.show();
     }
 
+    /** One of the API's values, in a sheet of its own. */
+    private void apiValue(String title, String var, String hint) {
+        Dialog sheet = sheet(title, null);
+        JSONObject env = settingsEnv();
+        boolean key = var.equals("ANTHROPIC_AUTH_TOKEN");
+        EditText f = field(sheet, null, key ? env.optString(var, env.optString("ANTHROPIC_API_KEY")) : env.optString(var), hint);
+        TextView ok = button("保存", true, v -> {
+            JSONObject json = settingsJson();
+            JSONObject e = json.optJSONObject("env");
+            if (e == null) e = new JSONObject();
+            // One key variable: an auth token works with every provider (and Anthropic's own).
+            if (key) e.remove("ANTHROPIC_API_KEY");
+            put(e, var, f.getText().toString().trim());
+            try { json.put("env", e); } catch (JSONException ignored) { /* string key */ }
+            if (saveSettings(json)) { toast("已保存"); sheet.dismiss(); refreshSettings(); }
+        });
+        ok.setBackground(Ui.press(this, Ui.round(col(R.color.text), dp(10)), dp(10)));
+        ok.setTextColor(col(R.color.bg));
+        content(sheet).addView(ok, new LinearLayout.LayoutParams(-1, dp(42)));
+        Ui.margins(ok, this, 0, 14, 0, 0);
+        if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        sheet.show();
+    }
+
     private static void put(JSONObject o, String key, String value) {
         if (value.isEmpty()) { o.remove(key); return; }
         try { o.put(key, value); } catch (JSONException ignored) { /* string key */ }
     }
 
     private EditText field(Dialog sheet, String label, String value, String hint) {
-        TextView l = Ui.text(this, label, 13, R.color.text2);
-        l.setPadding(dp(2), dp(8), 0, dp(6));
-        content(sheet).addView(l);
+        if (label != null) {
+            TextView l = Ui.text(this, label, 13, R.color.text2);
+            l.setPadding(dp(2), dp(8), 0, dp(6));
+            content(sheet).addView(l);
+        }
         EditText f = new EditText(this);
         f.setText(value);
         f.setHint(hint);
