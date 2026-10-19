@@ -308,7 +308,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         top.addView(title, Ui.weight());
         if (!Themes.showTitle(this)) title.setVisibility(View.INVISIBLE);
         ImageView terminal = Ui.iconButton(this, R.drawable.ic_terminal, 34, 20, R.color.text2);
-        terminal.setOnClickListener(v -> openTerminal(null));
+        terminal.setOnClickListener(v -> openTerminal());
         top.addView(terminal, new LinearLayout.LayoutParams(dp(34), dp(34)));
         main.addView(top, new LinearLayout.LayoutParams(-1, dp(34)));
         main.addView(banner, Ui.fill());
@@ -372,7 +372,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             topButtons.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         }
         Glass.Pane terminal = glassButton(R.drawable.ic_terminal, 21);
-        terminal.setOnClickListener(v -> openTerminal(null));
+        terminal.setOnClickListener(v -> openTerminal());
         topButtons.addView(terminal, new LinearLayout.LayoutParams(dp(44), dp(44)));
         host.addView(topButtons, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
 
@@ -1305,17 +1305,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
         requestPermissions(new String[]{STORAGE, android.Manifest.permission.READ_EXTERNAL_STORAGE}, ASK_STORAGE);
     }
 
-    private Runnable afterStorage;
-
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         if (request != ASK_STORAGE) return;
-        Runnable next = afterStorage;
-        afterStorage = null;
         refreshSettings();
         if (!hasStorage()) { toast("没有存储权限：Claude Code 看不到手机里的文件"); return; }
         // /sdcard is shared into the userland when the bridge starts.
         if (!installing) connect(true);
-        if (next != null) next.run();
     }
 
     // ================= sending =================
@@ -1479,7 +1474,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void stop(Chat chat) {
         chat.stopping = true;
-        bridge.post("/stop", obj("chat", chat.key), null);
+        bridge.post("/stop", obj("chat", chat.key, "sessionId", chat.sessionId), null);
     }
 
     // ================= slash commands =================
@@ -2581,10 +2576,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void rawSettingsSheet() {
         String text;
-        try { text = settingsJson().toString(2); } catch (JSONException e) { text = "{}"; }
+        JSONObject now = settingsJson();
+        try { text = settingsBroken ? readFile(settingsFile()) : now.toString(2); } catch (JSONException e) { text = "{}"; }
         textSheet("settings.json", text, "{ }", true, (t, done) -> {
             JSONObject json;
             try { json = new JSONObject(t.trim().isEmpty() ? "{}" : t); } catch (JSONException e) { toast("不是有效的 JSON：" + e.getMessage()); return; }
+            settingsBroken = false; // replaced whole
             if (saveSettings(json)) { toast("已保存"); done.run(); }
         }, this::refreshSettings);
     }
@@ -3023,7 +3020,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         LinearLayout tools = card(box);
         Ui.margins(tools, this, 0, 12, 0, 0);
         option(tools, R.drawable.ic_list, "日志", null, false, this::logSheet);
-        option(tools, R.drawable.ic_terminal, "终端", null, false, () -> openTerminal(null));
+        option(tools, R.drawable.ic_terminal, "终端", null, false, () -> openTerminal());
     }
 
     /** The colours or text size changed: the screen is built again around the same conversations. */
@@ -3263,7 +3260,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         option(card, R.drawable.ic_pencil, "编辑", null, false, () -> { sheet.dismiss(); editSkill(dir); });
         option(card, R.drawable.ic_trash, "删除", null, true, () -> {
             sheet.dismiss();
-            deleteTree(dir);
+            Userland.delete(dir);
             relaunch();
             toast("已删除");
             refreshSettings();
@@ -3286,12 +3283,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             done.run();
             refreshSettings();
         }, this::skillsSheet);
-    }
-
-    private static void deleteTree(java.io.File f) {
-        java.io.File[] items = f.isDirectory() && !java.nio.file.Files.isSymbolicLink(f.toPath()) ? f.listFiles() : null;
-        if (items != null) for (java.io.File i : items) deleteTree(i);
-        f.delete();
     }
 
     /** The tools Claude Code reported when a conversation last started, and MCP servers' state. */
@@ -3355,7 +3346,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private boolean saveMcp(JSONObject servers) {
         try {
-            Userland.write(mcpFile(), new JSONObject().put("mcpServers", servers).toString(2) + "\n");
+            Userland.replace(mcpFile(), new JSONObject().put("mcpServers", servers).toString(2) + "\n");
         } catch (Exception e) {
             toast("保存失败：" + e.getMessage());
             return false;
@@ -3531,19 +3522,24 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     // ---- Claude Code's settings.json, read and written here directly ----
 
-    private void openTerminal(String input) {
+    private void openTerminal() {
         if (!userland.ready()) { toast("运行环境还没准备好"); return; }
-        Intent i = new Intent(this, TerminalActivity.class);
-        if (input != null) i.putExtra(TerminalActivity.EXTRA_INPUT, input);
-        startActivity(i);
+        startActivity(new Intent(this, TerminalActivity.class));
     }
 
     private java.io.File settingsFile() { return userland.file(Userland.HOME + "/.claude/settings.json"); }
 
+    /** settings.json is there but did not read as JSON: a change saved over it would lose it. */
+    private boolean settingsBroken;
+
     private JSONObject settingsJson() {
+        settingsBroken = false;
+        java.io.File f = settingsFile();
+        if (!f.exists()) return new JSONObject();
         try {
-            return new JSONObject(Userland.read(new java.io.FileInputStream(settingsFile())));
+            return new JSONObject(Userland.read(new java.io.FileInputStream(f)));
         } catch (Exception e) {
+            settingsBroken = true;
             return new JSONObject();
         }
     }
@@ -3555,8 +3551,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     /** Writes settings.json; running conversations pick it up on their next message. */
     private boolean saveSettings(JSONObject json) {
+        if (settingsBroken) {
+            toast("settings.json 格式有错，没有保存");
+            return false;
+        }
         try {
-            Userland.write(settingsFile(), json.toString(2) + "\n");
+            Userland.replace(settingsFile(), json.toString(2) + "\n");
         } catch (Exception e) {
             toast("保存失败：" + e.getMessage());
             return false;
@@ -3582,13 +3582,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         LinearLayout actions = Ui.row(this);
         TextView raw = button("settings.json", false, v -> {
             sheet.dismiss();
-            String text;
-            try { text = settingsJson().toString(2); } catch (JSONException e) { text = "{}"; }
-            textSheet("settings.json", text, "{ }", true, (t, done) -> {
-                JSONObject json;
-                try { json = new JSONObject(t.trim().isEmpty() ? "{}" : t); } catch (JSONException e) { toast("不是有效的 JSON：" + e.getMessage()); return; }
-                if (saveSettings(json)) { toast("已保存"); done.run(); }
-            }, this::refreshSettings);
+            rawSettingsSheet();
         });
         TextView ok = button("保存", true, v -> {
             JSONObject json = settingsJson();

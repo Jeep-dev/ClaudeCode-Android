@@ -231,6 +231,4 @@ final class Fonts {
         String n = id.substring(id.indexOf(':') + 1);
         return n.replaceAll("\\.(ttf|otf|ttc)$", "");
     }
-
-    static void forget() { body = null; }
 }

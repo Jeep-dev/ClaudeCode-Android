@@ -42,7 +42,8 @@ final class Bridge {
     private final Events listener;
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private volatile boolean reading;
+    /** The event stream is being read: set once, so two connects never start two readers. */
+    private final java.util.concurrent.atomic.AtomicBoolean reading = new java.util.concurrent.atomic.AtomicBoolean();
     /** Last event seen; -1 asks only for events from now on (nothing from before this launch). */
     private volatile long lastSeq = -1;
     private final List<JSONObject> pending = new ArrayList<>();
@@ -121,7 +122,8 @@ final class Bridge {
             // Never through a proxy (a VPN app's proxy would hold requests to this phone).
             c = (HttpURLConnection) new URL(BASE + path).openConnection(Proxy.NO_PROXY);
             c.setConnectTimeout(3000);
-            c.setReadTimeout(path.startsWith("/health") ? 3000 : 30000);
+            // Plugins and MCP servers are set up by Claude Code itself, which may take minutes.
+            c.setReadTimeout(path.startsWith("/health") ? 3000 : path.startsWith("/plugin") || path.startsWith("/mcp") ? 310_000 : 30000);
             c.setRequestMethod(method);
             c.setRequestProperty("X-Token", token);
             // A fresh connection each time: a reused one the bridge has closed loses the answer.
@@ -170,10 +172,7 @@ final class Bridge {
                 run(why);
                 result = waitUntilUp();
             }
-            if ("ok".equals(result) && !reading) {
-                reading = true;
-                pool.execute(this::readEvents);
-            }
+            if ("ok".equals(result) && reading.compareAndSet(false, true)) pool.execute(this::readEvents);
             String r = result;
             ui.post(() -> done.accept(r));
         });
@@ -228,7 +227,7 @@ final class Bridge {
     /** Reads the event stream, reconnecting, and hands events over in batches. */
     private void readEvents() {
         boolean up = false;
-        while (reading) {
+        while (reading.get()) {
             HttpURLConnection c = null;
             try {
                 c = (HttpURLConnection) new URL(BASE + "/events?since=" + lastSeq).openConnection(Proxy.NO_PROXY);
@@ -242,7 +241,7 @@ final class Bridge {
                 }
                 BufferedReader reader = new BufferedReader(
                         new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
-                for (String line; reading && (line = reader.readLine()) != null; ) {
+                for (String line; reading.get() && (line = reader.readLine()) != null; ) {
                     if (!line.startsWith("data: ")) continue;
                     try {
                         JSONObject event = new JSONObject(line.substring(6));
@@ -282,7 +281,7 @@ final class Bridge {
     }
 
     void close() {
-        reading = false;
+        reading.set(false);
         pool.shutdownNow();
     }
 }

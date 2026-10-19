@@ -29,7 +29,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="runtime-$RUNTIME_ID"
-          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Built again (the cache was gone): installs download the published one, so its checksum goes in the app.
+            if [ "${{ steps.userland.outputs.cache-hit }}" != 'true' ]; then
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" -p rootfs.tar.xz -D userland --clobber
+            fi
+          else
             gh release create "$tag" userland/rootfs.tar.xz --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
               --prerelease --title "Claude Code app userland $RUNTIME_ID" \
               --notes "Alpine with Claude Code, downloaded by the Claude Code app on first launch."

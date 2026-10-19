@@ -38,7 +38,7 @@ final class Highlight {
     static CharSequence code(Context c, String code, String lang) {
         if (code.isEmpty() || code.length() > MAX) return code;
         String l = lang.toLowerCase(Locale.ROOT);
-        StringBuilder re = new StringBuilder("(?<comment>/\\*[\\s\\S]*?(?:\\*/|$)");
+        StringBuilder re = new StringBuilder("(?<comment>/\\*[\\s\\S]*?(?:\\*/|\\z)");
         if (!HASH.contains(l) || l.isEmpty()) re.append("|(?<![:\\w])//[^\\n]*");
         if (HASH.contains(l)) re.append("|(?:^|(?<=\\s))#[^\\n]*");
         if (DASH.contains(l)) re.append("|--[^\\n]*");

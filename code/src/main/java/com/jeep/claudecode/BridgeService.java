@@ -78,6 +78,8 @@ public final class BridgeService extends Service {
         worker.shutdownNow();
         Process p = proc;
         proc = null; // its watcher must not start another on the stopped worker
+        int pid = bridgePid();
+        if (pid > 0) android.os.Process.sendSignal(pid, 15); // proot ignores SIGTERM: the bridge is told
         if (p != null) p.destroy();
         if (wake != null && wake.isHeld()) wake.release();
         super.onDestroy();

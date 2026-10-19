@@ -6,3 +6,6 @@ local.properties
 
 # Built in CI by code/runtime/*.sh
 code/src/main/assets/runtime/
+
+# Python bytecode (from running bridge.py locally)
+__pycache__/

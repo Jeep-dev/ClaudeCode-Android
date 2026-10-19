@@ -24,7 +24,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 24  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 25  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -128,6 +128,13 @@ def claude_path():
     return shutil.which('claude') or os.path.join(os.environ.get('PREFIX', '/usr'), 'bin', 'claude')
 
 
+def low(args):
+    """args run at low priority, through nice when there is one: preexec_fn is not safe in a
+    process with threads."""
+    nice = shutil.which('nice')
+    return [nice, '-n', '15'] + args if nice else args
+
+
 class Chat:
     def __init__(self, key):
         self.key = key
@@ -144,6 +151,7 @@ class Chat:
         self.launch_gen = None
         self.last_out = time.time()
         self.quiet_logged = False
+        self.turn = 0  # counts messages sent: a forced stop is for the turn it was asked in
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -237,6 +245,7 @@ class Chat:
             if not self.alive():
                 self.start()
             self.running = True
+            self.turn += 1
             self.used = time.time()
             self.last_out = time.time()
             if isinstance(content, list):
@@ -261,29 +270,38 @@ class Chat:
                 self.proc.stdin.flush()
             except OSError:
                 pass
-            proc = self.proc
+            proc, turn = self.proc, self.turn
 
         def force():
             time.sleep(5)
-            if self.running and self.proc is proc:
-                self.close()
+            with self.lock:
+                if self.running and self.proc is proc and self.turn == turn:
+                    self.close()
         threading.Thread(target=force, daemon=True).start()
 
     def close(self):
-        proc = self.proc
-        if proc is None:
-            return
-        try:
-            proc.stdin.close()
-        except OSError:
-            pass
+        end(self.proc)
+
+
+def end(proc):
+    """Ends a claude process: end of input, then SIGTERM, then SIGKILL; returns once it is gone,
+    so a new one is never started (or written to) while the old one still runs."""
+    if proc is None:
+        return
+    try:
+        proc.stdin.close()
+    except OSError:
+        pass
+    for sig in (signal.SIGTERM, signal.SIGKILL):
         try:
             proc.wait(3)
+            return
         except subprocess.TimeoutExpired:
             try:
-                os.killpg(proc.pid, signal.SIGTERM)
+                os.killpg(proc.pid, sig)
             except OSError:
-                proc.kill()
+                proc.send_signal(sig)
+    proc.wait()
 
 
 chats = {}
@@ -291,9 +309,10 @@ chats_lock = threading.Lock()
 seen_messages = []  # ids of messages already sent: the app may repeat a request whose answer it lost
 
 
-def chat_for(key, session_id=None):
+def chat_for(key, session_id=None, create=True):
     """The conversation for the app's key. A session already running under another key (the app
-    was restarted meanwhile) is taken over, so one session never has two processes."""
+    was restarted meanwhile) is taken over, so one session never has two processes. None when
+    there is none and create is False."""
     with chats_lock:
         if key in chats:
             return chats[key]
@@ -304,6 +323,8 @@ def chat_for(key, session_id=None):
                     chat.key = key
                     chats[key] = chat
                     return chat
+        if not create:
+            return None
         chats[key] = Chat(key)
         return chats[key]
 
@@ -318,10 +339,14 @@ def reaper():
         if now - tick > 20:
             log('bridge was paused for %ds (frozen by the system?)' % (now - tick - 5))
         tick = now
-        for chat in list(chats.values()):
+        with chats_lock:
+            live = list(chats.values())
+        for chat in live:
             if chat.alive() and not chat.running and time.time() - chat.used > IDLE_SECONDS:
-                log('chat %s: idle, stopping its claude' % chat.key[:8])
-                chat.close()
+                with chat.lock:  # a message being sent meanwhile keeps it
+                    if chat.alive() and not chat.running and time.time() - chat.used > IDLE_SECONDS:
+                        log('chat %s: idle, stopping its claude' % chat.key[:8])
+                        chat.close()
             if chat.running and not chat.quiet_logged and time.time() - chat.last_out > 60:
                 chat.quiet_logged = True
                 log('chat %s: no output from claude for 60s (alive: %s)' % (chat.key[:8], chat.alive()))
@@ -384,6 +409,20 @@ def save_summaries(paths):
         pass
 
 
+def last_custom_title(path):
+    """The name a transcript was last given (/rename), found by a byte search instead of reading it."""
+    try:
+        with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+            at = data.rfind(b'"customTitle"')
+            if at < 0:
+                return None
+            end = data.find(b'\n', at)
+            line = data[data.rfind(b'\n', 0, at) + 1:end if end >= 0 else len(data)]
+        return json.loads(line.decode('utf-8', 'replace')).get('customTitle')
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def session_summary(path):
     global _summary_changed
     st = os.stat(path)
@@ -400,6 +439,7 @@ def session_summary(path):
                     pass
             if title and cwd:
                 if n > 400 and custom is None and st.st_size > 2_000_000:
+                    custom = last_custom_title(path)  # a long one is read only at its start
                     break
                 continue
             try:
@@ -454,7 +494,9 @@ def list_sessions():
                 items.append(dict(info))  # a copy: 'running' below stays out of the saved summaries
         save_summaries(set(paths))
     items.sort(key=lambda i: -i['mtime'])
-    for chat in chats.values():
+    with chats_lock:
+        live = list(chats.values())
+    for chat in live:
         for item in items:
             if item['id'] == chat.session_id:
                 item['running'] = chat.running
@@ -670,8 +712,7 @@ def find_claude_info():
             pass
 
         def ask(arg):
-            return subprocess.run([path, arg], capture_output=True, text=True, timeout=120,
-                                  preexec_fn=lambda: os.nice(15)).stdout
+            return subprocess.run(low([path, arg]), capture_output=True, text=True, timeout=120).stdout
         out = ask('--version')
         version = out.split()[0] if out.strip() else ''
         found = help_choices(ask('--help'))
@@ -903,9 +944,9 @@ def find_models():
             pass
         found = None
         try:
-            proc = subprocess.Popen([claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-                                     '--verbose'], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    text=True, cwd=HOME, preexec_fn=lambda: os.nice(15))
+            proc = subprocess.Popen(low([claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
+                                         '--verbose']), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                    text=True, cwd=HOME)
         except OSError:
             return
         timer = threading.Timer(120, proc.kill)
@@ -928,6 +969,12 @@ def find_models():
         finally:
             timer.cancel()
             proc.kill()
+            proc.wait()
+            for f in (proc.stdin, proc.stdout):
+                try:
+                    f.close()
+                except OSError:
+                    pass
         if isinstance(found, list) and found:
             claude_models = [{k: m.get(k) for k in ('value', 'displayName', 'resolvedModel', 'description')} for m in found
                              if isinstance(m, dict) and m.get('value')]
@@ -1107,9 +1154,14 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 chat.send(data['content'], cwd=data.get('cwd'), model=data.get('model') or None,
                           session_id=data.get('sessionId'), effort=data.get('effort') or None)
-            except (OSError, ValueError) as e:
+            except Exception as e:
                 chat.running = False
-                return self.reply(500, {'error': str(e)})
+                with chats_lock:
+                    if mid in seen_messages:
+                        seen_messages.remove(mid)  # not sent: the app's retry sends it
+                if isinstance(e, (OSError, ValueError)):
+                    return self.reply(500, {'error': str(e)})
+                raise
             self.reply(200, {'ok': True})
         elif path == '/launch':
             launch.set(data)
@@ -1126,11 +1178,21 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/plugin':
             self.plugin(data)
         elif path == '/stop':
-            chat_for(data['chat']).stop()
+            chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+            if chat:
+                chat.stop()
             self.reply(200, {'ok': True})
         elif path == '/delete':
             session_id = data.get('id', '')
             target = find_session(session_id) if session_id else None
+            # Its claude goes first: it would write the transcript again. No exit event: the app let it go.
+            with chats_lock:
+                gone = [chats.pop(k) for k in [k for k, c in chats.items() if session_id and c.session_id == session_id]]
+            for chat in gone:
+                with chat.lock:
+                    chat.running = False
+                    proc, chat.proc = chat.proc, None
+                    end(proc)
             if target:
                 os.remove(target)
                 shutil.rmtree(target[:-6], ignore_errors=True)

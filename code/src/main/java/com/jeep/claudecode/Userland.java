@@ -100,7 +100,7 @@ final class Userland {
             chmod(f, 0700);
         }
         marker().delete();
-        long total = inApk ? assets.openFd("runtime/rootfs.tar.xz").getLength() : download.length();
+        long total = inApk ? assetLength(assets, "runtime/rootfs.tar.xz") : download.length();
         long[] done = {0};
         int[] shown = {-1};
         InputStream source = inApk ? assets.open("runtime/rootfs.tar.xz", AssetManager.ACCESS_STREAMING) : new FileInputStream(download);
@@ -526,8 +526,8 @@ final class Userland {
                     }
                 }
             }
-        } catch (android.content.pm.PackageManager.NameNotFoundException | ErrnoException e) {
-            // no Shizuku: rish says so
+        } catch (android.content.pm.PackageManager.NameNotFoundException | ErrnoException | IOException e) {
+            // no Shizuku, or its APK could not be read: rish says so, and nothing else depends on it
         }
         StringBuilder env = new StringBuilder();
         for (java.util.Map.Entry<String, String> e : System.getenv().entrySet()) {
@@ -609,6 +609,26 @@ final class Userland {
         mkdirs(f.getParentFile());
         try (OutputStream out = new FileOutputStream(f)) {
             out.write(text.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private static long assetLength(AssetManager assets, String name) throws IOException {
+        try (android.content.res.AssetFileDescriptor fd = assets.openFd(name)) {
+            return fd.getLength();
+        }
+    }
+
+    /**
+     * Writes a file others read meanwhile (Claude Code's settings): aside, then moved in, so it is
+     * never seen half written. A symbolic link is written through, as it was.
+     */
+    static void replace(File f, String text) throws IOException {
+        if (java.nio.file.Files.isSymbolicLink(f.toPath())) { write(f, text); return; }
+        File part = new File(f.getPath() + ".part");
+        write(part, text);
+        if (!part.renameTo(f)) {
+            part.delete();
+            throw new IOException("could not replace " + f);
         }
     }
 

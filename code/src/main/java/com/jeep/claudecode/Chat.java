@@ -233,7 +233,10 @@ final class Chat {
                         break;
                     case "input_json_delta":
                         b.partial += dl.optString("partial_json");
-                        try { b.input = new JSONObject(b.partial); } catch (Exception ignored) { /* incomplete */ }
+                        // Read when it can be whole, not on every piece (a long file's input is thousands).
+                        if (b.partial.trim().endsWith("}")) {
+                            try { b.input = new JSONObject(b.partial); } catch (Exception ignored) { /* incomplete */ }
+                        }
                         break;
                     default:
                 }
@@ -334,6 +337,7 @@ final class Chat {
 
     /** Messages from the bridge's /history (Claude Code's transcript). */
     void load(JSONObject history) {
+        Msg live = reply(false); // a reply under way is not in the transcript yet: it stays, after it
         messages.clear();
         if (!history.optString("model").isEmpty() && model == null) model = history.optString("model");
         JSONArray list = history.optJSONArray("messages");
@@ -389,5 +393,6 @@ final class Chat {
                 messages.add(m);
             }
         }
+        if (live != null) messages.add(live);
     }
 }
