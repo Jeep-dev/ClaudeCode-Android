@@ -7,7 +7,6 @@ ARCH=$1
 OUT=$(realpath "$2")
 ALPINE=3.24
 ALPINE_RELEASE=3.24.2
-RELEASES=https://downloads.claude.ai/claude-code-releases
 PACKAGES="bash python3 git ripgrep libgcc libstdc++ curl less"
 MIRROR=https://dl-cdn.alpinelinux.org/alpine
 # What the app's apk installs from later (fast from China, works anywhere).
@@ -38,20 +37,12 @@ printf '%s/v%s/main\n%s/v%s/community\n' "$APP_MIRROR" "$ALPINE" "$APP_MIRROR" "
 echo /bin/bash >> "$root/etc/shells"
 sed -i 's|^root:x:0:0:root:/root:/bin/sh$|root:x:0:0:root:/root:/bin/bash|' "$root/etc/passwd"
 
-# Claude Code, the latest when this is built, checked against its release manifest. It is the
-# app's own (/opt/ccapp/claude); /usr/local/bin/claude leads to it until the user puts another
-# version there with claude-update, which app updates then leave alone.
-CLAUDE=$(curl -fsSL "$RELEASES/latest")
-base=$RELEASES/$CLAUDE
-sum=$(curl -fsSL "$base/manifest.json" | python3 -c "import json,sys; print(json.load(sys.stdin)['platforms']['$PLATFORM']['checksum'])")
-mkdir -p "$root/opt/ccapp"
-curl -fsSL -o "$root/opt/ccapp/claude" "$base/$PLATFORM/claude"
-echo "$sum  $root/opt/ccapp/claude" | sha256sum -c -
-chmod 755 "$root/opt/ccapp/claude"
+# Claude Code is not in it: the app installs it from Anthropic's releases with claude-update on
+# first launch, and claude-update updates it, the only place it comes from.
 cat > "$root/usr/local/bin/claude-update" <<'UPDATE'
 #!/bin/sh
 # claude-update [version]: puts that version of Claude Code (the latest when none is given) in
-# /usr/local/bin/claude, checked against its release manifest. It stays there: app updates leave it.
+# /usr/local/bin/claude, checked against its release manifest. App updates leave it.
 set -eu
 B=https://downloads.claude.ai/claude-code-releases
 V=${1:-$(curl -fsSL "$B/latest")}

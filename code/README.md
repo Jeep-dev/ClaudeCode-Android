@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.55)
+# Claude Code for Android (v0.4.56)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -9,7 +9,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
 - The app carries its own Linux userland: Alpine (bash, Python, git, ripgrep, curl) with Claude
   Code's linux-arm64-musl build, packed as `assets/runtime/rootfs.tar.xz` by
   `runtime/build-rootfs.sh`, and Termux's proot (`runtime/fetch-proot.sh`). Both are built in
-  CI (cached by the scripts' hash; Claude Code is the latest when the userland is built, kept as the app's own in `/opt/ccapp`; `claude-update [version]` in the terminal puts another in `/usr/local/bin`, which app updates leave alone). On first
+  CI (cached by the scripts' hash; Claude Code is not in it: on first launch the app installs the latest from Anthropic's releases with the userland's `claude-update`, which also updates it from the terminal). On first
   launch, or after an update that brings a new userland, the app unpacks it into its files
   (over what is there: `/root` and packages added with `apk add` stay). targetSdk is 28 so the
   app may run programs from its own files, as Termux does.

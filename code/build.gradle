@@ -9,8 +9,8 @@ android {
         // 28: Claude Code and the userland's programs run from this app's files, which Android
         // allows only to apps targeting 28 or lower (as Termux does).
         targetSdk 28
-        versionCode 83
-        versionName '0.4.55'
+        versionCode 84
+        versionName '0.4.56'
     }
     signingConfigs {
         release {

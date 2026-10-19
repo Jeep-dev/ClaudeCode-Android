@@ -62,14 +62,64 @@ final class Userland {
 
     private File marker() { return new File(rootfs, ".ccapp-runtime"); }
 
-    /** The userland in this APK is unpacked. */
+    /** The userland in this APK is unpacked, and Claude Code is in it. */
     boolean ready() {
+        return unpacked() && hasClaude();
+    }
+
+    private boolean unpacked() {
         String id = bundled();
         if (id == null) return false;
         try {
             return id.equals(read(new FileInputStream(marker())).trim());
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    /** /usr/local/bin/claude is there (a link followed inside the userland). */
+    private boolean hasClaude() {
+        File f = new File(rootfs, "usr/local/bin/claude");
+        try {
+            String to = Os.readlink(f.getPath());
+            f = to.startsWith("/") ? new File(rootfs, to.substring(1)) : new File(f.getParentFile(), to);
+        } catch (ErrnoException notLink) {
+            // the file itself
+        }
+        return f.isFile();
+    }
+
+    /**
+     * Installs Claude Code from Anthropic's releases with the userland's claude-update (the
+     * latest, checked against its manifest), telling how far the download is.
+     */
+    private void installClaude(Consumer<String> status) throws IOException {
+        status.accept("下载 Claude Code");
+        ProcessBuilder pb = new ProcessBuilder(command("/usr/local/bin/claude-update"));
+        env(pb);
+        pb.directory(base);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        StringBuilder line = new StringBuilder(), tail = new StringBuilder();
+        java.util.regex.Pattern percent = java.util.regex.Pattern.compile("^\\s*(\\d{1,3})\\s+\\S+\\s+\\d");
+        try (java.io.Reader in = new java.io.InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8)) {
+            for (int c; (c = in.read()) >= 0; ) {
+                if (c != '\r' && c != '\n') { line.append((char) c); continue; }
+                // curl's progress: "  45  180M   45 81.2M ..." on one line, rewritten with \r
+                java.util.regex.Matcher m = percent.matcher(line);
+                if (m.find()) status.accept("下载 Claude Code " + m.group(1) + "%");
+                else if (line.length() > 0) tail.append(line).append('\n');
+                line.setLength(0);
+            }
+        }
+        try {
+            if (p.waitFor() != 0 || !hasClaude()) {
+                String t = tail.toString().trim();
+                throw new IOException("没能装上 Claude Code" + (t.isEmpty() ? "" : "：" + t.substring(Math.max(0, t.length() - 300))));
+            }
+        } catch (InterruptedException e) {
+            p.destroy();
+            throw new IOException("被打断了");
         }
     }
 
@@ -80,6 +130,11 @@ final class Userland {
     void install(Consumer<String> status) throws IOException {
         String id = bundled();
         if (id == null) throw new IOException("这个安装包里没有运行环境");
+        if (!unpacked()) unpack(id, status);
+        if (!hasClaude()) installClaude(status);
+    }
+
+    private void unpack(String id, Consumer<String> status) throws IOException {
         AssetManager assets = context.getAssets();
         boolean inApk;
         try (InputStream ignored = assets.open("runtime/rootfs.tar.xz")) {
@@ -493,7 +548,7 @@ final class Userland {
         c.add("TMPDIR=/tmp");
         // Root in proot is this app's own user: let Claude Code skip permission prompts as root.
         c.add("IS_SANDBOX=1");
-        // Claude Code changes only when the user runs claude-update (or with a new userland, if not).
+        // Claude Code changes only when claude-update is run.
         c.add("DISABLE_AUTOUPDATER=1");
         c.add("USE_BUILTIN_RIPGREP=0");
         for (String a : args) c.add(a);
@@ -605,17 +660,6 @@ final class Userland {
 
     private void prepareFiles() throws IOException {
         mkdirs(tmp);
-        // Claude Code: the app's own until the user puts another version here (claude-update).
-        File claude = new File(rootfs, "usr/local/bin/claude");
-        try {
-            Os.lstat(claude.getPath());
-        } catch (ErrnoException missing) {
-            try {
-                Os.symlink("/opt/ccapp/claude", claude.getPath());
-            } catch (ErrnoException e) {
-                throw new IOException("claude: " + e.getMessage());
-            }
-        }
         writeRish();
         Set<String> dns = new LinkedHashSet<>();
         try {
