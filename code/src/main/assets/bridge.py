@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 28  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 29  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -160,6 +160,7 @@ class Chat:
         self.quiet_logged = False
         self.turn = 0  # counts messages sent: a forced stop is for the turn it was asked in
         self.asks = {}  # request id -> Claude Code's question whether a tool may run, not answered yet
+        self.titling = False  # a name is being made from its first message
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -227,7 +228,7 @@ class Chat:
                     msg.get('num_turns')))
                 if msg.get('is_error') and msg.get('result'):
                     log('chat %s: %s' % (self.key[:8], str(msg.get('result'))[:500]))
-                if self.session_id and not msg.get('is_error'):
+                if self.session_id and not msg.get('is_error') and not self.titling:
                     name_later(self.key, self.session_id)
             elif kind == 'assistant':
                 err = msg.get('error')
@@ -262,6 +263,8 @@ class Chat:
                     self.close()  # restarts with the new settings, resuming the session
             if not self.alive():
                 self.start()
+            if not self.session_id and not self.titling:
+                name_new(self, content)  # alongside the first turn, not after it
             self.running = True
             self.turn += 1
             self.used = time.time()
@@ -509,6 +512,53 @@ def chat_key(session_id):
         return next((k for k, c in chats.items() if c.session_id == session_id), session_id)
 
 
+def make_title(text):
+    """A short name for a conversation that starts with text, from Haiku in a process of its own
+    (the conversation's own requests, and so its prompt cache, are not touched); None on failure."""
+    out = subprocess.run([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
+                          '--strict-mcp-config', '--system-prompt', TITLE_PROMPT, '--output-format', 'text'],
+                         input=text, capture_output=True, text=True, timeout=120, cwd=HOME)
+    title = ' '.join(out.stdout.split()).strip('"\'“”「」 ')[:80]
+    if out.returncode != 0 or not title:
+        log('naming failed: %s' % (out.stderr or out.stdout).strip()[-300:])
+        return None
+    return title
+
+
+def keep_title(key, session_id, title):
+    with titles_lock:
+        titles[session_id] = title
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(TITLES_FILE + '.tmp', 'w', encoding='utf-8') as f:
+            json.dump(titles, f, ensure_ascii=False)
+        os.replace(TITLES_FILE + '.tmp', TITLES_FILE)
+    hub.emit(key, 'title', {'session_id': session_id, 'title': title})
+
+
+def name_new(chat, content):
+    """Names a new conversation from its first message while its first turn runs."""
+    text = content if isinstance(content, str) else '\n'.join(
+        b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text')
+    if not text.strip():
+        return
+    chat.titling = True
+
+    def run():
+        try:
+            title = make_title(text[:2000])
+            for _ in range(600):  # the session's id comes with its first output
+                if chat.session_id:
+                    break
+                time.sleep(0.5)
+            if title and chat.session_id:
+                keep_title(chat.key, chat.session_id, title)
+        except (OSError, subprocess.SubprocessError) as e:
+            log('naming failed: %s' % e)
+        finally:
+            chat.titling = False
+    threading.Thread(target=run, daemon=True).start()
+
+
 def name_later(key, session_id, again=False):
     """Names a conversation after its first turn, with Haiku in a process of its own (the
     conversation's own requests, and so its prompt cache, are not touched); once. Asked again,
@@ -524,22 +574,12 @@ def name_later(key, session_id, again=False):
             text = first_prompt(path) if path else ''
             if not text:
                 return
-            out = subprocess.run(low([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
-                                      '--strict-mcp-config', '--system-prompt', TITLE_PROMPT, '--output-format', 'text']),
-                                 input=text, capture_output=True, text=True, timeout=120, cwd=HOME)
-            title = ' '.join(out.stdout.split()).strip('"\'“”「」 ')[:80]
-            if out.returncode != 0 or not title:
-                log('naming %s failed: %s' % (session_id[:8], (out.stderr or out.stdout).strip()[-300:]))
+            title = make_title(text)
+            if not title:
                 return
             if again:
                 rename(session_id, title)
-            with titles_lock:
-                titles[session_id] = title
-                os.makedirs(STATE_DIR, exist_ok=True)
-                with open(TITLES_FILE + '.tmp', 'w', encoding='utf-8') as f:
-                    json.dump(titles, f, ensure_ascii=False)
-                os.replace(TITLES_FILE + '.tmp', TITLES_FILE)
-            hub.emit(key, 'title', {'session_id': session_id, 'title': title})
+            keep_title(key, session_id, title)
         except (OSError, subprocess.SubprocessError) as e:
             log('naming %s failed: %s' % (session_id[:8], e))
         finally:
