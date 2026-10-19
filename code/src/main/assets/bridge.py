@@ -27,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 34  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 35  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -39,8 +39,10 @@ LOG_FILE = os.path.join(STATE_DIR, 'bridge.log')
 LAUNCH_FILE = os.path.join(STATE_DIR, 'launch.json')
 MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's settings
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
-STALE_SECONDS = 60  # idle this long, the next request may go to a connection that is gone (Chat.send)
-SHORT_WAIT_MS, API_WAIT_MS = '20000', '600000'  # API_TIMEOUT_MS then, and as Claude Code has it
+# Idle this long, a claude's connections to the API may be gone (dropped by the phone's network, or
+# all was frozen) with nothing telling it: a request sent on one gets no answer until Claude Code's
+# timeout, and its retry may get another such one. It is started again first (Chat.refresh).
+STALE_SECONDS = 3 * 60
 IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
 
 
@@ -178,6 +180,7 @@ class Spare:
         self.want = (DEFAULT_CWD, None, None)  # folder, model and effort of the last new conversation
         self.retry_at = 0.0
         self.failures = 0
+        self.started = 0.0
 
     def take(self, cwd, model, effort):
         """The spare's process and the model and effort it was started with, when it fits a new
@@ -193,12 +196,15 @@ class Spare:
         threading.Thread(target=end, args=(proc,), daemon=True).start()
         return None
 
-    def fill(self):
+    def fill(self, fresh=False):
+        """Starts the spare unless one fits; fresh: also when it was started STALE_SECONDS ago
+        (with a subscription, Claude Code talks to Anthropic when it starts)."""
         cwd, model, effort = self.want
         key = (cwd, model, effort, launch.gen)
         with self.lock:
             if self.proc is not None:
-                if self.proc.poll() is None and self.key == key:
+                if self.proc.poll() is None and self.key == key and \
+                        not (fresh and time.time() - self.started > STALE_SECONDS):
                     return
                 old, self.proc = self.proc, None
                 if old.poll() is not None:  # it ended by itself: wait longer each time
@@ -217,6 +223,7 @@ class Spare:
                 log('spare claude not started: %s' % e)
                 return
             self.key = key
+            self.started = time.time()
             pid = self.proc.pid
         log('spare claude pid %d started for a new conversation in %s' % (pid, cwd))
 
@@ -252,7 +259,6 @@ class Chat:
         self.titling = False  # a name is being made from its first message
         self.opened = False  # started when the app opened it, no message sent since
         self.write_lock = threading.Lock()
-        self.short_wait = False  # API_TIMEOUT_MS is short until the reply starts (Chat.send)
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -260,7 +266,6 @@ class Chat:
     def start(self):
         self.launch_gen = launch.gen
         self.stderr = []
-        self.short_wait = False
         taken = None if self.session_id else spare.take(self.cwd, self.model, self.effort)
         proc = taken[0] if taken else spawn(claude_args(self.session_id, self.model, self.effort), self.cwd)
         self.proc = proc
@@ -291,12 +296,6 @@ class Chat:
             if msg.get('session_id'):
                 self.session_id = msg['session_id']
             kind, sub = msg.get('type'), msg.get('subtype')
-            if self.short_wait and kind in ('stream_event', 'assistant', 'result'):
-                self.short_wait = False
-                try:
-                    self.apply_env(proc)
-                except OSError:
-                    pass
             if kind == 'control_request' and (msg.get('request') or {}).get('subtype') == 'can_use_tool':
                 self.asks[msg.get('request_id')] = msg
                 log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
@@ -361,14 +360,9 @@ class Chat:
             new = not self.session_id and not self.alive()
             if new:  # the next spare is started like this one
                 spare.want = (self.cwd, model, effort)
+            self.refresh()
             if not self.alive():
                 self.start()
-            elif time.time() - self.last_out > STALE_SECONDS:
-                # A connection to the API kept since may be gone (the phone's network dropped it, or
-                # all was frozen): a request on it gets no answer and waits for the timeout, three
-                # minutes by default. Short until the reply starts, then as it was.
-                self.short_wait = True
-                self.apply_env()
             self.opened = False
             if new and not self.titling:
                 name_new(self, content)  # alongside the first turn, not after it
@@ -391,13 +385,18 @@ class Chat:
         if effort != self.effort:
             self.apply_env()
 
-    def apply_env(self, proc=None):
-        """The effort level and API_TIMEOUT_MS in the running claude; together, as each one sent
-        replaces the last one's."""
-        env = {'API_TIMEOUT_MS': SHORT_WAIT_MS if self.short_wait else API_WAIT_MS}
-        if self.effort:
-            env['CLAUDE_CODE_EFFORT_LEVEL'] = self.effort
-        self.control({'subtype': 'apply_flag_settings', 'settings': {'env': env}}, proc)
+    def apply_env(self):
+        # Each env sent replaces the last one's: everything set this way goes in every time.
+        env = {'CLAUDE_CODE_EFFORT_LEVEL': self.effort} if self.effort else {}
+        self.control({'subtype': 'apply_flag_settings', 'settings': {'env': env}})
+
+    def refresh(self):
+        """Starts an idle claude again when it was idle so long its connections may be gone
+        (STALE_SECONDS); resumed, with the session's history and cache. Called holding the lock."""
+        if self.alive() and not self.running and self.session_id and time.time() - self.last_out > STALE_SECONDS:
+            log('chat %s: idle %ds, starting its claude again' % (self.key[:8], time.time() - self.last_out))
+            self.close()
+            self.start()
 
     def write(self, proc, message):
         """One line to claude: the reading thread writes too (Chat.read_out)."""
@@ -405,8 +404,8 @@ class Chat:
             proc.stdin.write(json.dumps(message, ensure_ascii=False) + '\n')
             proc.stdin.flush()
 
-    def control(self, request, proc=None):
-        self.write(proc or self.proc, {'type': 'control_request', 'request_id': 'set-%s' % uuid.uuid4().hex[:12],
+    def control(self, request):
+        self.write(self.proc, {'type': 'control_request', 'request_id': 'set-%s' % uuid.uuid4().hex[:12],
                                        'request': request})
         log('chat %s: %s %s' % (self.key[:8], request['subtype'], request.get('model') or
                                 (request.get('settings') or {}).get('env') or 'default'))
@@ -424,6 +423,8 @@ class Chat:
                 self.start()
                 self.opened = True
                 self.used = time.time()
+            else:
+                self.refresh()
         with chats_lock:
             before, last_opened = last_opened, self
         if before is not None and before is not self:
@@ -1561,6 +1562,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             self.reply(200, {'ok': True})
         elif path == '/open':
+            threading.Thread(target=spare.fill, args=(True,), daemon=True).start()
             if data.get('sessionId'):
                 chat = chat_for(data['chat'], data['sessionId'])
                 try:

@@ -174,6 +174,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         super.onResume();
         resumed = true;
         if (!linked && !connecting && setup == null) connect(false);
+        else if (linked) opened(current);
     }
 
     @Override protected void onPause() {
@@ -1076,8 +1077,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (chat.title.isEmpty()) chat.title = titleText;
         switchTo(chat);
         loadHistory(chat);
-        // Its Claude Code starts now: the next message does not wait for it to start.
-        if (linked) bridge.post("/open", obj("chat", chat.key, "sessionId", id, "cwd", chat.cwd,
+        if (linked) opened(chat);
+    }
+
+    /** Its Claude Code is started now (or again, idle so long its connections may be gone), and so is
+     *  the one for a new conversation: the next message does not wait for one to start. */
+    private void opened(Chat chat) {
+        if (chat == null) return;
+        bridge.post("/open", obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort), null);
     }
 
