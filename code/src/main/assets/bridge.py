@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 27  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 28  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -488,11 +488,33 @@ def first_prompt(path, limit=2000):
     return ''
 
 
-def name_later(key, session_id):
+def rename(session_id, title):
+    """Names a conversation as /rename does: an entry in its transcript (Claude Code's /resume
+    sees it too), the transcript's time kept so it does not move up the list."""
+    path = find_session(session_id)
+    if not path:
+        return False
+    st = os.stat(path)
+    with open(path, 'a', encoding='utf-8') as f:
+        f.write(json.dumps({'type': 'custom-title', 'customTitle': title, 'sessionId': session_id}, ensure_ascii=False) + '\n')
+    os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+    with summary_lock:
+        summary_cache().pop(path, None)  # same time, new name: read again
+    return True
+
+
+def chat_key(session_id):
+    """The app's key for a session's conversation (the session id when none runs it)."""
+    with chats_lock:
+        return next((k for k, c in chats.items() if c.session_id == session_id), session_id)
+
+
+def name_later(key, session_id, again=False):
     """Names a conversation after its first turn, with Haiku in a process of its own (the
-    conversation's own requests, and so its prompt cache, are not touched); once."""
+    conversation's own requests, and so its prompt cache, are not touched); once. Asked again,
+    the new name is given as /rename gives one."""
     with titles_lock:
-        if session_id in titles or session_id in naming:
+        if (session_id in titles and not again) or session_id in naming:
             return
         naming.add(session_id)
 
@@ -509,6 +531,8 @@ def name_later(key, session_id):
             if out.returncode != 0 or not title:
                 log('naming %s failed: %s' % (session_id[:8], (out.stderr or out.stdout).strip()[-300:]))
                 return
+            if again:
+                rename(session_id, title)
             with titles_lock:
                 titles[session_id] = title
                 os.makedirs(STATE_DIR, exist_ok=True)
@@ -1369,6 +1393,15 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(target)
                 shutil.rmtree(target[:-6], ignore_errors=True)
             self.reply(200, {'ok': bool(target)})
+        elif path == '/title':
+            session_id = str(data.get('id') or '')
+            if data.get('title'):  # given by the user
+                ok = rename(session_id, ' '.join(str(data['title']).split())[:200])
+                return self.reply(200 if ok else 404, {'ok': ok})
+            if not find_session(session_id):
+                return self.reply(404, {'error': 'not found'})
+            name_later(chat_key(session_id), session_id, again=True)
+            self.reply(200, {'ok': True})
         elif path == '/permission':
             chat = chat_for(data['chat'], data.get('sessionId'), create=False)
             if not chat or not chat.answer(data['requestId'], bool(data.get('allow'))):

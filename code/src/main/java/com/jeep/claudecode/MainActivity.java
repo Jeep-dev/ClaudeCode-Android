@@ -1112,6 +1112,25 @@ public final class MainActivity extends Activity implements Bridge.Events {
             prefs.edit().putString("pinned", new JSONArray(pins).toString()).apply();
             renderSessions();
         });
+        option(card, R.drawable.ic_pencil, "改名", null, false, () -> {
+            sheet.dismiss();
+            textSheet("改名", titleText, "", false, (t, done) -> {
+                String name = t.trim();
+                if (name.isEmpty()) return;
+                bridge.post("/title", obj("id", id, "title", name), (status, data) -> {
+                    if (status != 200) { toast("改名失败"); return; }
+                    Chat ch = chats.get(bySession.containsKey(id) ? bySession.get(id) : id);
+                    if (ch != null) ch.title = name;
+                    done.run();
+                    updateChrome();
+                    loadSessions();
+                });
+            }, null);
+        });
+        option(card, R.drawable.ic_refresh, "重新生成标题", null, false, () -> {
+            sheet.dismiss();
+            bridge.post("/title", obj("id", id), (status, data) -> toast(status == 200 ? "正在生成…" : "生成失败"));
+        });
         option(card, R.drawable.ic_trash, "删除对话", null, true, () -> {
             sheet.dismiss();
             bridge.post("/delete", obj("id", id), (status, data) -> {
