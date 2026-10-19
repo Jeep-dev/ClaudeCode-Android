@@ -27,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 36  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 37  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -43,6 +43,7 @@ STARTED = time.time()  # tells the app a new bridge took over (turns of the old 
 # all was frozen) with nothing telling it: a request sent on one gets no answer until Claude Code's
 # timeout, and its retry may get another such one. It is started again first (Chat.refresh).
 STALE_SECONDS = 3 * 60
+SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
 IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
 
 
@@ -652,9 +653,6 @@ def last_custom_title(path):
 
 
 TITLES_FILE = os.path.join(STATE_DIR, 'titles.json')
-TITLE_PROMPT = ('Name this conversation for a list of conversations: a short title, at most 12 words '
-                '(in Chinese, about 4 to 12 characters, when it is in Chinese), in its language, no quotes, '
-                'no punctuation at the end. Reply with the title only.')
 titles = {}  # session id -> a short name made for it (a name given with /rename comes first)
 titles_lock = threading.Lock()
 naming = set()
@@ -695,30 +693,6 @@ def rename(session_id, title):
     return True
 
 
-def chat_key(session_id):
-    """The app's key for a session's conversation (the session id when none runs it)."""
-    with chats_lock:
-        return next((k for k, c in chats.items() if c.session_id == session_id), session_id)
-
-
-def make_title(text):
-    """A short name for a conversation that starts with text, from a small fast model in a process
-    of its own (the conversation's own requests, and so its prompt cache, are not touched); None on
-    failure."""
-    # Only the message and a short system prompt: no tools, MCP servers, CLAUDE.md or hooks.
-    # At low priority: it runs alongside the conversation's own turn.
-    out = subprocess.run(low([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
-                              '--strict-mcp-config', '--settings', '{"disableAllHooks": true}',
-                              '--system-prompt', TITLE_PROMPT, '--output-format', 'text']),
-                         input=text, capture_output=True, text=True, timeout=120, cwd=HOME,
-                         env=dict(os.environ, CLAUDE_CODE_DISABLE_CLAUDE_MDS='1'))
-    title = ' '.join(out.stdout.split()).strip('"\'“”「」 ')[:80]
-    if out.returncode != 0 or not title:
-        log('naming failed: %s' % (out.stderr or out.stdout).strip()[-300:])
-        return None
-    return title
-
-
 def keep_title(key, session_id, title):
     with titles_lock:
         titles[session_id] = title
@@ -730,8 +704,8 @@ def keep_title(key, session_id, title):
 
 
 def name_new(chat, content):
-    """Names a new conversation from its first message while its first turn runs: by its own claude
-    (Chat.ask_title), or in a process of its own when it can not be asked."""
+    """Names a new conversation from its first message while its first turn runs, by its own claude
+    (Chat.ask_title)."""
     text = content if isinstance(content, str) else '\n'.join(
         b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text')
     if not text.strip():
@@ -741,54 +715,40 @@ def name_new(chat, content):
     def run():
         try:
             title = chat.ask_title(text[:2000])
-            if title is None:
-                title = make_title(text[:2000])
             for _ in range(600):  # the session's id comes with its first output
                 if chat.session_id:
                     break
                 time.sleep(0.5)
             if title and chat.session_id:
                 keep_title(chat.key, chat.session_id, title)
-        except (OSError, subprocess.SubprocessError) as e:
-            log('naming failed: %s' % e)
         finally:
             chat.titling = False
     threading.Thread(target=run, daemon=True).start()
 
 
-def name_later(key, session_id, again=False):
-    """Names a conversation after its first turn, by its claude when one runs (Chat.ask_title),
-    otherwise with a small fast model in a process of its own (the conversation's own requests,
-    and so its prompt cache, are not touched); once. Asked again, the new name is given as
-    /rename gives one."""
+def name_later(key, session_id):
+    """Names a conversation after a turn when it has no name yet (its first turn did not give one),
+    by its claude (Chat.ask_title); once."""
     with titles_lock:
-        if (session_id in titles and not again) or session_id in naming:
+        if session_id in titles or session_id in naming:
             return
         naming.add(session_id)
 
     def run():
         try:
-            path = find_session(session_id)
-            text = first_prompt(path) if path else ''
-            if not text:
-                return
             with chats_lock:
                 chat = next((c for c in chats.values() if c.session_id == session_id), None)
-            title = chat.ask_title(text) if chat else None
-            if title is None:
-                title = make_title(text)
-            if not title:
-                return
-            if again:
-                rename(session_id, title)
-            keep_title(key, session_id, title)
-        except (OSError, subprocess.SubprocessError) as e:
+            path = find_session(session_id)
+            text = first_prompt(path) if path and chat else ''
+            title = chat.ask_title(text) if text else None
+            if title:
+                keep_title(key, session_id, title)
+        except OSError as e:
             log('naming %s failed: %s' % (session_id[:8], e))
         finally:
             with titles_lock:
                 naming.discard(session_id)
     threading.Thread(target=run, daemon=True).start()
-
 
 def session_summary(path):
     global _summary_changed
@@ -859,8 +819,10 @@ def list_sessions():
                 continue
             if info:
                 item = dict(info)  # a copy: 'running' and names below stay out of the saved summaries
-                if not item.pop('named', False) and titles.get(item['id']):
-                    item['title'] = titles[item['id']]
+                if not item.pop('named', False):
+                    # Not named: a made name, or the first message when it is short (Claude Code names
+                    # none for those), otherwise none yet (the app shows a placeholder)
+                    item['title'] = titles.get(item['id']) or (item['title'] if len(item['title']) <= SHORT_TITLE else '')
                 items.append(item)
         save_summaries(set(paths))
     items.sort(key=lambda i: -i['mtime'])
@@ -1647,13 +1609,11 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'ok': bool(target)})
         elif path == '/title':
             session_id = str(data.get('id') or '')
-            if data.get('title'):  # given by the user
-                ok = rename(session_id, ' '.join(str(data['title']).split())[:200])
-                return self.reply(200 if ok else 404, {'ok': ok})
-            if not find_session(session_id):
-                return self.reply(404, {'error': 'not found'})
-            name_later(chat_key(session_id), session_id, again=True)
-            self.reply(200, {'ok': True})
+            title = ' '.join(str(data.get('title') or '').split())[:200]
+            if not title:
+                return self.reply(400, {'error': 'bad request'})
+            ok = rename(session_id, title)
+            self.reply(200 if ok else 404, {'ok': ok})
         elif path == '/permission':
             chat = chat_for(data['chat'], data.get('sessionId'), create=False)
             if not chat or not chat.answer(data['requestId'], bool(data.get('allow'))):

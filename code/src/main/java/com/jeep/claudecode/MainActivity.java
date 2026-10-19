@@ -67,6 +67,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity implements Bridge.Events {
     private static final int PICK_FILES = 1, PICK_FONT = 2;
     private static final int ASK_STORAGE = 2;
+    private static final int SHORT_TITLE = 16; // as the bridge's: a first message this short names its conversation until it has a name
     private static final String STORAGE = android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 
     private Bridge bridge;
@@ -1008,7 +1009,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
         }
         for (JSONObject s : ordered) {
-            String titleText = s.optString("title"), folder = s.optString("cwd"), id = s.optString("id");
+            String titleText = s.optString("title").isEmpty() ? "新对话" : s.optString("title"), folder = s.optString("cwd"), id = s.optString("id");
             boolean byName = titleText.toLowerCase(Locale.ROOT).contains(q) || folder.toLowerCase(Locale.ROOT).contains(q);
             if (!q.isEmpty() && !byName && !hits.containsKey(id)) continue;
             String g = pins.contains(id) ? "置顶" : group(s.optDouble("mtime"));
@@ -1122,13 +1123,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
             prefs.edit().putString("pinned", new JSONArray(pins).toString()).apply();
             renderSessions();
         });
-        option(card, R.drawable.ic_pencil, "改名", null, false, () -> {
+        option(card, R.drawable.ic_pencil, "重命名", null, false, () -> {
             sheet.dismiss();
-            textSheet("改名", titleText, "", false, (t, done) -> {
+            textSheet("重命名", titleText, "", false, (t, done) -> {
                 String name = t.trim();
                 if (name.isEmpty()) return;
                 bridge.post("/title", obj("id", id, "title", name), (status, data) -> {
-                    if (status != 200) { toast("改名失败"); return; }
+                    if (status != 200) { toast("重命名失败"); return; }
                     Chat ch = chats.get(bySession.containsKey(id) ? bySession.get(id) : id);
                     if (ch != null) ch.title = name;
                     done.run();
@@ -1136,10 +1137,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
                     loadSessions();
                 });
             }, null);
-        });
-        option(card, R.drawable.ic_refresh, "重新生成标题", null, false, () -> {
-            sheet.dismiss();
-            bridge.post("/title", obj("id", id), (status, data) -> toast(status == 200 ? "正在生成…" : "生成失败"));
         });
         option(card, R.drawable.ic_trash, "删除对话", null, true, () -> {
             sheet.dismiss();
@@ -1399,8 +1396,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         chat.messages.add(user);
         if (chat.title.isEmpty()) {
-            String t = (!text.isEmpty() ? text : !user.files.isEmpty() ? user.files.get(0) : "图片").split("\n")[0];
-            chat.title = t.length() > 60 ? t.substring(0, 60) : t;
+            // A short message is the name until one is made (Claude Code makes none for those); a long one is not shown.
+            String t = text.trim().replaceAll("\\s+", " ");
+            if (!t.isEmpty() && t.length() <= SHORT_TITLE) chat.title = t;
         }
         if (chat.cwd == null || chat.cwd.isEmpty()) chat.cwd = cwd.isEmpty() ? defaultCwd : cwd;
         chat.running = true;
