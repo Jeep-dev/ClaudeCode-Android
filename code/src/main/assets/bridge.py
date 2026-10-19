@@ -26,7 +26,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 29  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 30  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -515,9 +515,12 @@ def chat_key(session_id):
 def make_title(text):
     """A short name for a conversation that starts with text, from Haiku in a process of its own
     (the conversation's own requests, and so its prompt cache, are not touched); None on failure."""
+    # Only the message and a short system prompt: no tools, MCP servers, CLAUDE.md or hooks.
     out = subprocess.run([claude_path(), '-p', '--model', 'haiku', '--no-session-persistence', '--tools', '',
-                          '--strict-mcp-config', '--system-prompt', TITLE_PROMPT, '--output-format', 'text'],
-                         input=text, capture_output=True, text=True, timeout=120, cwd=HOME)
+                          '--strict-mcp-config', '--settings', '{"disableAllHooks": true}',
+                          '--system-prompt', TITLE_PROMPT, '--output-format', 'text'],
+                         input=text, capture_output=True, text=True, timeout=120, cwd=HOME,
+                         env=dict(os.environ, CLAUDE_CODE_DISABLE_CLAUDE_MDS='1'))
     title = ' '.join(out.stdout.split()).strip('"\'“”「」 ')[:80]
     if out.returncode != 0 or not title:
         log('naming failed: %s' % (out.stderr or out.stdout).strip()[-300:])
