@@ -27,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 32  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 33  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -39,6 +39,8 @@ LOG_FILE = os.path.join(STATE_DIR, 'bridge.log')
 LAUNCH_FILE = os.path.join(STATE_DIR, 'launch.json')
 MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's settings
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
+STALE_SECONDS = 60  # idle this long, the next request may go to a connection that is gone (Chat.send)
+SHORT_WAIT_MS, API_WAIT_MS = '20000', '600000'  # API_TIMEOUT_MS then, and as Claude Code has it
 IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
 
 
@@ -249,6 +251,8 @@ class Chat:
         self.asks = {}  # request id -> Claude Code's question whether a tool may run, not answered yet
         self.titling = False  # a name is being made from its first message
         self.opened = False  # started when the app opened it, no message sent since
+        self.write_lock = threading.Lock()
+        self.short_wait = False  # API_TIMEOUT_MS is short until the reply starts (Chat.send)
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -256,6 +260,7 @@ class Chat:
     def start(self):
         self.launch_gen = launch.gen
         self.stderr = []
+        self.short_wait = False
         taken = None if self.session_id else spare.take(self.cwd, self.model, self.effort)
         proc = taken[0] if taken else spawn(claude_args(self.session_id, self.model, self.effort), self.cwd)
         self.proc = proc
@@ -286,6 +291,12 @@ class Chat:
             if msg.get('session_id'):
                 self.session_id = msg['session_id']
             kind, sub = msg.get('type'), msg.get('subtype')
+            if self.short_wait and kind in ('stream_event', 'assistant', 'result'):
+                self.short_wait = False
+                try:
+                    self.apply_env(proc)
+                except OSError:
+                    pass
             if kind == 'control_request' and (msg.get('request') or {}).get('subtype') == 'can_use_tool':
                 self.asks[msg.get('request_id')] = msg
                 log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
@@ -352,6 +363,12 @@ class Chat:
                 spare.want = (self.cwd, model, effort)
             if not self.alive():
                 self.start()
+            elif time.time() - self.last_out > STALE_SECONDS:
+                # A connection to the API kept since may be gone (the phone's network dropped it, or
+                # all was frozen): a request on it gets no answer and waits for the timeout, three
+                # minutes by default. Short until the reply starts, then as it was.
+                self.short_wait = True
+                self.apply_env()
             self.opened = False
             if new and not self.titling:
                 name_new(self, content)  # alongside the first turn, not after it
@@ -364,9 +381,7 @@ class Chat:
                 log('chat %s: message sent (%d text, %d image)' % (self.key[:8], kinds.count('text'), kinds.count('image')))
             else:
                 log('chat %s: message sent' % self.key[:8])
-            line = json.dumps({'type': 'user', 'message': {'role': 'user', 'content': content}}, ensure_ascii=False)
-            self.proc.stdin.write(line + '\n')
-            self.proc.stdin.flush()
+            self.write(self.proc, {'type': 'user', 'message': {'role': 'user', 'content': content}})
             hub.emit(self.key, 'state', {'running': True})
 
     def switch(self, model, effort):
@@ -374,13 +389,25 @@ class Chat:
         if model != self.model:
             self.control({'subtype': 'set_model', 'model': self.model} if self.model else {'subtype': 'set_model'})
         if effort != self.effort:
-            self.control({'subtype': 'apply_flag_settings',
-                          'settings': {'env': {'CLAUDE_CODE_EFFORT_LEVEL': self.effort}}})
+            self.apply_env()
 
-    def control(self, request):
-        line = {'type': 'control_request', 'request_id': 'set-%s' % uuid.uuid4().hex[:12], 'request': request}
-        self.proc.stdin.write(json.dumps(line) + '\n')
-        self.proc.stdin.flush()
+    def apply_env(self, proc=None):
+        """The effort level and API_TIMEOUT_MS in the running claude; together, as each one sent
+        replaces the last one's."""
+        env = {'API_TIMEOUT_MS': SHORT_WAIT_MS if self.short_wait else API_WAIT_MS}
+        if self.effort:
+            env['CLAUDE_CODE_EFFORT_LEVEL'] = self.effort
+        self.control({'subtype': 'apply_flag_settings', 'settings': {'env': env}}, proc)
+
+    def write(self, proc, message):
+        """One line to claude: the reading thread writes too (Chat.read_out)."""
+        with self.write_lock:
+            proc.stdin.write(json.dumps(message, ensure_ascii=False) + '\n')
+            proc.stdin.flush()
+
+    def control(self, request, proc=None):
+        self.write(proc or self.proc, {'type': 'control_request', 'request_id': 'set-%s' % uuid.uuid4().hex[:12],
+                                       'request': request})
         log('chat %s: %s %s' % (self.key[:8], request['subtype'], request.get('model') or
                                 (request.get('settings') or {}).get('env') or 'default'))
 
@@ -418,9 +445,8 @@ class Chat:
                 response = {'behavior': 'deny', 'message': "The user doesn't want to proceed with this tool use. The tool use "
                             "was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what "
                             "you are doing and wait for the user to tell you how to proceed."}
-            line = {'type': 'control_response', 'response': {'subtype': 'success', 'request_id': request_id, 'response': response}}
-            self.proc.stdin.write(json.dumps(line, ensure_ascii=False) + '\n')
-            self.proc.stdin.flush()
+            self.write(self.proc, {'type': 'control_response', 'response': {'subtype': 'success', 'request_id': request_id,
+                                                                             'response': response}})
             log('chat %s: %s %s' % (self.key[:8], 'allowed' if allow else 'denied', ask['request'].get('tool_name')))
             return True
 
@@ -432,8 +458,7 @@ class Chat:
             request = {'type': 'control_request', 'request_id': 'stop-%d' % time.time(),
                        'request': {'subtype': 'interrupt'}}
             try:
-                self.proc.stdin.write(json.dumps(request) + '\n')
-                self.proc.stdin.flush()
+                self.write(self.proc, request)
             except OSError:
                 pass
             proc, turn = self.proc, self.turn
