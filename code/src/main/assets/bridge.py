@@ -27,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 35  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 36  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -259,6 +259,7 @@ class Chat:
         self.titling = False  # a name is being made from its first message
         self.opened = False  # started when the app opened it, no message sent since
         self.write_lock = threading.Lock()
+        self.waiting = {}  # request id -> {'event': ..., 'response': ...}: control requests of ours
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -301,6 +302,11 @@ class Chat:
                 log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
             elif kind == 'control_cancel_request':
                 self.asks.pop(msg.get('request_id'), None)
+            elif kind == 'control_response' and (msg.get('response') or {}).get('request_id') in self.waiting:
+                slot = self.waiting.get(msg['response']['request_id'])
+                if slot:
+                    slot['response'] = msg['response']
+                    slot['event'].set()
             elif kind == 'control_response' and (msg.get('response') or {}).get('subtype') == 'error' \
                     and str((msg.get('response') or {}).get('request_id')).startswith('set-'):
                 log('chat %s: change refused: %s' % (self.key[:8], msg['response'].get('error')))
@@ -328,6 +334,8 @@ class Chat:
         code = proc.wait()
         log('chat %s: claude pid %d exited with %s%s' % (
             self.key[:8], proc.pid, code, ', stderr:\n  ' + '\n  '.join(self.stderr[-12:]) if self.stderr else ''))
+        for slot in list(self.waiting.values()):
+            slot['event'].set()
         if proc is self.proc:
             was_running = self.running
             self.running = False
@@ -409,6 +417,30 @@ class Chat:
                                        'request': request})
         log('chat %s: %s %s' % (self.key[:8], request['subtype'], request.get('model') or
                                 (request.get('settings') or {}).get('env') or 'default'))
+
+    def ask_title(self, text):
+        """A title from the running claude itself (Claude Code's own session naming: a request of
+        its own with the small fast model, the conversation untouched). '' when it names nothing
+        (it does not for a very short message), None when it could not be asked."""
+        proc = self.proc
+        if proc is None or proc.poll() is not None:
+            return None
+        rid = 'title-%s' % uuid.uuid4().hex[:12]
+        slot = {'event': threading.Event()}
+        self.waiting[rid] = slot
+        try:
+            self.write(proc, {'type': 'control_request', 'request_id': rid,
+                              'request': {'subtype': 'generate_session_title', 'description': text, 'persist': False}})
+            slot['event'].wait(120)
+        except OSError:
+            return None
+        finally:
+            self.waiting.pop(rid, None)
+        response = slot.get('response') or {}
+        if response.get('subtype') != 'success':
+            log('chat %s: naming by claude failed: %s' % (self.key[:8], response.get('error') or 'no answer'))
+            return None
+        return ' '.join(str((response.get('response') or {}).get('title') or '').split())[:80]
 
     def open(self, session_id, cwd=None, model=None, effort=None):
         """Starts the claude of a saved conversation the app opened, so its next message does not
@@ -698,7 +730,8 @@ def keep_title(key, session_id, title):
 
 
 def name_new(chat, content):
-    """Names a new conversation from its first message while its first turn runs."""
+    """Names a new conversation from its first message while its first turn runs: by its own claude
+    (Chat.ask_title), or in a process of its own when it can not be asked."""
     text = content if isinstance(content, str) else '\n'.join(
         b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text')
     if not text.strip():
@@ -707,7 +740,9 @@ def name_new(chat, content):
 
     def run():
         try:
-            title = make_title(text[:2000])
+            title = chat.ask_title(text[:2000])
+            if title is None:
+                title = make_title(text[:2000])
             for _ in range(600):  # the session's id comes with its first output
                 if chat.session_id:
                     break
@@ -722,9 +757,10 @@ def name_new(chat, content):
 
 
 def name_later(key, session_id, again=False):
-    """Names a conversation after its first turn, with a small fast model in a process of its own
-    (the conversation's own requests, and so its prompt cache, are not touched); once. Asked
-    again, the new name is given as /rename gives one."""
+    """Names a conversation after its first turn, by its claude when one runs (Chat.ask_title),
+    otherwise with a small fast model in a process of its own (the conversation's own requests,
+    and so its prompt cache, are not touched); once. Asked again, the new name is given as
+    /rename gives one."""
     with titles_lock:
         if (session_id in titles and not again) or session_id in naming:
             return
@@ -736,7 +772,11 @@ def name_later(key, session_id, again=False):
             text = first_prompt(path) if path else ''
             if not text:
                 return
-            title = make_title(text)
+            with chats_lock:
+                chat = next((c for c in chats.values() if c.session_id == session_id), None)
+            title = chat.ask_title(text) if chat else None
+            if title is None:
+                title = make_title(text)
             if not title:
                 return
             if again:
