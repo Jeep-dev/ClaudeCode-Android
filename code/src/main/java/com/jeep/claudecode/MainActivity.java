@@ -2292,9 +2292,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void fillModel(LinearLayout box) {
         LinearLayout api = card(box);
-        option(api, R.drawable.ic_link, "地址", null, false, () -> apiValue("地址", "ANTHROPIC_BASE_URL", "https://api.anthropic.com"));
-        option(api, R.drawable.ic_gear, "API Key", null, false, () -> apiValue("API Key", "ANTHROPIC_AUTH_TOKEN", "sk-…"));
-        option(api, R.drawable.ic_bot, "模型", null, false, () -> apiValue("模型", "ANTHROPIC_MODEL", ""));
+        option(api, R.drawable.ic_link, "API", null, false, this::apiSheet);
         LinearLayout login = card(box);
         Ui.margins(login, this, 0, 12, 0, 0);
         option(login, R.drawable.ic_bot, "登录 Claude 账号", null, false, () -> openTerminal("claude\r"));
@@ -3585,41 +3583,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
         sheet.show();
     }
 
-    /** One of the API's values, in a sheet of its own. */
-    private void apiValue(String title, String var, String hint) {
-        Dialog sheet = sheet(title, null);
-        JSONObject env = settingsEnv();
-        boolean key = var.equals("ANTHROPIC_AUTH_TOKEN");
-        EditText f = field(sheet, null, key ? env.optString(var, env.optString("ANTHROPIC_API_KEY")) : env.optString(var), hint);
-        TextView ok = button("保存", true, v -> {
-            JSONObject json = settingsJson();
-            JSONObject e = json.optJSONObject("env");
-            if (e == null) e = new JSONObject();
-            // One key variable: an auth token works with every provider (and Anthropic's own).
-            if (key) e.remove("ANTHROPIC_API_KEY");
-            put(e, var, f.getText().toString().trim());
-            try { json.put("env", e); } catch (JSONException ignored) { /* string key */ }
-            if (saveSettings(json)) { toast("已保存"); sheet.dismiss(); refreshSettings(); }
-        });
-        ok.setBackground(Ui.press(this, Ui.round(col(R.color.text), dp(10)), dp(10)));
-        ok.setTextColor(col(R.color.bg));
-        content(sheet).addView(ok, new LinearLayout.LayoutParams(-1, dp(42)));
-        Ui.margins(ok, this, 0, 14, 0, 0);
-        if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        sheet.show();
-    }
-
     private static void put(JSONObject o, String key, String value) {
         if (value.isEmpty()) { o.remove(key); return; }
         try { o.put(key, value); } catch (JSONException ignored) { /* string key */ }
     }
 
     private EditText field(Dialog sheet, String label, String value, String hint) {
-        if (label != null) {
-            TextView l = Ui.text(this, label, 13, R.color.text2);
-            l.setPadding(dp(2), dp(8), 0, dp(6));
-            content(sheet).addView(l);
-        }
+        TextView l = Ui.text(this, label, 13, R.color.text2);
+        l.setPadding(dp(2), dp(8), 0, dp(6));
+        content(sheet).addView(l);
         EditText f = new EditText(this);
         f.setText(value);
         f.setHint(hint);
