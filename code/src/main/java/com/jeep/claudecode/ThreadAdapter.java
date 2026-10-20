@@ -559,7 +559,9 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
                 all.addView(h);
                 Ui.margins(h, c, 0, qi == 0 ? 0 : 16, 0, 2);
             }
-            TextView question = Ui.text(c, q.optString("question") + (multi ? "（可多选）" : ""), 15.5f, R.color.text);
+            String asked = q.optString("question");
+            // Several may be picked: said so, unless the question says it already.
+            TextView question = Ui.text(c, asked + (multi && !asked.contains("多选") ? "（可多选）" : ""), 15.5f, R.color.text);
             all.addView(question);
             if (header.isEmpty() && qi > 0) Ui.margins(question, c, 0, 16, 0, 0);
             EditText other = new EditText(c);
