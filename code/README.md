@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.68)
+# Claude Code for Android (v0.4.69)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -31,7 +31,8 @@ interface is plain Android views (Java), so scrolling and text selection are the
   turns the old bridge was running are marked interrupted (a new message continues the
   conversation). The bridge logs its starts,
   stops, crashes, requests, each Claude Code process (start, API retries, turn results, exit
-  code and stderr), quiet turns and times it was paused by the system to `~/.ccapp/bridge.log`;
+  code and stderr), how long each message waited for its reply to begin (getting a claude,
+  Claude Code taking it up, the API answering, and the context read from cache), quiet turns and times it was paused by the system to `~/.ccapp/bridge.log`;
   Settings → 运行日志 shows it with the service's own log.
 - Settings → 模型 → API Key writes `ANTHROPIC_BASE_URL`, the key (`ANTHROPIC_API_KEY` for
   Anthropic's own API, `ANTHROPIC_AUTH_TOKEN` for another provider) and `ANTHROPIC_MODEL` into

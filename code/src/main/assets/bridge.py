@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 40  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 41  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -265,6 +265,14 @@ class Chat:
         self.opened = False  # started when the app opened it, no message sent since
         self.write_lock = threading.Lock()
         self.waiting = {}  # request id -> {'event': ..., 'response': ...}: control requests of ours
+        self.taken = False  # its claude was the spare, started ahead
+        # The turn's wait for its reply to begin (logged by reply_timing): when its message came,
+        # how its claude was got, and when (from then) the bridge wrote it, Claude Code took it up
+        # (init) and the API began to answer, with the context the API read.
+        self.sent_at = None
+        self.sent_how = ''
+        self.ready_at = self.init_at = self.api_at = None
+        self.api_usage = {}
 
     def alive(self):
         return self.proc is not None and self.proc.poll() is None
@@ -275,6 +283,7 @@ class Chat:
         taken = None if self.session_id else spare.take(self.cwd, self.model, self.effort)
         proc = taken[0] if taken else spawn(claude_args(self.session_id, self.model, self.effort), self.cwd)
         self.proc = proc
+        self.taken = bool(taken)
         if taken:
             self.switch(taken[1], taken[2])
         self.last_out = time.time()
@@ -302,6 +311,8 @@ class Chat:
             if msg.get('session_id'):
                 self.session_id = msg['session_id']
             kind, sub = msg.get('type'), msg.get('subtype')
+            if self.sent_at is not None and proc is self.proc:
+                self.reply_timing(msg, kind, sub)
             if kind == 'control_request' and (msg.get('request') or {}).get('subtype') == 'can_use_tool':
                 self.asks[msg.get('request_id')] = msg
                 log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
@@ -355,7 +366,9 @@ class Chat:
             del self.stderr[:-50]
 
     def send(self, content, cwd=None, model=None, session_id=None, effort=None, restart=True):
+        came = time.time()
         with self.lock:
+            before = self.proc if self.alive() else None
             if session_id and not self.session_id:
                 self.session_id = session_id
             if cwd and not self.alive():
@@ -378,6 +391,9 @@ class Chat:
             if not self.alive():
                 self.start()
             self.opened = False
+            self.sent_at, self.init_at, self.api_at, self.api_usage = came, None, None, {}
+            self.sent_how = ('running' if self.proc is before else 'started again' if before is not None
+                             else 'taken (started ahead)' if self.taken else 'started')
             if new and not self.titling:
                 name_new(self, content)  # alongside the first turn, not after it
             self.running = True
@@ -390,7 +406,29 @@ class Chat:
             else:
                 log('chat %s: message sent' % self.key[:8])
             self.write(self.proc, {'type': 'user', 'message': {'role': 'user', 'content': content}})
+            self.ready_at = time.time() - came
             hub.emit(self.key, 'state', {'running': True})
+
+    def reply_timing(self, msg, kind, sub):
+        """Logs how long the turn's message waited for its reply to begin (its first block, thinking
+        included), and where the time went: getting a claude, Claude Code until it took the message
+        up, the API until it answered (longer with more context not read from its cache)."""
+        at = time.time() - self.sent_at
+        event = (msg.get('event') or {}) if kind == 'stream_event' else {}
+        if kind == 'system' and sub == 'init' and self.init_at is None:
+            self.init_at = at
+        elif event.get('type') == 'message_start' and self.api_at is None:
+            self.api_at = at
+            self.api_usage = (event.get('message') or {}).get('usage') or {}
+        elif event.get('type') == 'content_block_start' or kind in ('assistant', 'result'):
+            u = self.api_usage
+            mark = lambda t: '%.1fs' % t if t is not None else '-'
+            log('chat %s: reply began after %.1fs (claude %s): message written %s, taken up %s, API answered %s; '
+                'context %s read from cache, %s written to it, %s uncached' % (
+                    self.key[:8], at, self.sent_how, mark(self.ready_at), mark(self.init_at), mark(self.api_at),
+                    u.get('cache_read_input_tokens', '-'), u.get('cache_creation_input_tokens', '-'),
+                    u.get('input_tokens', '-')))
+            self.sent_at = None
 
     def switch(self, model, effort):
         """Changes the running claude, started with model and effort, to this chat's."""
