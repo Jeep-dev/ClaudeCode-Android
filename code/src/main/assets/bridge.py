@@ -2,16 +2,14 @@
 
 Runs inside the app's own Linux userland (Alpine under proot, started by the app's foreground
 service) and lets the app talk to Claude Code: each conversation is a `claude -p` process in stream-json mode, kept
-alive between turns and resumed from its saved session when needed. Listens on 127.0.0.1
-only. Every request is signed with the token the app started it with, and every answer proves
-this bridge knows it too; the token itself never goes over the connection.
+alive between turns and resumed from its saved session when needed. Listens on a Unix socket in
+the app's own files (SOCKET_FILE): no other app can reach it, so requests need no token.
 
 Standard library only.
 """
 import argparse
 import base64
 import collections
-import hmac
 import json
 import mmap
 import os
@@ -19,21 +17,23 @@ import re
 import shlex
 import shutil
 import signal
+import socketserver
 import subprocess
 import sys
 import threading
 import time
 import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from http.server import BaseHTTPRequestHandler
+from urllib.parse import parse_qs, urlparse
 
-VERSION = 38  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 39  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
 STATE_DIR = os.path.join(HOME, '.ccapp')
 PID_FILE = os.path.join(STATE_DIR, 'bridge.pid')
 LOCK_FILE = os.path.join(STATE_DIR, 'bridge.lock')
+SOCKET_FILE = os.path.join(STATE_DIR, 'bridge.sock')  # Bridge.SOCKET in the app
 DEFAULT_CWD = os.path.join(HOME, 'work')
 LOG_FILE = os.path.join(STATE_DIR, 'bridge.log')
 LAUNCH_FILE = os.path.join(STATE_DIR, 'launch.json')
@@ -1417,37 +1417,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
-    def authorized(self):
-        """A request signed with the token (X-Auth: time.nonce.HMAC of time.nonce.method.path, the path
-        decoded: what the app's connection re-encodes on the way does not matter), recent, and not
-        seen before. Whatever else listens on this port never learns the token from it."""
-        self.nonce = None
-        parts = self.headers.get('X-Auth', '').split('.')
-        if len(parts) == 3 and parts[0].isdigit():
-            ms, nonce, sig = parts
-            now = time.time()
-            expected = sign(self.server.token, '%s.%s.%s.%s' % (ms, nonce, self.command, unquote(self.path)))
-            if abs(now - int(ms) / 1000) < AUTH_WINDOW and hmac.compare_digest(sig, expected):
-                with nonce_lock:
-                    for old in [n for n, until in seen_nonces.items() if until < now]:
-                        del seen_nonces[old]
-                    if nonce not in seen_nonces:
-                        seen_nonces[nonce] = now + AUTH_WINDOW
-                        self.nonce = nonce
-                        return True
-        self.reply(401, {'error': 'token'})
-        return False
-
-    def proof(self):
-        """Tells the app this answer is from the bridge it started: the request's nonce, signed."""
-        if getattr(self, 'nonce', None):
-            self.send_header('X-Proof', sign(self.server.token, 'reply.' + self.nonce))
-
     def reply(self, status, data):
         self.status = status
         body = json.dumps(data, ensure_ascii=False).encode('utf-8', 'replace')  # lone surrogates
         self.send_response(status)
-        self.proof()
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Content-Length', str(len(body)))
         self.end_headers()
@@ -1475,8 +1448,6 @@ class Handler(BaseHTTPRequestHandler):
         self.logged('POST', self.do_post)
 
     def do_get(self):
-        if not self.authorized():
-            return
         try:
             self.get()
         except ValueError as e:
@@ -1528,8 +1499,6 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {'error': 'not found'})
 
     def do_post(self):
-        if not self.authorized():
-            return
         try:
             path = urlparse(self.path).path
             if path == '/upload':
@@ -1711,7 +1680,6 @@ class Handler(BaseHTTPRequestHandler):
         ones are kept) are told as one 'gap'. A new app (since -1), or one after a gap, is told what
         is still asked."""
         self.send_response(200)
-        self.proof()
         self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
         self.send_header('Cache-Control', 'no-cache')
         self.send_header('Connection', 'close')
@@ -1752,13 +1720,21 @@ class Handler(BaseHTTPRequestHandler):
             log('events: app gone')
 
 
-AUTH_WINDOW = 120  # seconds a signed request is good for
-seen_nonces = {}  # nonce -> until when it is kept: a request is never taken twice
-nonce_lock = threading.Lock()
+class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
 
-
-def sign(token, text):
-    return hmac.new(token.encode(), text.encode('utf-8'), 'sha256').hexdigest()
+    def server_bind(self):
+        """Over a socket file left by a bridge before (only one bridge runs: replace_running_bridge),
+        readable by this app alone."""
+        try:
+            os.remove(self.server_address)
+        except OSError:
+            pass
+        old = os.umask(0o177)
+        try:
+            super().server_bind()
+        finally:
+            os.umask(old)
 
 
 def running_bridge():
@@ -1828,8 +1804,7 @@ def log(text):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--token', required=True)
-    parser.add_argument('--port', type=int, default=8766)
+    parser.add_argument('--socket', default=SOCKET_FILE)
     parser.add_argument('--reason', default='')
     args = parser.parse_args()
     replace_running_bridge()
@@ -1867,18 +1842,11 @@ def main():
     sys.excepthook = crashed
     threading.excepthook = lambda a: crashed(a.exc_type, a.exc_value, a.exc_traceback)
 
-    server = None
-    for _ in range(50):
-        try:
-            server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
-            break
-        except OSError:
-            time.sleep(0.1)
-    if server is None:
-        log('exit pid %d: port %d busy' % (os.getpid(), args.port))
-        sys.exit('port %d busy' % args.port)
-    server.daemon_threads = True
-    server.token = args.token
+    try:
+        server = Server(args.socket, Handler)
+    except OSError as e:
+        log('exit pid %d: cannot listen on %s: %s' % (os.getpid(), args.socket, e))
+        sys.exit('cannot listen on %s: %s' % (args.socket, e))
     threading.Thread(target=reaper, daemon=True).start()
     threading.Thread(target=spare.fill, daemon=True).start()  # ready for the first new conversation
     threading.Thread(target=lambda: (find_claude_info(), find_models()), daemon=True).start()

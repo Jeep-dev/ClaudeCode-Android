@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.65)
+# Claude Code for Android (v0.4.66)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -15,10 +15,9 @@ interface is plain Android views (Java), so scrolling and text selection are the
   app may run programs from its own files, as Termux does.
 - `BridgeService`, a foreground service holding a wake lock it never releases, runs
   `assets/bridge.py` under proot as root of the userland (`IS_SANDBOX=1` lets Claude Code skip
-  permission prompts as that root), with a random per-install token; it listens on
-  `127.0.0.1:8766` only. Every request is signed with the token (HMAC over time, nonce, method
-  and path; never the token itself, and never taken twice) and every answer proves the bridge
-  knows it, so another app on the port neither learns the token nor is believed. The service starts it again
+  permission prompts as that root); it listens on a Unix socket, `~/.ccapp/bridge.sock` in the
+  userland (in this app's own files, mode 0600), not on a port: no other app can reach it, so
+  requests carry no token. The app speaks HTTP to it over a `LocalSocket`. The service starts it again
   when it dies on its own (at most three times a minute). To stop or replace it, the service sends SIGTERM to the bridge
   itself (proot ignores SIGTERM): the bridge ends its conversations and exits, and proot then
   ends what is left under it. Phone storage is shared in as
@@ -30,7 +29,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   conversations again from their transcripts. When
   the link stays down for 2 s with the app open, it does the same, never twice within 30 s;
   turns the old bridge was running are marked interrupted (a new message continues the
-  conversation). Requests to the bridge never go through a proxy. The bridge logs its starts,
+  conversation). The bridge logs its starts,
   stops, crashes, requests, each Claude Code process (start, API retries, turn results, exit
   code and stderr), quiet turns and times it was paused by the system to `~/.ccapp/bridge.log`;
   Settings → 运行日志 shows it with the service's own log.

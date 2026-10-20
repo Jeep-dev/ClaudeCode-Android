@@ -1,21 +1,21 @@
 package com.jeep.claudecode;
 
 import android.content.Context;
-import android.content.SharedPreferences;
+import android.net.LocalSocket;
+import android.net.LocalSocketAddress;
 import android.os.Handler;
 import android.os.Looper;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.Proxy;
-import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -26,20 +26,19 @@ import org.json.JSONObject;
 
 /**
  * The Claude Code bridge (assets/bridge.py), run by {@link BridgeService} inside this app's
- * userland with a per-install token and reached on 127.0.0.1. Requests are signed with the token
- * and answers must prove the bridge knows it, so another app listening on the port learns
- * nothing and is not believed. Results and events arrive on the main thread.
+ * userland and reached over HTTP on a Unix socket in this app's own files: no other app can
+ * reach it, so nothing is signed. Results and events arrive on the main thread.
  */
 final class Bridge {
-    /** Not Termux's 8765: a bridge left running there must not answer for this one. */
-    static final int PORT = 8766;
-    private static final String BASE = "http://127.0.0.1:" + PORT;
+    /** The bridge's socket in the userland (SOCKET_FILE in bridge.py). */
+    static final String SOCKET = Userland.HOME + "/.ccapp/bridge.sock";
 
     interface Reply { void done(int status, JSONObject data); }
     interface Events { void events(List<JSONObject> batch); void link(boolean up); }
 
     private final Context context;
-    private final String token;
+    /** {@link #SOCKET} as a path of this app's files. */
+    private final String socket;
     private final Events listener;
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -57,7 +56,7 @@ final class Bridge {
     Bridge(Context context, Events listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
-        token = token(context);
+        socket = new Userland(this.context).file(SOCKET).getPath();
     }
 
     /** VERSION in the bridge.py this app carries: a running bridge of another version is replaced. */
@@ -77,21 +76,6 @@ final class Bridge {
         } catch (java.io.IOException e) {
             return -1;
         }
-    }
-
-    /** This install's token, made on first use. */
-    static synchronized String token(Context context) {
-        SharedPreferences prefs = context.getSharedPreferences("bridge", Context.MODE_PRIVATE);
-        String saved = prefs.getString("token", null);
-        if (saved == null) {
-            byte[] bytes = new byte[24];
-            new SecureRandom().nextBytes(bytes);
-            StringBuilder hex = new StringBuilder();
-            for (byte b : bytes) hex.append(String.format("%02x", b));
-            saved = hex.toString();
-            prefs.edit().putString("token", saved).commit();
-        }
-        return saved;
     }
 
     void get(String path, Reply reply) { request("GET", path, null, reply); }
@@ -166,7 +150,7 @@ final class Bridge {
         }
     }
 
-    /** Status of an exchange when nothing listens on the bridge's port. */
+    /** Status of an exchange when nothing listens on the bridge's socket. */
     static final int REFUSED = -3;
 
     interface Body { void write(OutputStream out) throws IOException; }
@@ -179,91 +163,117 @@ final class Bridge {
 
     /**
      * One HTTP exchange; status REFUSED when nothing listens, -1 when the bridge cannot be reached
-     * otherwise, -2 when it does not answer in time, 401 when what answers is not this app's bridge.
+     * otherwise, -2 when it does not answer in time.
      */
     private Object[] exchange(String method, String path, String type, long length, Body body) {
-        HttpURLConnection c = null;
-        try {
-            // Never through a proxy (a VPN app's proxy would hold requests to this phone).
-            c = (HttpURLConnection) new URL(BASE + path).openConnection(Proxy.NO_PROXY);
-            c.setConnectTimeout(3000);
-            // Plugins and MCP servers are set up by Claude Code itself, and a file is written whole
-            // before the answer: these may take minutes.
-            c.setReadTimeout(path.startsWith("/health") ? 3000
-                    : path.startsWith("/plugin") || path.startsWith("/mcp") || path.startsWith("/upload") ? 310_000 : 30000);
-            c.setRequestMethod(method);
-            String nonce = sign(c, method, path);
-            // A fresh connection each time: a reused one the bridge has closed loses the answer.
-            c.setRequestProperty("Connection", "close");
-            if (body != null) {
-                c.setDoOutput(true);
-                c.setRequestProperty("Content-Type", type);
-                c.setFixedLengthStreamingMode(length);
-                try (OutputStream out = c.getOutputStream()) { body.write(out); }
-            }
-            int status = c.getResponseCode();
-            if (status != 401 && !proven(c, nonce)) return new Object[]{401, ""};
-            InputStream in = status >= 400 ? c.getErrorStream() : c.getInputStream();
-            return new Object[]{status, in == null ? "" : read(in)};
-        } catch (java.net.SocketTimeoutException e) {
-            return new Object[]{-2, ""};
-        } catch (java.net.ConnectException e) {
+        // Plugins and MCP servers are set up by Claude Code itself, and a file is written whole
+        // before the answer: these may take minutes.
+        int timeout = path.startsWith("/health") ? 3000
+                : path.startsWith("/plugin") || path.startsWith("/mcp") || path.startsWith("/upload") ? 310_000 : 30000;
+        long start = System.currentTimeMillis();
+        try (Answer a = send(method, path, type, length, body, timeout)) {
+            return new Object[]{a.status, readBody(a)};
+        } catch (Refused e) {
             return new Object[]{REFUSED, ""};
         } catch (IOException e) {
-            return new Object[]{-1, ""};
-        } finally {
-            if (c != null) c.disconnect();
+            // A read that timed out is only an error on a LocalSocket: told by the time it took.
+            return new Object[]{System.currentTimeMillis() - start >= timeout - 50 ? -2 : -1, ""};
         }
     }
 
-    /**
-     * Signs the request (X-Auth: time.nonce.HMAC of time.nonce.method.path, the path as decoded, so
-     * what the connection re-encodes on the way does not matter); returns the nonce its answer signs.
-     */
-    private String sign(HttpURLConnection c, String method, String path) {
-        String ms = String.valueOf(System.currentTimeMillis());
-        byte[] bytes = new byte[12];
-        random.nextBytes(bytes);
-        String nonce = hex(bytes);
-        c.setRequestProperty("X-Auth", ms + "." + nonce + "." + hmac(ms + "." + nonce + "." + method + "." + android.net.Uri.decode(path)));
-        return nonce;
+    /** Nothing listens on the bridge's socket (or there is none). */
+    private static final class Refused extends IOException {}
+
+    /** An answer whose head is read: its status and length; the body is read from in. */
+    private static final class Answer implements java.io.Closeable {
+        final LocalSocket socket;
+        final InputStream in;
+        int status;
+        long length = -1;
+
+        Answer(LocalSocket socket) throws IOException {
+            this.socket = socket;
+            in = new BufferedInputStream(socket.getInputStream(), 16384);
+        }
+
+        @Override public void close() {
+            try { socket.close(); } catch (IOException ignored) { /* closed */ }
+        }
     }
 
-    /** The answer is from this app's bridge: it signed the request's nonce with the token. */
-    private boolean proven(HttpURLConnection c, String nonce) {
-        String proof = c.getHeaderField("X-Proof");
-        return proof != null && java.security.MessageDigest.isEqual(
-                proof.getBytes(StandardCharsets.US_ASCII), hmac("reply." + nonce).getBytes(StandardCharsets.US_ASCII));
-    }
-
-    private final SecureRandom random = new SecureRandom();
-
-    private String hmac(String text) {
+    /** Sends one request on a new connection (closed after the answer) and reads the answer's head. */
+    private Answer send(String method, String path, String type, long length, Body body, int timeout) throws IOException {
+        LocalSocket s = new LocalSocket();
         try {
-            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
-            mac.init(new javax.crypto.spec.SecretKeySpec(token.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            return hex(mac.doFinal(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.GeneralSecurityException e) {
-            throw new IllegalStateException(e); // HmacSHA256 is always there
+            try {
+                s.connect(new LocalSocketAddress(socket, LocalSocketAddress.Namespace.FILESYSTEM));
+            } catch (IOException e) {
+                throw new Refused();
+            }
+            s.setSoTimeout(timeout);
+            OutputStream out = new BufferedOutputStream(s.getOutputStream(), 16384);
+            StringBuilder head = new StringBuilder(method).append(' ').append(target(path))
+                    .append(" HTTP/1.1\r\nHost: bridge\r\nConnection: close\r\n");
+            if (body != null) head.append("Content-Type: ").append(type).append("\r\nContent-Length: ").append(length).append("\r\n");
+            out.write(head.append("\r\n").toString().getBytes(StandardCharsets.UTF_8));
+            if (body != null) body.write(out);
+            out.flush();
+            Answer a = new Answer(s);
+            String[] status = line(a.in).split(" "); // HTTP/1.1 200 OK
+            try {
+                a.status = Integer.parseInt(status.length > 1 ? status[1] : "");
+                for (String h; !(h = line(a.in)).isEmpty(); ) {
+                    int colon = h.indexOf(':');
+                    if (colon > 0 && h.substring(0, colon).trim().equalsIgnoreCase("Content-Length")) {
+                        a.length = Long.parseLong(h.substring(colon + 1).trim());
+                    }
+                }
+            } catch (NumberFormatException e) {
+                throw new IOException("not an HTTP answer", e);
+            }
+            return a;
+        } catch (IOException e) {
+            try { s.close(); } catch (IOException ignored) { /* closed */ }
+            throw e;
         }
     }
 
-    private static String hex(byte[] bytes) {
-        StringBuilder out = new StringBuilder(bytes.length * 2);
-        for (byte b : bytes) out.append(Character.forDigit((b >> 4) & 15, 16)).append(Character.forDigit(b & 15, 16));
+    /** The request target as sent: the path with what is not plain ASCII percent-encoded. */
+    private static String target(String path) {
+        StringBuilder out = new StringBuilder();
+        for (byte b : path.getBytes(StandardCharsets.UTF_8)) {
+            int ch = b & 0xff;
+            if (ch > 0x20 && ch < 0x7f) out.append((char) ch);
+            else out.append('%').append(Character.forDigit(ch >> 4, 16)).append(Character.forDigit(ch & 15, 16));
+        }
         return out.toString();
     }
 
-    private static String read(InputStream in) throws IOException {
+    /** A line of the answer's head, without its line end. */
+    private static String line(InputStream in) throws IOException {
+        StringBuilder out = new StringBuilder();
+        for (int ch; (ch = in.read()) != '\n'; ) {
+            if (ch < 0) throw new EOFException();
+            if (ch != '\r') out.append((char) ch);
+        }
+        return out.toString();
+    }
+
+    /** The answer's body: its Content-Length, or all until the bridge closes the connection. */
+    private static String readBody(Answer a) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         byte[] buf = new byte[16384];
-        for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
-        in.close();
+        long left = a.length;
+        for (int n; left != 0 && (n = a.in.read(buf, 0, left < 0 ? buf.length : (int) Math.min(buf.length, left))) > 0; ) {
+            out.write(buf, 0, n);
+            if (left > 0) left -= n;
+        }
+        if (left > 0) throw new EOFException();
         return out.toString("UTF-8");
     }
 
     /**
-     * Makes sure a bridge with this app's token and version answers, starting one if needed.
+     * Makes sure a bridge of this app's version answers, starting one if needed.
      * Result: "ok", "install" (the userland is not unpacked yet) or "timeout".
      */
     void connect(boolean restart, java.util.function.Consumer<String> done) {
@@ -304,7 +314,6 @@ final class Bridge {
             if (isCurrent(health)) return null;
             status = (int) health[0];
             if (status == 200) return "another version was running";
-            if (status == 401) return "something that is not this app's bridge answered (another token, or another program)";
             if (status == REFUSED) return "no bridge was running";
             try { Thread.sleep(500); } catch (InterruptedException e) { return "interrupted"; }
         }
@@ -334,22 +343,18 @@ final class Bridge {
     private void readEvents() {
         boolean up = false;
         while (reading.get()) {
-            HttpURLConnection c = null;
+            Answer a = null;
             try {
                 String bridge = lastBridge;
                 String path = "/events?since=" + lastSeq + (lastSeq >= 0 && bridge != null ? "&bridge=" + android.net.Uri.encode(bridge) : "");
-                c = (HttpURLConnection) new URL(BASE + path).openConnection(Proxy.NO_PROXY);
-                c.setConnectTimeout(3000);
-                c.setReadTimeout(15000); // three missed pings: the bridge is gone or frozen
-                String nonce = sign(c, "GET", path);
-                if (c.getResponseCode() != 200) throw new IOException("status " + c.getResponseCode());
-                if (!proven(c, nonce)) throw new IOException("not this app's bridge");
+                a = send("GET", path, null, 0, null, 15000); // three missed pings: the bridge is gone or frozen
+                if (a.status != 200) throw new IOException("status " + a.status);
                 if (!up) {
                     up = true;
                     ui.post(() -> listener.link(true));
                 }
                 BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(c.getInputStream(), StandardCharsets.UTF_8));
+                        new InputStreamReader(a.in, StandardCharsets.UTF_8));
                 for (String line; reading.get() && (line = reader.readLine()) != null; ) {
                     if (line.startsWith(": hello ")) lastBridge = line.substring(8).trim();
                     if (!line.startsWith("data: ")) continue;
@@ -368,7 +373,7 @@ final class Bridge {
                 }
                 try { Thread.sleep(1500); } catch (InterruptedException ignored) { return; }
             } finally {
-                if (c != null) c.disconnect();
+                if (a != null) a.close();
             }
         }
     }

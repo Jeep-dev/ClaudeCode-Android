@@ -59,6 +59,8 @@ jobs:
           KEY_B64: ${{ secrets.CLAUDE_KEYSTORE_B64 }}
           CLAUDE_KEYSTORE_PASSWORD: ${{ secrets.CLAUDE_KEYSTORE_PASSWORD }}
           CLAUDE_KEY_PASSWORD: ${{ secrets.CLAUDE_KEY_PASSWORD }}
+          # Not main: a preview, installed beside the app (see code/build.gradle).
+          CLAUDE_PREVIEW: ${{ github.ref != 'refs/heads/main' && '1' || '' }}
         run: |
           if [ -z "$KEY_B64" ]; then
             echo "::error::Signing secrets are missing: set CLAUDE_KEYSTORE_B64, CLAUDE_KEYSTORE_PASSWORD and CLAUDE_KEY_PASSWORD (the app's own key, or updates will not install over it)."
@@ -68,7 +70,7 @@ jobs:
           export CLAUDE_KEYSTORE_FILE="$RUNNER_TEMP/app.jks"
           gradle --no-daemon :code:assembleRelease
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify code/build/outputs/apk/release/code-release.apk
-          CODE_VERSION=$(sed -n "s/^ *versionName '\(.*\)'.*/\1/p" code/build.gradle)
+          CODE_VERSION=$(sed -n "s/^ *versionName '\(.*\)'.*/\1/p" code/build.gradle)${CLAUDE_PREVIEW:+-preview}
           echo "CODE_VERSION=$CODE_VERSION" >> "$GITHUB_ENV"
           mkdir -p out
           cp code/build/outputs/apk/release/code-release.apk "out/ClaudeCode-v$CODE_VERSION.apk"

@@ -95,7 +95,7 @@ public final class BridgeService extends Service {
         try {
             userland.writeBridge();
             ProcessBuilder pb = new ProcessBuilder(userland.command("python3", "/opt/ccapp/bridge.py",
-                    "--token", Bridge.token(this), "--port", String.valueOf(Bridge.PORT), "--reason", "app: " + reason));
+                    "--socket", Bridge.SOCKET, "--reason", "app: " + reason));
             userland.env(pb);
             pb.directory(userland.base);
             pb.redirectErrorStream(true);
