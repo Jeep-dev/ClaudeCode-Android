@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.79)
+# Claude Code for Android (v0.4.80)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -85,7 +85,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
 ## Interface
 
 Drawer with the conversation list, each with how long ago its last message was at the end of its folder's
-line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width) (swipe right anywhere to open, left to close; long-press a
+line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width; Settings → 外观 → 对话时间 hides it) (swipe right anywhere to open, left to close; long-press a
 conversation to pin it on top or delete it), a one-line composer (+, the text, and a plain Enter icon to send, a ringed square to stop) where the keyboard's Enter (a Send key) or the button sends and the
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go to the model scaled to 1568 px JPEG; other
 files are saved into the working folder, never overwriting, and their paths added to the

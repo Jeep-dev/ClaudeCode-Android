@@ -1070,15 +1070,18 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
             // How long ago, in a column of one width at the end of the folder's line, its text from the
             // column's start: 55m, 1h and 3d begin at one place.
+            // Shown unless turned off (Settings → 外观 → 对话时间).
             LinearLayout under = Ui.row(this);
             under.addView(meta, Ui.weight());
-            TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
-            when.setFontFeatureSettings("tnum");
-            when.setSingleLine(true);
-            when.setPadding(0, dp(3), 0, 0);
-            int column = (int) Math.ceil(when.getPaint().measureText("88mo"));
-            under.addView(when, new LinearLayout.LayoutParams(column + dp(2), -2));
-            Ui.margins(when, this, 10, 0, 0, 0);
+            if (prefs.getBoolean("drawerTimes", true)) {
+                TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
+                when.setFontFeatureSettings("tnum");
+                when.setSingleLine(true);
+                when.setPadding(0, dp(3), 0, 0);
+                int column = (int) Math.ceil(when.getPaint().measureText("88mo"));
+                under.addView(when, new LinearLayout.LayoutParams(column + dp(2), -2));
+                Ui.margins(when, this, 10, 0, 0, 0);
+            }
             item.addView(under, Ui.fill());
             item.setOnClickListener(v -> openSession(id, titleText, folder));
             item.setOnLongClickListener(v -> { sessionActions(id, titleText, folder); return true; });
@@ -2378,6 +2381,16 @@ public final class MainActivity extends Activity implements Bridge.Events {
             renderNow();
         }));
         themes.addView(thought, Ui.fill());
+        LinearLayout times = Ui.row(this);
+        times.setPadding(dp(14), dp(6), dp(8), dp(6));
+        times.setMinimumHeight(dp(50));
+        times.addView(Ui.text(this, "对话时间", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
+        times.addView(segmented(new String[]{"关", "开"}, prefs.getBoolean("drawerTimes", true) ? 1 : 0, i -> {
+            prefs.edit().putBoolean("drawerTimes", i == 1).apply();
+            fillSettings(launchCache);
+            renderSessions();
+        }));
+        themes.addView(times, Ui.fill());
         String footer = prefs.getString("footer", "");
         option(themes, 0, "底部文字", footer, false, () -> textSheet("底部文字", footer, "", false, (t, done) -> {
             prefs.edit().putString("footer", t.trim()).apply();
@@ -3188,10 +3201,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             fillSettings(launchCache); // shown chosen
         }));
         idle.addView(restart, Ui.fill());
-        TextView why = Ui.text(this, "闲置 3 分钟以上的对话，发消息时先重启 Claude Code（多等几秒），换掉可能已断开的网络连接。"
-                + "关掉后不用等，但手机断过网后，偶尔会有一条消息卡住约 3 分钟。", 12.5f, R.color.text3);
-        why.setPadding(dp(14), dp(2), dp(14), dp(10));
-        idle.addView(why, Ui.fill());
         LinearLayout keep = card(box);
         Ui.margins(keep, this, 0, 12, 0, 0);
         if (!hasStorage()) option(keep, R.drawable.ic_folder, "允许访问存储", null, false, this::requestStorage);
