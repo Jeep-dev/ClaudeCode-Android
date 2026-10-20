@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 43  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 44  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -284,6 +284,7 @@ class Chat:
         self.last_out = time.time()
         self.quiet_logged = False
         self.turn = 0  # counts messages sent: a forced stop is for the turn it was asked in
+        self.began = 0  # counts turns begun (init), also those Claude Code starts for an inserted message
         self.asks = {}  # request id -> Claude Code's question whether a tool may run, not answered yet
         self.titling = False  # a name is being made from its first message
         self.opened = False  # started when the app opened it, no message sent since
@@ -337,6 +338,11 @@ class Chat:
             kind, sub = msg.get('type'), msg.get('subtype')
             if self.sent_at is not None and proc is self.proc:
                 self.reply_timing(msg, kind, sub)
+            if kind == 'system' and sub == 'init' and proc is self.proc:
+                # A turn begins: also one Claude Code starts by itself for a message inserted too late
+                # for the turn before (Chat.send while running), which may be stopped like any.
+                self.began += 1
+                self.running = True
             if kind == 'control_request' and (msg.get('request') or {}).get('subtype') == 'can_use_tool':
                 self.asks[msg.get('request_id')] = msg
                 log('chat %s: asks to run %s' % (self.key[:8], msg['request'].get('tool_name')))
@@ -393,6 +399,9 @@ class Chat:
         came = time.time()
         with self.lock:
             before = self.proc if self.alive() else None
+            # Written while a turn runs: Claude Code hands it to the model with its next request (or
+            # starts a turn for it when this one ends); the turn's timing is left as it is.
+            inserting = self.running and before is not None
             if session_id and not self.session_id:
                 self.session_id = session_id
             if cwd and not self.alive():
@@ -415,8 +424,9 @@ class Chat:
             if not self.alive():
                 self.start()
             self.opened = False
-            self.sent_at, self.init_at, self.api_at, self.api_usage = came, None, None, {}
-            self.sent_how = ('running' if self.proc is before else 'started again' if before is not None
+            if not inserting:
+                self.sent_at, self.init_at, self.api_at, self.api_usage = came, None, None, {}
+            self.sent_how = self.sent_how if inserting else ('running' if self.proc is before else 'started again' if before is not None
                              else 'taken (started ahead)' if self.taken else 'started')
             if new and not self.titling:
                 name_new(self, content)  # alongside the first turn, not after it
@@ -424,11 +434,12 @@ class Chat:
             self.turn += 1
             self.used = time.time()
             self.last_out = time.time()
+            how = 'inserted' if inserting else 'sent'
             if isinstance(content, list):
                 kinds = [b.get('type') for b in content if isinstance(b, dict)]
-                log('chat %s: message sent (%d text, %d image)' % (self.key[:8], kinds.count('text'), kinds.count('image')))
+                log('chat %s: message %s (%d text, %d image)' % (self.key[:8], how, kinds.count('text'), kinds.count('image')))
             else:
-                log('chat %s: message sent' % self.key[:8])
+                log('chat %s: message %s' % (self.key[:8], how))
             self.write(self.proc, {'type': 'user', 'message': {'role': 'user', 'content': content}})
             self.ready_at = time.time() - came
             hub.emit(self.key, 'state', {'running': True})
@@ -565,10 +576,13 @@ class Chat:
                 pass
             proc, turn = self.proc, self.turn
 
+        began = self.began
+
         def force():
             time.sleep(5)
             with self.lock:
-                if self.running and self.proc is proc and self.turn == turn:
+                # Not a turn begun since (Claude Code's own, for an inserted message): only this one.
+                if self.running and self.proc is proc and self.turn == turn and self.began == began:
                     self.close()
         threading.Thread(target=force, daemon=True).start()
 
@@ -925,7 +939,7 @@ def session_text(path):
     parts = []
     with open(path, encoding='utf-8', errors='replace') as f:
         for line in f:
-            if '"user"' not in line and '"assistant"' not in line:
+            if '"user"' not in line and '"assistant"' not in line and 'queued_command' not in line:
                 continue
             try:
                 e = json.loads(line)
@@ -934,7 +948,9 @@ def session_text(path):
             if not isinstance(e, dict) or e.get('isSidechain') or e.get('isMeta'):
                 continue
             content = (e.get('message') or {}).get('content')
-            if e.get('type') == 'user':
+            if e.get('type') == 'attachment':
+                parts.append(inserted_text(e))
+            elif e.get('type') == 'user':
                 text = entry_text(content)
                 if is_prompt_text(text):
                     parts.append(text)
@@ -990,6 +1006,16 @@ def tool_result_text(content):
                     parts.append('[图片]')
         return '\n'.join(parts)
     return ''
+
+
+def inserted_text(entry):
+    """A message the user sent while a turn ran, as the transcript keeps it (an attachment, queued
+    command, given to the model with the next request); '' for any other entry."""
+    a = entry.get('attachment') if isinstance(entry, dict) and entry.get('type') == 'attachment' else None
+    if not isinstance(a, dict) or a.get('type') != 'queued_command' or a.get('commandMode', 'prompt') != 'prompt':
+        return ''
+    text = entry_text(a.get('prompt'))
+    return text if is_prompt_text(text) else ''
 
 
 def entry_images(entry):
@@ -1049,6 +1075,11 @@ def load_history(session_id):
                     custom = e.get('customTitle') or custom
                 if e.get('isSidechain') or e.get('isMeta'):
                     continue
+                if kind == 'attachment':
+                    text = inserted_text(e)
+                    if text and not (messages and messages[-1]['role'] == 'user' and messages[-1]['text'] == text):
+                        messages.append({'role': 'user', 'text': text, 'images': []})
+                    continue
                 cwd = e.get('cwd') or cwd
                 if kind == 'system' and e.get('subtype') == 'compact_boundary':
                     messages.append({'role': 'divider', 'text': '上下文已压缩'})
@@ -1080,8 +1111,10 @@ def load_history(session_id):
                         elif b.get('type') == 'image':
                             src = b.get('source') or {}
                             images.append(picture() if src.get('type') == 'base64' and src.get('data') else None)
-                    if text_parts or images:
-                        messages.append({'role': 'user', 'text': '\n'.join(text_parts), 'images': images})
+                    text = '\n'.join(text_parts)
+                    repeated = messages and messages[-1]['role'] == 'user' and messages[-1]['text'] == text and not images
+                    if (text_parts or images) and not repeated:  # an inserted one may come as both
+                        messages.append({'role': 'user', 'text': text, 'images': images})
                 elif kind == 'assistant' and isinstance(content, list):
                     usage = msg.get('usage') or {}
                     if usage.get('input_tokens') is not None:

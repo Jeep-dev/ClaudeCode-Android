@@ -1413,8 +1413,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
         chat.attachments.clear();
         input.setText("");
         hideMenu();
+        if (chat.running && insertWhileRunning() && !chat.stopping) {
+            insert(chat, text, attached);
+            return;
+        }
         if (chat.running) {
-            // Written while a reply runs: it waits, and goes when the reply ends.
+            // Written while a reply runs (排队): it waits, and goes when the reply ends.
             chat.queue.add(new Chat.Queued(text, attached));
             stick = true;
             renderNow();
@@ -1422,6 +1426,33 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         hideKeyboard();
         submit(chat, text, attached);
+    }
+
+    /** What is written while a reply runs: 插入 (sent now, the model gets it at its next step; the
+     *  default) or 排队 (sent when the reply ends). Settings → 对话. */
+    private boolean insertWhileRunning() {
+        return prefs.getBoolean("insertWhileRunning", true);
+    }
+
+    /** Sends a message while a reply runs: Claude Code hands it to the model with its next request,
+     *  or starts a turn for it when this one ends. It waits below the reply until then (Chat.inserted). */
+    private void insert(Chat chat, String text, List<Chat.Attachment> attached) {
+        Chat.Queued q = new Chat.Queued(text, attached);
+        q.inserted = true;
+        chat.inserted.add(q);
+        stick = true;
+        renderNow();
+        upload(chat, attached, 0, new ArrayList<>(), text, q);
+    }
+
+    /** An inserted message could not be sent: it waits for the reply to end instead. */
+    private void notInserted(Chat chat, Chat.Queued q, String why) {
+        if (!chat.inserted.remove(q)) return;
+        q.inserted = false;
+        chat.queue.add(0, q);
+        toast("没能插入，改为回复结束后发送：" + why);
+        if (!chat.running) sendQueued(chat);
+        render();
     }
 
     /** Sends a message as the chat's next turn. */
@@ -1446,7 +1477,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         chat.detail = "";
         stick = true;
         renderNow();
-        upload(chat, attached, 0, new ArrayList<>(), text);
+        upload(chat, attached, 0, new ArrayList<>(), text, null);
     }
 
     /** The reply ended: the next queued message goes, unless the reply was stopped by hand. */
@@ -1488,23 +1519,25 @@ public final class MainActivity extends Activity implements Bridge.Events {
     };
 
     /** Saves non-picture files into the working folder one by one, then sends. */
-    private void upload(Chat chat, List<Chat.Attachment> attached, int from, List<String> saved, String text) {
+    private void upload(Chat chat, List<Chat.Attachment> attached, int from, List<String> saved, String text, Chat.Queued inserted) {
         int i = from;
         while (i < attached.size() && attached.get(i).image) i++;
-        if (i >= attached.size()) { deliver(chat, attached, saved, text); return; }
+        if (i >= attached.size()) { deliver(chat, attached, saved, text, inserted); return; }
         Chat.Attachment f = attached.get(i);
         int next = i + 1;
         bridge.upload(chat.cwd, f.name, f.uri, (status, data) -> {
             if (status != 200) {
-                fail(chat, "发送失败", f.name + " 没能存到 " + Ui.base(chat.cwd) + "：" + data.optString("error", String.valueOf(status)));
+                String why = f.name + " 没能存到 " + Ui.base(chat.cwd) + "：" + data.optString("error", String.valueOf(status));
+                if (inserted != null) notInserted(chat, inserted, why);
+                else fail(chat, "发送失败", why);
                 return;
             }
             saved.add(data.optString("path"));
-            upload(chat, attached, next, saved, text);
+            upload(chat, attached, next, saved, text, inserted);
         });
     }
 
-    private void deliver(Chat chat, List<Chat.Attachment> attached, List<String> saved, String text) {
+    private void deliver(Chat chat, List<Chat.Attachment> attached, List<String> saved, String text, Chat.Queued inserted) {
         JSONArray content = new JSONArray();
         for (Chat.Attachment a : attached) {
             if (!a.image) continue;
@@ -1521,15 +1554,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
         JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
                 "content", content, "mid", chat.key + ":" + sentAt, "restart", restartIdle());
-        sendWithRetry(chat, body, sentAt, 0);
+        sendWithRetry(chat, body, sentAt, 0, inserted);
     }
 
     /** The answer may be lost with the message delivered: the bridge ignores a repeated mid. */
-    private void sendWithRetry(Chat chat, JSONObject body, long sentAt, int attempt) {
+    private void sendWithRetry(Chat chat, JSONObject body, long sentAt, int attempt, Chat.Queued inserted) {
         bridge.post("/send", body, (status, data) -> {
             if (status == 200) return;
             if (status < 0 && attempt < 2) {
-                ui.postDelayed(() -> sendWithRetry(chat, body, sentAt, attempt + 1), 1200);
+                ui.postDelayed(() -> sendWithRetry(chat, body, sentAt, attempt + 1, inserted), 1200);
+                return;
+            }
+            if (inserted != null) {
+                // Refused for sure: it waits for the reply instead. No answer: it may have gone (the
+                // reply runs on regardless), so it is not sent twice.
+                if (status >= 400 || status == Bridge.REFUSED) notInserted(chat, inserted, data.optString("error", String.valueOf(status)));
                 return;
             }
             if (chat.lastEvent > sentAt) return; // it is running after all
@@ -2395,6 +2434,17 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void fillTalk(LinearLayout box, JSONObject launch) {
         LinearLayout talk = card(box);
+        LinearLayout meanwhile = Ui.row(this);
+        meanwhile.setPadding(dp(14), dp(6), dp(8), dp(6));
+        meanwhile.setMinimumHeight(dp(50));
+        meanwhile.addView(Ui.text(this, "回复中发消息", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
+        meanwhile.addView(segmented(new String[]{"排队", "插入"}, insertWhileRunning() ? 1 : 0, i ->
+                prefs.edit().putBoolean("insertWhileRunning", i == 1).apply()));
+        talk.addView(meanwhile, Ui.fill());
+        TextView how = Ui.text(this, "插入：马上交给 Claude，它做下一步时就会看到，不打断当前回复。排队：等这次回复结束后再发。",
+                12.5f, R.color.text3);
+        how.setPadding(dp(14), dp(2), dp(14), dp(10));
+        talk.addView(how, Ui.fill());
         String folderNow = cwd.isEmpty() ? defaultCwd : cwd;
         option(talk, R.drawable.ic_folder, "工作文件夹", folderNow.isEmpty() ? "~/work" : tilde(folderNow), false, () -> {
             if (!linked) { toast("Claude Code 还没启动好"); return; }

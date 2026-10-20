@@ -134,6 +134,11 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         if (chat.running && (msgs.isEmpty() || msgs.get(msgs.size() - 1).kind != Chat.Msg.ASSISTANT)) {
             out.add(new Item(STATUS, -1, 0, null, null, 20));
         }
+        for (Chat.Queued q : chat.inserted) {
+            Item it = new Item(QUEUED, -q.id - 1_000_000_000L, 2, null, null, out.isEmpty() ? 6 : 18);
+            it.queued = q;
+            out.add(it);
+        }
         for (Chat.Queued q : chat.queue) {
             Item it = new Item(QUEUED, -q.id - 1_000_000_000L, q.now ? 1 : 0, null, null, out.isEmpty() ? 6 : 18);
             it.queued = q;
@@ -303,7 +308,9 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         box.addView(bubble, Ui.wrap());
         LinearLayout row = Ui.row(c);
         row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        if (q.now) {
+        if (q.inserted) {
+            row.addView(Ui.text(c, "已插入，Claude 下一步就会看到…", 13, R.color.text3));
+        } else if (q.now) {
             row.addView(Ui.text(c, "停止当前回复后发送…", 13, R.color.text3));
         } else {
             ImageView edit = Ui.iconButton(c, R.drawable.ic_pencil, 34, 17, R.color.text3);

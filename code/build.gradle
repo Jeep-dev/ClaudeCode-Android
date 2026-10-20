@@ -9,8 +9,8 @@ android {
         // 28: Claude Code and the userland's programs run from this app's files, which Android
         // allows only to apps targeting 28 or lower (as Termux does).
         targetSdk 28
-        versionCode 99
-        versionName '0.4.71'
+        versionCode 100
+        versionName '0.4.72'
         manifestPlaceholders = [appLabel: '@string/app_name']
         // A build of a branch (CI sets CLAUDE_PREVIEW): installed beside the app as one of its own,
         // its own files and bridge, so a change can be tried while the app keeps working.

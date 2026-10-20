@@ -67,6 +67,10 @@ final class Chat {
     boolean stopped;
     /** Messages written while a turn runs, sent one by one when it ends. */
     final List<Queued> queue = new ArrayList<>();
+    /** Sent while a reply ran (插入), not yet handed to the model: Claude Code gives it to the model
+     *  with its next request, or starts a turn for it when this one ends. Shown in the conversation
+     *  once that request begins (deliverInserted). */
+    final List<Queued> inserted = new ArrayList<>();
     long startedAt, lastEvent;
     String verb = VERBS[0], detail = "";
     String draft = "";
@@ -91,6 +95,8 @@ final class Chat {
         final List<Attachment> attachments;
         /** Sent as soon as the turn being stopped for it has ended. */
         boolean now;
+        /** Sent already, while a reply ran: waits in Chat.inserted for the model to get it. */
+        boolean inserted;
 
         Queued(String text, List<Attachment> attachments) { this.text = text; this.attachments = attachments; }
     }
@@ -104,6 +110,20 @@ final class Chat {
     String randomVerb() { return VERBS[new Random().nextInt(VERBS.length)]; }
 
     /** The reply being written, created on demand. */
+    /** Claude Code's next request has begun: what was inserted went with it, after what came before. */
+    private void deliverInserted() {
+        for (Queued q : inserted) {
+            Msg u = new Msg(Msg.USER);
+            u.text = q.text;
+            for (Attachment a : q.attachments) {
+                if (a.image) u.images.add("data:" + a.type + ";base64," + a.data);
+                else u.files.add(a.name);
+            }
+            messages.add(u);
+        }
+        inserted.clear();
+    }
+
     Msg reply(boolean create) {
         Msg last = messages.isEmpty() ? null : messages.get(messages.size() - 1);
         if (last != null && last.kind == Msg.ASSISTANT && !last.done) return last;
@@ -192,6 +212,12 @@ final class Chat {
         }
         if ("system".equals(t)) {
             if ("init".equals(sub)) {
+                // A turn begins: also one Claude Code starts by itself, for a message inserted too late
+                // for the turn before.
+                if (!running) {
+                    running = true;
+                    startedAt = System.currentTimeMillis();
+                }
                 if (d.has("session_id")) sessionId = d.optString("session_id");
                 model = d.optString("model", model);
             } else if ("api_retry".equals(sub)) {
@@ -212,6 +238,7 @@ final class Chat {
             detail = "";
             JSONObject e = d.optJSONObject("event");
             if (e == null) return false;
+            if ("message_start".equals(e.optString("type"))) deliverInserted();
             Msg m = reply(true);
             String et = e.optString("type");
             int index = e.optInt("index");
@@ -361,7 +388,8 @@ final class Chat {
             }
             m.done = true;
             m.touch();
-            running = false;
+            // A message inserted too late for this turn gets one of its own (Claude Code starts it).
+            running = !inserted.isEmpty();
             stopped = stopping || "error_during_execution".equals(sub);
             stopping = false;
             if (d.has("session_id")) sessionId = d.optString("session_id");
