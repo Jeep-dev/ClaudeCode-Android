@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 44  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 45  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -546,14 +546,18 @@ class Chat:
                     before.opened = False
                     before.close()
 
-    def answer(self, request_id, allow):
-        """Answers Claude Code's question whether a tool may run; False when it is not asked any more."""
+    def answer(self, request_id, allow, answers=None):
+        """Answers Claude Code's question whether a tool may run; False when it is not asked any more.
+        answers: for AskUserQuestion, what the user chose (question -> answer), given back with its input."""
         with self.lock:
             ask = self.asks.pop(request_id, None)
             if ask is None or not self.alive():
                 return False
             if allow:
-                response = {'behavior': 'allow', 'updatedInput': ask['request'].get('input') or {}}
+                updated = dict(ask['request'].get('input') or {})
+                if answers:
+                    updated['answers'] = answers
+                response = {'behavior': 'allow', 'updatedInput': updated}
             else:  # what Claude Code itself tells the model when the user says no
                 response = {'behavior': 'deny', 'message': "The user doesn't want to proceed with this tool use. The tool use "
                             "was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what "
@@ -832,6 +836,46 @@ def name_later(key, session_id):
                 naming.discard(session_id)
     threading.Thread(target=run, daemon=True).start()
 
+def cache_until(path, tail=262_144):
+    """Until when the API likely keeps the conversation's prompt cache (seconds since the epoch): its
+    last reply's time plus the cache life its requests wrote with (1 hour or 5 minutes, as the
+    transcript's usage tells; each read renews it). None when unknown: no Claude reply in the end
+    of the transcript, or another provider's model."""
+    import datetime
+    try:
+        with open(path, 'rb') as f:
+            f.seek(max(0, os.path.getsize(path) - tail))
+            lines = f.read().split(b'\n')
+    except OSError:
+        return None
+    last, ttl = None, None
+    for raw in reversed(lines):
+        if b'"usage"' not in raw:
+            continue
+        try:
+            e = json.loads(raw.decode('utf-8', 'replace'))
+        except ValueError:
+            continue
+        msg = e.get('message') if isinstance(e, dict) and e.get('type') == 'assistant' else None
+        if not isinstance(msg, dict) or not str(msg.get('model') or '').startswith('claude'):
+            if last is None and isinstance(msg, dict) and msg.get('model') and not str(msg['model']).startswith('<'):
+                return None  # the last reply is another provider's
+            continue
+        if last is None:
+            try:
+                last = datetime.datetime.fromisoformat(str(e.get('timestamp')).replace('Z', '+00:00')).timestamp()
+            except ValueError:
+                return None
+        made = (msg.get('usage') or {}).get('cache_creation') or {}
+        if made.get('ephemeral_1h_input_tokens'):
+            ttl = 3600
+        elif made.get('ephemeral_5m_input_tokens'):
+            ttl = 300
+        if ttl:
+            break
+    return last + ttl if last and ttl else None
+
+
 def session_summary(path):
     global _summary_changed
     st = os.stat(path)
@@ -863,7 +907,7 @@ def session_summary(path):
     info = None
     if title:
         info = {'id': os.path.basename(path)[:-6], 'title': custom or title, 'named': bool(custom), 'cwd': cwd or '',
-                'mtime': st.st_mtime, 'size': st.st_size}
+                'mtime': st.st_mtime, 'size': st.st_size, 'cacheUntil': cache_until(path)}
     summary_cache()[path] = (st.st_mtime, info)
     _summary_changed = True
     return info
@@ -1698,7 +1742,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200 if ok else 404, {'ok': ok})
         elif path == '/permission':
             chat = chat_for(data['chat'], data.get('sessionId'), create=False)
-            if not chat or not chat.answer(data['requestId'], bool(data.get('allow'))):
+            answers = data.get('answers') if isinstance(data.get('answers'), dict) else None
+            if not chat or not chat.answer(data['requestId'], bool(data.get('allow')), answers):
                 return self.reply(409, {'error': 'not asked any more'})
             self.reply(200, {'ok': True})
         elif path == '/mkdir':

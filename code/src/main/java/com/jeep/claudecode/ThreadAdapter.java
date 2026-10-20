@@ -3,15 +3,19 @@ package com.jeep.claudecode;
 import android.content.Context;
 import android.graphics.Typeface;
 import android.os.SystemClock;
+import android.text.Editable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
+import android.text.TextWatcher;
+import android.util.TypedValue;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -60,7 +64,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     private final Consumer<View> changed;
     Queue queue;
     /** Answers Claude Code's question whether a tool may run. */
-    interface Asks { void answer(Chat chat, Chat.Block b, boolean allow); }
+    interface Asks { void answer(Chat chat, Chat.Block b, boolean allow, JSONObject answers); }
     Asks asks;
     private List<Item> items = new ArrayList<>();
     private Chat chat;
@@ -440,6 +444,11 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             case "Task": case "Agent": return new String[]{"bot", name, i.optString("description")};
             case "TodoWrite": return new String[]{"list", "TodoWrite", "Update Todos"};
             case "Skill": return new String[]{"spark", name, i.optString("skill", i.optString("command"))};
+            case "AskUserQuestion": {
+                JSONArray qs = i.optJSONArray("questions");
+                JSONObject first = qs == null ? null : qs.optJSONObject(0);
+                return new String[]{"list", "提问", first == null ? "提问" : first.optString("question")};
+            }
             default: {
                 // An MCP tool (mcp__server__tool) or any other: its own name and what it was given first.
                 int cut = name.startsWith("mcp__") ? name.indexOf("__", 5) : -1;
@@ -518,9 +527,158 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         head.setOnClickListener(v -> toggle(b, (View) v.getParent()));
         box.addView(head);
         if ("TodoWrite".equals(b.name)) todos(box, b);
+        // Claude Code asks the user something: its questions to answer, not whether it may run.
+        if ("AskUserQuestion".equals(b.name) && b.ask != null) {
+            questions(box, b);
+            return;
+        }
         // Asked whether it may run: what it would do is shown, and the answer.
         if (b.open || b.ask != null) toolBody(box, b);
         if (b.ask != null) ask(box, b);
+    }
+
+    /**
+     * Claude Code's questions to the user (AskUserQuestion): each with its options to pick (one, or
+     * several where it says so), a line for an answer of one's own (其他), then 跳过 or 提交. What is
+     * picked stays on the block, so the row drawn again keeps it.
+     */
+    private void questions(LinearLayout box, Chat.Block b) {
+        JSONArray qs = b.input.optJSONArray("questions");
+        if (qs == null || qs.length() == 0) { ask(box, b); return; }
+        LinearLayout all = Ui.column(c);
+        List<Runnable> repaint = new ArrayList<>();
+        for (int qi = 0; qi < qs.length(); qi++) {
+            JSONObject q = qs.optJSONObject(qi);
+            if (q == null) continue;
+            int index = qi;
+            boolean multi = q.optBoolean("multiSelect");
+            java.util.LinkedHashSet<String> picked = b.picked.computeIfAbsent(index, k -> new java.util.LinkedHashSet<>());
+            String header = q.optString("header");
+            if (!header.isEmpty()) {
+                TextView h = Ui.text(c, header, 12.5f, R.color.text3);
+                all.addView(h);
+                Ui.margins(h, c, 0, qi == 0 ? 0 : 16, 0, 2);
+            }
+            TextView question = Ui.text(c, q.optString("question") + (multi ? "（可多选）" : ""), 15.5f, R.color.text);
+            all.addView(question);
+            if (header.isEmpty() && qi > 0) Ui.margins(question, c, 0, 16, 0, 0);
+            EditText other = new EditText(c);
+            JSONArray opts = q.optJSONArray("options");
+            for (int oi = 0; opts != null && oi < opts.length(); oi++) {
+                JSONObject o = opts.optJSONObject(oi);
+                if (o == null) continue;
+                String label = o.optString("label");
+                LinearLayout opt = Ui.column(c);
+                opt.setPadding(Ui.dp(c, 12), Ui.dp(c, 9), Ui.dp(c, 12), Ui.dp(c, 9));
+                opt.addView(Ui.text(c, label, 15, R.color.text));
+                String desc = o.optString("description");
+                if (!desc.isEmpty()) {
+                    TextView d = Ui.text(c, desc, 13, R.color.text2);
+                    d.setPadding(0, Ui.dp(c, 2), 0, 0);
+                    opt.addView(d);
+                }
+                Runnable paint = () -> {
+                    boolean on = picked.contains(label);
+                    opt.setBackground(Ui.press(c, Ui.round(Ui.color(c, on ? R.color.active : R.color.surface), Ui.dp(c, 10),
+                            Ui.dp(c, on ? 2 : 1), Ui.color(c, on ? R.color.accent : R.color.border)), Ui.dp(c, 10)));
+                };
+                paint.run();
+                repaint.add(paint);
+                opt.setOnClickListener(v -> {
+                    if (multi) {
+                        if (!picked.remove(label)) picked.add(label);
+                    } else {
+                        boolean was = picked.contains(label);
+                        picked.clear();
+                        if (!was) picked.add(label);
+                        if (!was) other.setText(""); // one answer: an option instead of what was written
+                    }
+                    for (Runnable r : repaint) r.run();
+                });
+                all.addView(opt, Ui.fill());
+                Ui.margins(opt, c, 0, 6, 0, 0);
+            }
+            other.setHint("其他（自己填写）");
+            other.setText(b.other.containsKey(index) ? b.other.get(index) : "");
+            other.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+            other.setTextColor(Ui.color(c, R.color.text));
+            other.setHintTextColor(Ui.color(c, R.color.text3));
+            other.setPadding(Ui.dp(c, 12), Ui.dp(c, 9), Ui.dp(c, 12), Ui.dp(c, 9));
+            other.setBackground(Ui.round(Ui.color(c, R.color.surface), Ui.dp(c, 10), Ui.dp(c, 1), Ui.color(c, R.color.border)));
+            other.addTextChangedListener(new TextWatcher() {
+                @Override public void beforeTextChanged(CharSequence s, int a, int n, int k) {}
+                @Override public void onTextChanged(CharSequence s, int a, int n, int k) {}
+                @Override public void afterTextChanged(Editable s) {
+                    String t = s.toString();
+                    if (t.trim().isEmpty()) b.other.remove(index);
+                    else {
+                        b.other.put(index, t);
+                        if (!multi) picked.clear(); // one answer: what is written instead of an option
+                    }
+                    for (Runnable r : repaint) r.run();
+                }
+            });
+            all.addView(other, Ui.fill());
+            Ui.margins(other, c, 0, 6, 0, 0);
+        }
+        LinearLayout row = Ui.row(c);
+        row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        for (boolean submit : new boolean[]{false, true}) {
+            TextView t = Ui.text(c, submit ? "提交" : "跳过", 14.5f, submit ? R.color.bg : R.color.text);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(Ui.dp(c, 18), 0, Ui.dp(c, 18), 0);
+            t.setMinHeight(Ui.dp(c, 36));
+            t.setBackground(Ui.press(c, submit ? Ui.round(Ui.color(c, R.color.text), Ui.dp(c, 10))
+                    : Ui.round(Ui.color(c, R.color.surface), Ui.dp(c, 10), Ui.dp(c, 1), Ui.color(c, R.color.borderStrong)), Ui.dp(c, 10)));
+            if (submit) {
+                // Ready once every question has an answer.
+                Runnable ready = () -> {
+                    boolean all_ = true;
+                    for (int k = 0; k < qs.length(); k++) {
+                        java.util.Set<String> p = b.picked.get(k);
+                        if ((p == null || p.isEmpty()) && !b.other.containsKey(k)) all_ = false;
+                    }
+                    t.setEnabled(all_);
+                    t.setAlpha(all_ ? 1f : 0.4f);
+                };
+                ready.run();
+                repaint.add(ready);
+                t.setOnClickListener(v -> {
+                    JSONObject answers = new JSONObject();
+                    try {
+                        for (int k = 0; k < qs.length(); k++) {
+                            JSONObject q = qs.optJSONObject(k);
+                            if (q == null) continue;
+                            List<String> parts = new ArrayList<>();
+                            if (b.picked.containsKey(k)) parts.addAll(b.picked.get(k));
+                            if (b.other.containsKey(k)) parts.add(b.other.get(k).trim());
+                            answers.put(q.optString("question"), TextUtils.join(", ", parts));
+                        }
+                    } catch (org.json.JSONException ignored) {
+                        // keys are strings
+                    }
+                    if (asks != null) asks.answer(chat, b, true, answers);
+                });
+            } else {
+                t.setOnClickListener(v -> { if (asks != null) asks.answer(chat, b, false, null); });
+            }
+            row.addView(t, Ui.wrap());
+            if (submit) Ui.margins(t, c, 8, 0, 0, 0);
+        }
+        all.addView(row, Ui.fill());
+        Ui.margins(row, c, 0, 12, 0, 0);
+        box.addView(all, Ui.fill());
+        Ui.margins(all, c, 32, 8, 0, 6);
+    }
+
+    /** What the user answered to a question, from AskUserQuestion's result ("question"="answer"); "" if none. */
+    private static String answerOf(String result, String question) {
+        if (result == null) return "";
+        String key = "\"" + question + "\"=\"";
+        int at = result.indexOf(key);
+        if (at < 0) return "";
+        int from = at + key.length(), to = result.indexOf('"', from);
+        return to < 0 ? "" : result.substring(from, to);
     }
 
     /** Allow or deny, for Claude Code's question whether this tool may run. */
@@ -534,7 +692,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             t.setMinHeight(Ui.dp(c, 36));
             t.setBackground(Ui.press(c, allow ? Ui.round(Ui.color(c, R.color.text), Ui.dp(c, 10))
                     : Ui.round(Ui.color(c, R.color.surface), Ui.dp(c, 10), Ui.dp(c, 1), Ui.color(c, R.color.borderStrong)), Ui.dp(c, 10)));
-            t.setOnClickListener(v -> { if (asks != null) asks.answer(chat, b, allow); });
+            t.setOnClickListener(v -> { if (asks != null) asks.answer(chat, b, allow, null); });
             row.addView(t, Ui.wrap());
             if (allow) Ui.margins(t, c, 8, 0, 0, 0);
         }
@@ -563,6 +721,20 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             }
             case "Write": body.addView(io(b.name, i.optString("file_path") + "\n\n" + i.optString("content"), R.color.text)); break;
             case "TodoWrite": break;
+            case "AskUserQuestion": {
+                // Each question with what was answered (read from the result).
+                JSONArray qs = i.optJSONArray("questions");
+                boolean answered = false;
+                for (int k = 0; qs != null && k < qs.length(); k++) {
+                    JSONObject q = qs.optJSONObject(k);
+                    if (q == null) continue;
+                    String a = answerOf(b.result, q.optString("question"));
+                    answered |= !a.isEmpty();
+                    body.addView(io(q.optString("question"), a.isEmpty() ? "—" : a, R.color.text));
+                }
+                if (answered) { box.addView(body, Ui.fill()); Ui.margins(body, c, 32, 6, 0, 8); return; }
+                break;
+            }
             default: body.addView(io(b.name, pretty(i), R.color.text2));
         }
         for (String src : b.images) body.addView(picture(src));

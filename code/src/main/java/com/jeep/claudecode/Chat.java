@@ -2,6 +2,7 @@ package com.jeep.claudecode;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -49,6 +50,10 @@ final class Chat {
         boolean running, error;
         /** Claude Code asks whether this tool may run: the question to answer; null once answered. */
         String ask;
+        /** AskUserQuestion: the options picked so far, per question, and an answer written instead
+         *  (其他). Kept here so the row, drawn again, keeps them. */
+        final Map<Integer, LinkedHashSet<String>> picked = new HashMap<>();
+        final Map<Integer, String> other = new HashMap<>();
         // thinking
         boolean streaming;
         long started, millis;

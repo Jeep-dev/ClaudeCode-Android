@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.80)
+# Claude Code for Android (v0.4.81)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -64,7 +64,10 @@ interface is plain Android views (Java), so scrolling and text selection are the
   started again before its next message, so it has no API connection the network dropped
   meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). In a permission
   mode that asks, Claude Code's question whether a tool may run comes to the app: the tool's row
-  shows what it would do with 允许 / 拒绝. A message written while a reply runs waits below it (edited, taken back or sent now
+  shows what it would do with 允许 / 拒绝. Claude Code's questions to the user (AskUserQuestion, asked so in
+  every mode) show as their options to pick (several where allowed) and a line of one's own (其他),
+  with 跳过 / 提交; the answers go back with the allow, and the row then shows each question with
+  its answer. A message written while a reply runs waits below it (edited, taken back or sent now
   meanwhile). With 插入 (the default; Settings → 对话 → 回复中发消息) it is sent as soon as the reply
   runs a tool: Claude Code gives it to the model with the tool's result, or starts a turn for it
   when the reply ends; it shows in the conversation once that request begins, and the transcript
@@ -85,7 +88,9 @@ interface is plain Android views (Java), so scrolling and text selection are the
 ## Interface
 
 Drawer with the conversation list, each with how long ago its last message was at the end of its folder's
-line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width; Settings → 外观 → 对话时间 hides it) (swipe right anywhere to open, left to close; long-press a
+line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width; in the accent colour while the API likely still keeps the
+conversation's prompt cache: the last reply's time plus the cache life its requests wrote with, 1 hour or
+5 minutes, as the transcript's usage tells; Settings → 外观 → 对话时间 hides it) (swipe right anywhere to open, left to close; long-press a
 conversation to pin it on top or delete it), a one-line composer (+, the text, and a plain Enter icon to send, a ringed square to stop) where the keyboard's Enter (a Send key) or the button sends and the
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go to the model scaled to 1568 px JPEG; other
 files are saved into the working folder, never overwriting, and their paths added to the

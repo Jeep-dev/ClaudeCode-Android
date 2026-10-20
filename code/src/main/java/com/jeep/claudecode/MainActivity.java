@@ -1074,7 +1074,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
             LinearLayout under = Ui.row(this);
             under.addView(meta, Ui.weight());
             if (prefs.getBoolean("drawerTimes", true)) {
-                TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
+                // In the accent while the API likely still keeps its prompt cache (bridge.py cache_until):
+                // going on with it then is quick and cheap; grey once it has lapsed, or when unknown.
+                boolean cached = s.optDouble("cacheUntil", 0) > System.currentTimeMillis() / 1000.0;
+                TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, cached ? R.color.accent : R.color.text3);
                 when.setFontFeatureSettings("tnum");
                 when.setSingleLine(true);
                 when.setPadding(0, dp(3), 0, 0);
@@ -1630,13 +1633,18 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     /** Answers Claude Code's question whether a tool may run. */
-    private void answer(Chat chat, Chat.Block b, boolean allow) {
+    /** answers: for AskUserQuestion, what the user chose (question -> answer), sent with the allow. */
+    private void answer(Chat chat, Chat.Block b, boolean allow, JSONObject answers) {
         String request = b.ask;
         if (request == null) return;
         b.ask = null;
         b.touch();
         renderNow();
-        bridge.post("/permission", obj("chat", chat.key, "sessionId", chat.sessionId, "requestId", request, "allow", allow), (status, data) -> {
+        JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "requestId", request, "allow", allow);
+        if (answers != null) {
+            try { body.put("answers", answers); } catch (org.json.JSONException ignored) { /* a JSONObject */ }
+        }
+        bridge.post("/permission", body, (status, data) -> {
             if (status == 200 || status == 409) return; // 409: not asked any more (the turn ended)
             b.ask = request;
             b.touch();
