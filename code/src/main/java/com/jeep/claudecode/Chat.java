@@ -74,7 +74,7 @@ final class Chat {
     final List<Queued> queue = new ArrayList<>();
     /** Sent while a reply ran (插入), not yet handed to the model: Claude Code gives it to the model
      *  with its next request, or starts a turn for it when this one ends. Shown in the conversation
-     *  once that request begins (deliverInserted). */
+     *  from when it is sent (Queued.msg); kept here until that request begins (deliverInserted). */
     final List<Queued> inserted = new ArrayList<>();
     long startedAt, lastEvent;
     String verb = VERBS[0], detail = "";
@@ -102,6 +102,8 @@ final class Chat {
         boolean now;
         /** Sent already, while a reply ran: waits in Chat.inserted for the model to get it. */
         boolean inserted;
+        /** Its message in the conversation, once inserted: taken out again if it could not be sent. */
+        Msg msg;
         /** Could not be inserted: waits for the reply to end instead. */
         boolean notInserted;
 
@@ -120,23 +122,29 @@ final class Chat {
     /** The running reply has a tool running (or being written): a message sent now goes to the
      *  model with the tool's result. */
     boolean toolRunning() {
-        Msg m = reply(false);
-        if (m == null) return false;
-        for (Block b : m.blocks) if (b.kind == Block.TOOL && b.running) return true;
+        // The reply goes on below a message inserted into it: its earlier part may run the tool.
+        for (Msg m : messages) {
+            if (m.kind != Msg.ASSISTANT || m.done) continue;
+            for (Block b : m.blocks) if (b.kind == Block.TOOL && b.running) return true;
+        }
         return false;
     }
 
-    /** Claude Code's next request has begun: what was inserted went with it, after what came before. */
-    private void deliverInserted() {
-        for (Queued q : inserted) {
-            Msg u = new Msg(Msg.USER);
-            u.text = q.text;
-            for (Attachment a : q.attachments) {
-                if (a.image) u.images.add("data:" + a.type + ";base64," + a.data);
-                else u.files.add(a.name);
-            }
-            messages.add(u);
+    /** A message inserted into the running reply: shown at once in the conversation, as one sent;
+     *  the reply goes on below it. */
+    void showInserted(Queued q) {
+        Msg u = new Msg(Msg.USER);
+        u.text = q.text;
+        for (Attachment a : q.attachments) {
+            if (a.image) u.images.add("data:" + a.type + ";base64," + a.data);
+            else u.files.add(a.name);
         }
+        messages.add(u);
+        q.msg = u;
+    }
+
+    /** Claude Code's next request has begun: what was inserted went with it. */
+    private void deliverInserted() {
         inserted.clear();
     }
 
@@ -389,11 +397,19 @@ final class Chat {
             return false;
         }
         if ("result".equals(t)) {
-            Msg m = reply(true);
-            for (Block b : m.blocks) {
-                if (b.kind == Block.TOOL && (b.running || b.ask != null)) { b.running = false; b.ask = null; b.touch(); }
-                if (b.kind == Block.THINKING && b.streaming) { b.streaming = false; b.touch(); }
+            // The reply may be in parts, a message inserted into it between them (showInserted): all
+            // end; how it ended goes under its last part, above a message inserted too late for it.
+            Msg m = null;
+            for (Msg x : messages) {
+                if (x.kind != Msg.ASSISTANT || x.done) continue;
+                if (m != null) { m.done = true; m.touch(); }
+                m = x;
+                for (Block b : x.blocks) {
+                    if (b.kind == Block.TOOL && (b.running || b.ask != null)) { b.running = false; b.ask = null; b.touch(); }
+                    if (b.kind == Block.THINKING && b.streaming) { b.streaming = false; b.touch(); }
+                }
             }
+            if (m == null) m = reply(true);
             if ("error_during_execution".equals(sub) || stopping) {
                 m.blocks.add(new Block(Block.STOPPED));
             } else if (d.optBoolean("is_error")) {

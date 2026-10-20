@@ -1486,17 +1486,20 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     /** Sends a message while a reply runs: Claude Code hands it to the model with its next request,
-     *  or starts a turn for it when this one ends. It waits below the reply until then (Chat.inserted). */
+     *  or starts a turn for it when this one ends. Shown at once as sent, the reply going on below it. */
     private void insert(Chat chat, Chat.Queued q) {
         chat.queue.remove(q);
         q.inserted = true;
         chat.inserted.add(q);
+        chat.showInserted(q);
         upload(chat, q.attachments, 0, new ArrayList<>(), q.text, q);
     }
 
     /** An inserted message could not be sent: it waits for the reply to end instead. */
     private void notInserted(Chat chat, Chat.Queued q, String why) {
         if (!chat.inserted.remove(q)) return;
+        chat.messages.remove(q.msg);
+        q.msg = null;
         q.inserted = false;
         q.notInserted = true; // not tried again: it goes when the reply ends
         chat.queue.add(0, q);

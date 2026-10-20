@@ -70,7 +70,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   its answer. A message written while a reply runs waits below it (edited, taken back or sent now
   meanwhile). With 插入 (the default; Settings → 对话 → 回复中发消息) it is sent as soon as the reply
   runs a tool: Claude Code gives it to the model with the tool's result, or starts a turn for it
-  when the reply ends; it shows in the conversation once that request begins, and the transcript
+  when the reply ends; it shows in the conversation at once as a sent message, the reply going on below it (back to waiting if it could not be sent), and the transcript
   keeps it as a queued command, shown in its place when the conversation is read again. With 排队,
   or when no tool runs, it is sent when the reply ends. Stop sends Claude Code's `interrupt` control request,
   and ends the process if that turn has not ended 5 s later.

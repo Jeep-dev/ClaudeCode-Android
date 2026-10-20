@@ -138,11 +138,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         if (chat.running && (msgs.isEmpty() || msgs.get(msgs.size() - 1).kind != Chat.Msg.ASSISTANT)) {
             out.add(new Item(STATUS, -1, 0, null, null, 20));
         }
-        for (Chat.Queued q : chat.inserted) {
-            Item it = new Item(QUEUED, -q.id - 1_000_000_000L, 2, null, null, out.isEmpty() ? 6 : 18);
-            it.queued = q;
-            out.add(it);
-        }
         for (Chat.Queued q : chat.queue) {
             Item it = new Item(QUEUED, -q.id - 1_000_000_000L, q.now ? 1 : 0, null, null, out.isEmpty() ? 6 : 18);
             it.queued = q;
@@ -310,7 +305,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         bubble.setPadding(Ui.dp(c, 15), Ui.dp(c, 10), Ui.dp(c, 15), Ui.dp(c, 10));
         bubble.setBackground(Ui.round(0, Ui.dp(c, 20), Ui.dp(c, 1), Ui.color(c, R.color.borderStrong)));
         box.addView(bubble, Ui.wrap());
-        if (q.inserted) return; // sent already: nothing to do with it but wait for the model to get it
         LinearLayout row = Ui.row(c);
         row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         if (q.now) {
