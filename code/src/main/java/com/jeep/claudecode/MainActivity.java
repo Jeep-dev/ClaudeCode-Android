@@ -1341,6 +1341,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 m.touch();
                 chat.stopped = true; // Claude Code died: what is queued waits to be sent by hand
             }
+            chat.unhand(); // what it held waits here again
             chat.running = false;
         }
     }
@@ -1392,6 +1393,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 // A new bridge: the old one's turns ended with it.
                 for (Chat ch : chats.values()) {
                     if (ch.running) fail(ch, "后台重启了", "这一轮被中断，发消息即可接着这个对话继续。");
+                    ch.unhand(); // what the old one held waits here again
                 }
             }
             bridgeStarted = started;
@@ -1485,24 +1487,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
         return prefs.getBoolean("insertWhileRunning", true);
     }
 
-    /** Sends a message while a reply runs: Claude Code hands it to the model with its next request,
-     *  or starts a turn for it when this one ends. Shown at once as sent, the reply going on below it. */
+    /** Hands a message to Claude Code while a reply runs: the model gets it with its next request,
+     *  or Claude Code starts a turn for it when this one ends. It waits as it was (edited, taken back
+     *  or sent now) until the model has it (Chat.apply, command_lifecycle). */
     private void insert(Chat chat, Chat.Queued q) {
-        chat.queue.remove(q);
         q.inserted = true;
-        chat.inserted.add(q);
-        chat.showInserted(q);
+        q.uuid = java.util.UUID.randomUUID().toString();
         upload(chat, q.attachments, 0, new ArrayList<>(), q.text, q);
     }
 
     /** An inserted message could not be sent: it waits for the reply to end instead. */
     private void notInserted(Chat chat, Chat.Queued q, String why) {
-        if (!chat.inserted.remove(q)) return;
-        chat.messages.remove(q.msg);
-        q.msg = null;
+        if (!q.inserted) return;
         q.inserted = false;
+        q.uuid = null;
         q.notInserted = true; // not tried again: it goes when the reply ends
-        chat.queue.add(0, q);
         toast("没能插入，改为回复结束后发送：" + why);
         if (!chat.running) sendQueued(chat);
         render();
@@ -1540,35 +1539,61 @@ public final class MainActivity extends Activity implements Bridge.Events {
             // 插入: while the reply runs a tool, what waits goes now and the model gets it with the
             // tool's result, without the reply ending (a stop asked for keeps it waiting).
             if (!insertWhileRunning() || chat.stopping || !chat.toolRunning()) return;
-            for (Chat.Queued q : new ArrayList<>(chat.queue)) if (!q.now && !q.notInserted) insert(chat, q);
+            for (Chat.Queued q : new ArrayList<>(chat.queue)) if (!q.inserted && !q.now && !q.notInserted) insert(chat, q);
             return;
         }
-        Chat.Queued q = chat.queue.get(0);
-        if (chat.stopped && !q.now) return;
-        chat.queue.remove(0);
+        Chat.Queued q = null;
+        for (Chat.Queued w : chat.queue) if (!w.inserted) { q = w; break; } // Claude Code has the others
+        if (q == null || (chat.stopped && !q.now)) return;
+        chat.queue.remove(q);
         submit(chat, q.text, q.attachments);
+    }
+
+    /** Takes a waiting message back from Claude Code, if it was handed over, then goes on; when the
+     *  model has got it meanwhile, it is a message of the conversation and nothing is done. */
+    private void takeBack(Chat chat, Chat.Queued q, Runnable then) {
+        if (!q.inserted) { then.run(); return; }
+        bridge.post("/cancel", obj("chat", chat.key, "sessionId", chat.sessionId, "uuid", q.uuid), (status, data) -> {
+            if (status == 200 && data.optBoolean("cancelled")) {
+                q.inserted = false;
+                q.uuid = null;
+                then.run();
+            } else if (status == 200) {
+                toast("模型已经读到这条消息了");
+            } else {
+                toast("没能撤回：" + data.optString("error", "HTTP " + status));
+            }
+        });
     }
 
     private final ThreadAdapter.Queue queueActions = new ThreadAdapter.Queue() {
         @Override public void edit(Chat.Queued q) {
-            current.queue.remove(q);
-            String typed = input.getText().toString();
-            String text = typed.trim().isEmpty() ? q.text : q.text + "\n" + typed;
-            current.attachments.addAll(0, q.attachments);
-            input.setText(text);
-            input.setSelection(input.length());
-            input.requestFocus();
-            showKeyboard();
-            renderNow();
+            Chat chat = current;
+            takeBack(chat, q, () -> {
+                if (!chat.queue.remove(q) || current != chat) return;
+                String typed = input.getText().toString();
+                String text = typed.trim().isEmpty() ? q.text : q.text + "\n" + typed;
+                current.attachments.addAll(0, q.attachments);
+                input.setText(text);
+                input.setSelection(input.length());
+                input.requestFocus();
+                showKeyboard();
+                renderNow();
+            });
         }
 
         @Override public void cancel(Chat.Queued q) {
-            current.queue.remove(q);
-            renderNow();
+            Chat chat = current;
+            takeBack(chat, q, () -> {
+                chat.queue.remove(q);
+                renderNow();
+            });
         }
 
         @Override public void sendNow(Chat.Queued q) {
             Chat chat = current;
+            // With Claude Code already: stopping the reply is enough, it then starts a turn for it.
+            if (q.inserted) { if (chat.running) stop(chat); renderNow(); return; }
             chat.queue.remove(q);
             chat.queue.add(0, q);
             q.now = true;
@@ -1613,7 +1638,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         long sentAt = System.currentTimeMillis();
         JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
-                "content", content, "mid", chat.key + ":" + sentAt, "restart", restartIdle());
+                "content", content, "mid", chat.key + ":" + sentAt, "restart", restartIdle(),
+                "uuid", inserted != null ? inserted.uuid : null);
         sendWithRetry(chat, body, sentAt, 0, inserted);
     }
 

@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.84)
+# Claude Code for Android (v0.4.85)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -69,8 +69,12 @@ interface is plain Android views (Java), so scrolling and text selection are the
   with 跳过 / 提交; the answers go back with the allow, and the row then shows each question with
   its answer. A message written while a reply runs waits below it (edited, taken back or sent now
   meanwhile). With 插入 (the default; Settings → 对话 → 回复中发消息) it is sent as soon as the reply
-  runs a tool: Claude Code gives it to the model with the tool's result, or starts a turn for it
-  when the reply ends; it shows in the conversation at once as a sent message, the reply going on below it (back to waiting if it could not be sent), and the transcript
+  runs a tool, with a uuid: Claude Code holds it in its queue and gives it to the model with the
+  tool's result, or starts a turn for it when the reply ends. Until then it still waits as it was:
+  edited or taken back, it is first taken back from Claude Code's queue (`cancel_async_message`,
+  the bridge's `/cancel`), and 立即发送 only stops the reply (Claude Code then starts a turn for it).
+  It is a message of the conversation once the model has it (Claude Code's `command_lifecycle`
+  started), the reply going on below it; and the transcript
   keeps it as a queued command, shown in its place when the conversation is read again. With 排队,
   or when no tool runs, it is sent when the reply ends. Stop sends Claude Code's `interrupt` control request,
   and ends the process if that turn has not ended 5 s later.

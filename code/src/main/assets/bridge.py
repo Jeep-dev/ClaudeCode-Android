@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 46  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 47  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -394,7 +394,7 @@ class Chat:
             self.stderr.append(line.rstrip())
             del self.stderr[:-50]
 
-    def send(self, content, cwd=None, model=None, session_id=None, effort=None, restart=True):
+    def send(self, content, cwd=None, model=None, session_id=None, effort=None, restart=True, message_uuid=None):
         came = time.time()
         with self.lock:
             before = self.proc if self.alive() else None
@@ -438,7 +438,10 @@ class Chat:
                 log('chat %s: message %s (%d text, %d image)' % (self.key[:8], how, kinds.count('text'), kinds.count('image')))
             else:
                 log('chat %s: message %s' % (self.key[:8], how))
-            self.write(self.proc, {'type': 'user', 'message': {'role': 'user', 'content': content}})
+            message = {'type': 'user', 'message': {'role': 'user', 'content': content}}
+            if message_uuid:  # Claude Code tells its fate (command_lifecycle) and can take it back (Chat.cancel)
+                message['uuid'] = message_uuid
+            self.write(self.proc, message)
             self.ready_at = time.time() - came
             hub.emit(self.key, 'state', {'running': True})
 
@@ -518,6 +521,31 @@ class Chat:
             log('chat %s: naming by claude failed: %s' % (self.key[:8], response.get('error') or 'no answer'))
             return None
         return ' '.join(str((response.get('response') or {}).get('title') or '').split())[:80]
+
+    def cancel(self, message_uuid):
+        """Takes back a message written while a turn ran, while Claude Code still holds it in its
+        queue (the model has not got it): True when taken back, or when the claude that held it is
+        gone; False when the model has it already (or it never came), None when there was no answer."""
+        proc = self.proc
+        if proc is None or proc.poll() is not None:
+            return True
+        rid = 'cancel-%s' % uuid.uuid4().hex[:12]
+        slot = {'event': threading.Event()}
+        self.waiting[rid] = slot
+        try:
+            self.write(proc, {'type': 'control_request', 'request_id': rid,
+                              'request': {'subtype': 'cancel_async_message', 'message_uuid': message_uuid}})
+            slot['event'].wait(10)
+        except OSError:
+            return True
+        finally:
+            self.waiting.pop(rid, None)
+        response = slot.get('response')
+        if response is None:
+            return True if proc.poll() is not None else None
+        cancelled = response.get('subtype') == 'success' and (response.get('response') or {}).get('cancelled') is True
+        log('chat %s: queued message %s' % (self.key[:8], 'taken back' if cancelled else 'not taken back (the model has it)'))
+        return cancelled
 
     def answer(self, request_id, allow, answers=None):
         """Answers Claude Code's question whether a tool may run; False when it is not asked any more.
@@ -1648,7 +1676,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 chat.send(data['content'], cwd=data.get('cwd'), model=data.get('model') or None,
                           session_id=data.get('sessionId'), effort=data.get('effort') or None,
-                          restart=data.get('restart') is not False)
+                          restart=data.get('restart') is not False, message_uuid=data.get('uuid') or None)
             except Exception as e:
                 chat.running = False
                 with chats_lock:
@@ -1680,6 +1708,12 @@ class Handler(BaseHTTPRequestHandler):
             self.mcp(data)
         elif path == '/plugin':
             self.plugin(data)
+        elif path == '/cancel':
+            chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+            cancelled = True if chat is None else chat.cancel(str(data.get('uuid') or ''))
+            if cancelled is None:
+                return self.reply(504, {'error': 'Claude Code did not answer'})
+            self.reply(200, {'cancelled': cancelled})
         elif path == '/stop':
             chat = chat_for(data['chat'], data.get('sessionId'), create=False)
             if chat:

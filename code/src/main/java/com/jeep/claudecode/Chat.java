@@ -70,12 +70,9 @@ final class Chat {
     boolean running, stopping, loaded = true;
     /** The last turn ended because it was stopped: queued messages then wait to be sent by hand. */
     boolean stopped;
-    /** Messages written while a turn runs, sent one by one when it ends. */
+    /** Messages written while a turn runs, waiting until the model gets them: sent one by one when
+     *  it ends, or (插入) handed to Claude Code while it runs a tool (Queued.inserted). */
     final List<Queued> queue = new ArrayList<>();
-    /** Sent while a reply ran (插入), not yet handed to the model: Claude Code gives it to the model
-     *  with its next request, or starts a turn for it when this one ends. Shown in the conversation
-     *  from when it is sent (Queued.msg); kept here until that request begins (deliverInserted). */
-    final List<Queued> inserted = new ArrayList<>();
     long startedAt, lastEvent;
     String verb = VERBS[0], detail = "";
     String draft = "";
@@ -100,10 +97,12 @@ final class Chat {
         final List<Attachment> attachments;
         /** Sent as soon as the turn being stopped for it has ended. */
         boolean now;
-        /** Sent already, while a reply ran: waits in Chat.inserted for the model to get it. */
+        /** Handed to Claude Code while a reply ran (插入): in its queue, still waiting (taken back from
+         *  there when edited or cancelled), until the model gets it with its next request or Claude
+         *  Code starts a turn for it (command_lifecycle started: it is then a message of the conversation). */
         boolean inserted;
-        /** Its message in the conversation, once inserted: taken out again if it could not be sent. */
-        Msg msg;
+        /** Its uuid, as Claude Code knows it once handed over. */
+        String uuid;
         /** Could not be inserted: waits for the reply to end instead. */
         boolean notInserted;
 
@@ -130,9 +129,20 @@ final class Chat {
         return false;
     }
 
-    /** A message inserted into the running reply: shown at once in the conversation, as one sent;
-     *  the reply goes on below it. */
-    void showInserted(Queued q) {
+    /** Something waiting is with Claude Code, which goes on (or starts a turn) for it. */
+    boolean handed() {
+        for (Queued q : queue) if (q.inserted) return true;
+        return false;
+    }
+
+    /** Claude Code is gone (or was replaced) with what it held: that waits here again, to be sent. */
+    void unhand() {
+        for (Queued q : queue) { q.inserted = false; q.uuid = null; }
+    }
+
+    /** A message the model has got (handed over while a reply ran): from now a message of the
+     *  conversation, the reply going on below it. */
+    private void showInserted(Queued q) {
         Msg u = new Msg(Msg.USER);
         u.text = q.text;
         for (Attachment a : q.attachments) {
@@ -140,12 +150,6 @@ final class Chat {
             else u.files.add(a.name);
         }
         messages.add(u);
-        q.msg = u;
-    }
-
-    /** Claude Code's next request has begun: what was inserted went with it. */
-    private void deliverInserted() {
-        inserted.clear();
     }
 
     Msg reply(boolean create) {
@@ -209,6 +213,23 @@ final class Chat {
         String t = d.optString("type");
         String sub = d.optString("subtype");
         boolean sideChain = !d.isNull("parent_tool_use_id") && d.has("parent_tool_use_id");
+        if ("command_lifecycle".equals(t)) {
+            // What happens to a message handed to Claude Code while a reply ran.
+            String id = d.optString("command_uuid"), state = d.optString("state");
+            for (Queued q : queue) {
+                if (!q.inserted || !id.equals(q.uuid)) continue;
+                if ("started".equals(state)) {
+                    queue.remove(q);
+                    showInserted(q);
+                } else if (!"queued".equals(state)) { // it will not reach the model: it waits here again
+                    q.inserted = false;
+                    q.uuid = null;
+                    q.notInserted = true;
+                }
+                break;
+            }
+            return false;
+        }
         if ("control_request".equals(t)) {
             // Claude Code asks whether a tool may run (a permission mode that asks): its row asks the user.
             JSONObject r = d.optJSONObject("request");
@@ -262,7 +283,6 @@ final class Chat {
             detail = "";
             JSONObject e = d.optJSONObject("event");
             if (e == null) return false;
-            if ("message_start".equals(e.optString("type"))) deliverInserted();
             Msg m = reply(true);
             String et = e.optString("type");
             int index = e.optInt("index");
@@ -421,7 +441,7 @@ final class Chat {
             m.done = true;
             m.touch();
             // A message inserted too late for this turn gets one of its own (Claude Code starts it).
-            running = !inserted.isEmpty();
+            running = handed();
             stopped = stopping || "error_during_execution".equals(sub);
             stopping = false;
             if (d.has("session_id")) sessionId = d.optString("session_id");
