@@ -525,7 +525,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void afterTextChanged(Editable s) { showMenu(); updateChrome(); }
+            @Override public void afterTextChanged(Editable s) {
+                showMenu();
+                updateChrome();
+                if (s.length() > 0) warm();
+            }
         });
         row.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
 
@@ -1082,12 +1086,30 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (linked) opened(chat);
     }
 
-    /** Its Claude Code is started now (or again, idle so long its connections may be gone), and so is
-     *  the one for a new conversation: the next message does not wait for one to start. */
+    /** Its Claude Code is started now (or again, idle so long its connections may be gone, unless
+     *  restartIdle is off), and so is the one for a new conversation: the next message does not wait
+     *  for one to start. */
     private void opened(Chat chat) {
         if (chat == null) return;
+        warmedAt = android.os.SystemClock.uptimeMillis();
         bridge.post("/open", obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
-                "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort), null);
+                "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
+                "restart", restartIdle()), null);
+    }
+
+    /** When the conversation was last opened (or written in): see warm. */
+    private long warmedAt;
+
+    /** Something is being written: its Claude Code gets ready meanwhile (opened), at most every 20 s. */
+    private void warm() {
+        if (!linked || current == null || current.running) return;
+        if (android.os.SystemClock.uptimeMillis() - warmedAt < 20_000) return;
+        opened(current);
+    }
+
+    /** An idle Claude Code is started again before its next message (on by default; Settings → 后台). */
+    private boolean restartIdle() {
+        return prefs.getBoolean("restartIdle", true);
     }
 
     /** Reads a saved conversation once; a failed read is tried again on the next link or tap. */
@@ -1498,7 +1520,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         long sentAt = System.currentTimeMillis();
         JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
-                "content", content, "mid", chat.key + ":" + sentAt);
+                "content", content, "mid", chat.key + ":" + sentAt, "restart", restartIdle());
         sendWithRetry(chat, body, sentAt, 0);
     }
 
@@ -3079,7 +3101,20 @@ public final class MainActivity extends Activity implements Bridge.Events {
     // ---- 后台 ----
 
     private void fillKeep(LinearLayout box) {
+        LinearLayout idle = card(box);
+        LinearLayout restart = Ui.row(this);
+        restart.setPadding(dp(14), dp(6), dp(8), dp(6));
+        restart.setMinimumHeight(dp(50));
+        restart.addView(Ui.text(this, "闲置后重启 Claude Code", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
+        restart.addView(segmented(new String[]{"关", "开"}, restartIdle() ? 1 : 0, i ->
+                prefs.edit().putBoolean("restartIdle", i == 1).apply()));
+        idle.addView(restart, Ui.fill());
+        TextView why = Ui.text(this, "闲置 3 分钟以上的对话，在你打字时先在后台重启，换掉可能已断开的网络连接。"
+                + "关掉后不会因此多等几秒，但手机断过网后，偶尔会有一条消息卡住约 3 分钟。", 12.5f, R.color.text3);
+        why.setPadding(dp(14), dp(2), dp(14), dp(10));
+        idle.addView(why, Ui.fill());
         LinearLayout keep = card(box);
+        Ui.margins(keep, this, 0, 12, 0, 0);
         if (!hasStorage()) option(keep, R.drawable.ic_folder, "允许访问存储", null, false, this::requestStorage);
         android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
         if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {

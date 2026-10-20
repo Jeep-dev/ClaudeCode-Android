@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 39  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 40  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -41,7 +41,8 @@ MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
 # Idle this long, a claude's connections to the API may be gone (dropped by the phone's network, or
 # all was frozen) with nothing telling it: a request sent on one gets no answer until Claude Code's
-# timeout, and its retry may get another such one. It is started again first (Chat.refresh).
+# timeout, and its retry may get another such one. It is started again first (Chat.refresh), unless
+# the app's setting turns that off (restart false in /open and /send).
 STALE_SECONDS = 3 * 60
 SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
 IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
@@ -353,7 +354,7 @@ class Chat:
             self.stderr.append(line.rstrip())
             del self.stderr[:-50]
 
-    def send(self, content, cwd=None, model=None, session_id=None, effort=None):
+    def send(self, content, cwd=None, model=None, session_id=None, effort=None, restart=True):
         with self.lock:
             if session_id and not self.session_id:
                 self.session_id = session_id
@@ -372,7 +373,8 @@ class Chat:
             new = not self.session_id and not self.alive()
             if new:  # the next spare is started like this one
                 spare.want = (self.cwd, model, effort)
-            self.refresh()
+            if restart:
+                self.refresh()
             if not self.alive():
                 self.start()
             self.opened = False
@@ -446,9 +448,10 @@ class Chat:
             return None
         return ' '.join(str((response.get('response') or {}).get('title') or '').split())[:80]
 
-    def open(self, session_id, cwd=None, model=None, effort=None):
-        """Starts the claude of a saved conversation the app opened, so its next message does not
-        wait for one to start. Only the last one opened waits like this."""
+    def open(self, session_id, cwd=None, model=None, effort=None, restart=True):
+        """Starts the claude of a saved conversation the app opened (or that is being written in),
+        so its next message does not wait for one to start; restart: also one idle so long its
+        connections may be gone. Only the last one opened waits like this."""
         global last_opened
         with self.lock:
             if not self.alive():
@@ -459,7 +462,7 @@ class Chat:
                 self.start()
                 self.opened = True
                 self.used = time.time()
-            else:
+            elif restart:
                 self.refresh()
         with chats_lock:
             before, last_opened = last_opened, self
@@ -1533,7 +1536,8 @@ class Handler(BaseHTTPRequestHandler):
             chat = chat_for(data['chat'], data.get('sessionId'))
             try:
                 chat.send(data['content'], cwd=data.get('cwd'), model=data.get('model') or None,
-                          session_id=data.get('sessionId'), effort=data.get('effort') or None)
+                          session_id=data.get('sessionId'), effort=data.get('effort') or None,
+                          restart=data.get('restart') is not False)
             except Exception as e:
                 chat.running = False
                 with chats_lock:
@@ -1544,12 +1548,13 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             self.reply(200, {'ok': True})
         elif path == '/open':
-            threading.Thread(target=spare.fill, args=(True,), daemon=True).start()
+            restart = data.get('restart') is not False
+            threading.Thread(target=spare.fill, args=(restart,), daemon=True).start()
             if data.get('sessionId'):
                 chat = chat_for(data['chat'], data['sessionId'])
                 try:
                     chat.open(data['sessionId'], cwd=data.get('cwd'), model=data.get('model') or None,
-                              effort=data.get('effort') or None)
+                              effort=data.get('effort') or None, restart=restart)
                 except OSError as e:
                     return self.reply(500, {'error': str(e)})
             self.reply(200, {'ok': True})
