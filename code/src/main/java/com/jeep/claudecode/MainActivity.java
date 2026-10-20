@@ -1069,7 +1069,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 meta.setEllipsize(TextUtils.TruncateAt.END);
             }
             // How long ago, at the end of the folder's line in two columns of one width each: the
-            // number's (55, 1, 3 begin at one place) and, after a gap, the unit's (m, h, d too).
+            // number's (55, 1, 3 begin at one place) and, half a character on, the unit's (m, h, d too).
             LinearLayout under = Ui.row(this);
             under.addView(meta, Ui.weight());
             String[] ago = ago(s.optDouble("mtime"));
@@ -1081,13 +1081,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 v.setPadding(0, dp(3), 0, 0);
             }
             int numWidth = (int) Math.ceil(num.getPaint().measureText("88")), unitWidth = (int) Math.ceil(unit.getPaint().measureText("mo"));
-            int gap = dp(3);
+            int gap = Math.round(num.getPaint().measureText("0") / 2);
             if (ago[1].isEmpty()) { // "now": across both columns
                 under.addView(num, new LinearLayout.LayoutParams(numWidth + gap + unitWidth, -2));
             } else {
                 under.addView(num, new LinearLayout.LayoutParams(numWidth, -2));
-                under.addView(unit, new LinearLayout.LayoutParams(unitWidth, -2));
-                Ui.margins(unit, this, 3, 0, 0, 0);
+                LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(unitWidth, -2);
+                up.leftMargin = gap;
+                under.addView(unit, up);
             }
             Ui.margins(num, this, 10, 0, 0, 0);
             under.setPadding(0, 0, dp(10), 0); // a little in from the edge
