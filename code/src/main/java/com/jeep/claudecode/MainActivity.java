@@ -984,6 +984,25 @@ public final class MainActivity extends Activity implements Bridge.Events {
         for (int i = 0; from != null && i < from.length(); i++) to.add(from.optString(i));
     }
 
+    /** How long ago a conversation last changed (its last message), in English words: just now,
+     *  1 minute, 5 minutes, 1 hour, 3 days, 2 weeks, 4 months, 1 year. Read again each time the
+     *  drawer opens. */
+    private static String ago(double mtime) {
+        if (Double.isNaN(mtime)) return "";
+        long s = Math.max(0, System.currentTimeMillis() / 1000 - (long) mtime), day = 86_400;
+        if (s < 60) return "just now";
+        if (s < 3600) return count(s / 60, "minute");
+        if (s < day) return count(s / 3600, "hour");
+        if (s < 7 * day) return count(s / day, "day");
+        if (s < 30 * day) return count(s / (7 * day), "week");
+        if (s < 365 * day) return count(s / (30 * day), "month");
+        return count(s / (365 * day), "year");
+    }
+
+    private static String count(long n, String unit) {
+        return n + " " + unit + (n == 1 ? "" : "s");
+    }
+
     private static String group(double mtime) {
         Calendar start = Calendar.getInstance();
         start.set(Calendar.HOUR_OF_DAY, 0);
@@ -1042,6 +1061,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             line.addView(t, Ui.weight());
+            TextView when = Ui.text(this, ago(s.optDouble("mtime")), 12.5f, R.color.text3);
+            when.setFontFeatureSettings("tnum"); // digits of one width: the column lines up
+            when.setSingleLine(true);
+            when.setPadding(dp(10), 0, 0, 0);
+            line.addView(when);
             item.addView(line, Ui.fill());
             TextView meta = Ui.text(this, Ui.base(folder), 12.5f, R.color.text3);
             meta.setPadding(0, dp(3), 0, 0);
