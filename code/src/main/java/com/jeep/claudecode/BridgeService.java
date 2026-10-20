@@ -37,8 +37,6 @@ public final class BridgeService extends Service {
     private Userland userland;
     private PowerManager.WakeLock wake;
     private Process proc;
-    /** The page the userland's webview command reads; listening once the userland is there. */
-    private Browser browser;
     /** Restarts after the bridge died on its own, in the last minute: a crash loop stops at three. */
     private final long[] deaths = new long[3];
     private int deathCount;
@@ -66,7 +64,6 @@ public final class BridgeService extends Service {
         wake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "claudecode:bridge");
         wake.setReferenceCounted(false);
         wake.acquire();
-        browser = new Browser(this, userland.file(Browser.SOCKET), this::log);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -79,7 +76,6 @@ public final class BridgeService extends Service {
 
     @Override public void onDestroy() {
         worker.shutdownNow();
-        browser.stop();
         Process p = proc;
         proc = null; // its watcher must not start another on the stopped worker
         int pid = bridgePid();
@@ -98,8 +94,6 @@ public final class BridgeService extends Service {
         }
         try {
             userland.writeBridge();
-            userland.writeWebview();
-            browser.start();
             ProcessBuilder pb = new ProcessBuilder(userland.command("python3", "/opt/ccapp/bridge.py",
                     "--socket", Bridge.SOCKET, "--reason", "app: " + reason));
             userland.env(pb);
