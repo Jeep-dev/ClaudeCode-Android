@@ -984,18 +984,18 @@ public final class MainActivity extends Activity implements Bridge.Events {
         for (int i = 0; from != null && i < from.length(); i++) to.add(from.optString(i));
     }
 
-    /** How long ago a conversation last changed (its last message), short: now, 5m, 1h, 3d, 2w,
-     *  4mo, 1y. Read again each time the drawer opens. */
-    private static String ago(double mtime) {
-        if (Double.isNaN(mtime)) return "";
+    /** How long ago a conversation last changed (its last message), as number and unit: 5 m, 1 h,
+     *  3 d, 2 w, 4 mo, 1 y; "now" (no unit) under a minute. Read again each time the drawer opens. */
+    private static String[] ago(double mtime) {
+        if (Double.isNaN(mtime)) return new String[]{"", ""};
         long s = Math.max(0, System.currentTimeMillis() / 1000 - (long) mtime), day = 86_400;
-        if (s < 60) return "now";
-        if (s < 3600) return s / 60 + "m";
-        if (s < day) return s / 3600 + "h";
-        if (s < 7 * day) return s / day + "d";
-        if (s < 30 * day) return s / (7 * day) + "w";
-        if (s < 365 * day) return s / (30 * day) + "mo";
-        return s / (365 * day) + "y";
+        if (s < 60) return new String[]{"now", ""};
+        if (s < 3600) return new String[]{String.valueOf(s / 60), "m"};
+        if (s < day) return new String[]{String.valueOf(s / 3600), "h"};
+        if (s < 7 * day) return new String[]{String.valueOf(s / day), "d"};
+        if (s < 30 * day) return new String[]{String.valueOf(s / (7 * day)), "w"};
+        if (s < 365 * day) return new String[]{String.valueOf(s / (30 * day)), "mo"};
+        return new String[]{String.valueOf(s / (365 * day)), "y"};
     }
 
     private static String group(double mtime) {
@@ -1068,17 +1068,29 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 meta.setText(sb);
                 meta.setEllipsize(TextUtils.TruncateAt.END);
             }
-            // How long ago, in a column of one width at the end of the folder's line, its text from the
-            // column's start: 55m, 1h and 3d begin at one place.
+            // How long ago, at the end of the folder's line in two columns of one width each: the
+            // number's (55, 1, 3 begin at one place) and, after a gap, the unit's (m, h, d too).
             LinearLayout under = Ui.row(this);
             under.addView(meta, Ui.weight());
-            TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
-            when.setFontFeatureSettings("tnum");
-            when.setSingleLine(true);
-            when.setPadding(0, dp(3), 0, 0);
-            int column = (int) Math.ceil(when.getPaint().measureText("88mo"));
-            under.addView(when, new LinearLayout.LayoutParams(column + dp(2), -2));
-            Ui.margins(when, this, 10, 0, 0, 0);
+            String[] ago = ago(s.optDouble("mtime"));
+            TextView num = Ui.text(this, ago[0], 11.5f, R.color.text3);
+            TextView unit = Ui.text(this, ago[1], 11.5f, R.color.text3);
+            for (TextView v : new TextView[]{num, unit}) {
+                v.setFontFeatureSettings("tnum");
+                v.setSingleLine(true);
+                v.setPadding(0, dp(3), 0, 0);
+            }
+            int numWidth = (int) Math.ceil(num.getPaint().measureText("88")), unitWidth = (int) Math.ceil(unit.getPaint().measureText("mo"));
+            int gap = dp(3);
+            if (ago[1].isEmpty()) { // "now": across both columns
+                under.addView(num, new LinearLayout.LayoutParams(numWidth + gap + unitWidth, -2));
+            } else {
+                under.addView(num, new LinearLayout.LayoutParams(numWidth, -2));
+                under.addView(unit, new LinearLayout.LayoutParams(unitWidth, -2));
+                Ui.margins(unit, this, 3, 0, 0, 0);
+            }
+            Ui.margins(num, this, 10, 0, 0, 0);
+            under.setPadding(0, 0, dp(10), 0); // a little in from the edge
             item.addView(under, Ui.fill());
             item.setOnClickListener(v -> openSession(id, titleText, folder));
             item.setOnLongClickListener(v -> { sessionActions(id, titleText, folder); return true; });
