@@ -2467,13 +2467,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
         meanwhile.setPadding(dp(14), dp(6), dp(8), dp(6));
         meanwhile.setMinimumHeight(dp(50));
         meanwhile.addView(Ui.text(this, "回复中发消息", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        meanwhile.addView(segmented(new String[]{"排队", "插入"}, insertWhileRunning() ? 1 : 0, i ->
-                prefs.edit().putBoolean("insertWhileRunning", i == 1).apply()));
+        meanwhile.addView(segmented(new String[]{"排队", "插入"}, insertWhileRunning() ? 1 : 0, i -> {
+            prefs.edit().putBoolean("insertWhileRunning", i == 1).apply();
+            fillSettings(launchCache); // shown chosen
+        }));
         talk.addView(meanwhile, Ui.fill());
-        TextView how = Ui.text(this, "插入：Claude 调用工具时就交给它，这一步做完它就会看到，不打断当前回复；交出去之前还可以编辑或取消。排队：等这次回复结束后再发。",
-                12.5f, R.color.text3);
-        how.setPadding(dp(14), dp(2), dp(14), dp(10));
-        talk.addView(how, Ui.fill());
         String folderNow = cwd.isEmpty() ? defaultCwd : cwd;
         option(talk, R.drawable.ic_folder, "工作文件夹", folderNow.isEmpty() ? "~/work" : tilde(folderNow), false, () -> {
             if (!linked) { toast("Claude Code 还没启动好"); return; }
@@ -3185,8 +3183,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
         restart.setPadding(dp(14), dp(6), dp(8), dp(6));
         restart.setMinimumHeight(dp(50));
         restart.addView(Ui.text(this, "闲置后重启 Claude Code", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        restart.addView(segmented(new String[]{"关", "开"}, restartIdle() ? 1 : 0, i ->
-                prefs.edit().putBoolean("restartIdle", i == 1).apply()));
+        restart.addView(segmented(new String[]{"关", "开"}, restartIdle() ? 1 : 0, i -> {
+            prefs.edit().putBoolean("restartIdle", i == 1).apply();
+            fillSettings(launchCache); // shown chosen
+        }));
         idle.addView(restart, Ui.fill());
         TextView why = Ui.text(this, "闲置 3 分钟以上的对话，发消息时先重启 Claude Code（多等几秒），换掉可能已断开的网络连接。"
                 + "关掉后不用等，但手机断过网后，偶尔会有一条消息卡住约 3 分钟。", 12.5f, R.color.text3);
