@@ -27,7 +27,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
 
-VERSION = 37  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 38  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -73,7 +73,10 @@ class Hub:
         with self.cond:
             if self.seq <= seq:
                 self.cond.wait(timeout)
-            return [e for e in self.events if e['seq'] > seq]
+            if not self.events:
+                return []
+            # Numbers follow one another: the first one after seq is found by its place.
+            return self.events[max(0, seq + 1 - self.events[0]['seq']):]
 
 
 hub = Hub()
@@ -802,8 +805,13 @@ def session_files():
 
 
 def find_session(session_id):
-    for path in session_files():
-        if os.path.basename(path) == session_id + '.jsonl':
+    """A session's transcript, looked for in each project's folder (not by listing every one: each
+    picture of a conversation shown asks for it)."""
+    if not session_id or '/' in session_id or not os.path.isdir(PROJECTS):
+        return None
+    for project in os.listdir(PROJECTS):
+        path = os.path.join(PROJECTS, project, session_id + '.jsonl')
+        if os.path.isfile(path):
             return path
     return None
 
@@ -835,19 +843,20 @@ def list_sessions():
     return items[:300]
 
 
-_text_cache = collections.OrderedDict()  # path -> (mtime, text), the least recently searched first
+_text_cache = collections.OrderedDict()  # path -> (mtime, text, lower), the least recently searched first
 TEXT_CACHE_CHARS = 16_000_000  # kept for searching again; more is read again when searched
 text_lock = threading.Lock()
 
 
 def session_text(path):
-    """What was said in a session (the prompts and the replies' text), for search."""
+    """What was said in a session (the prompts and the replies' text) on one line, and the same in
+    lower case, for search."""
     st = os.stat(path)
     with text_lock:
         cached = _text_cache.get(path)
         if cached and cached[0] == st.st_mtime:
             _text_cache.move_to_end(path)
-            return cached[1]
+            return cached[1], cached[2]
     parts = []
     with open(path, encoding='utf-8', errors='replace') as f:
         for line in f:
@@ -866,14 +875,16 @@ def session_text(path):
                     parts.append(text)
             elif e.get('type') == 'assistant' and isinstance(content, list):
                 parts.extend(b.get('text', '') for b in content if isinstance(b, dict) and b.get('type') == 'text')
-    text = '\n'.join(parts)
+    text = ' '.join(' '.join(parts).split())
+    lower = text.lower()
     with text_lock:
-        _text_cache[path] = (st.st_mtime, text)
+        _text_cache[path] = (st.st_mtime, text, lower)
         _text_cache.move_to_end(path)
-        total = sum(len(t) for _, t in _text_cache.values())
+        total = sum(len(t) + len(low) for _, t, low in _text_cache.values())
         while total > TEXT_CACHE_CHARS and len(_text_cache) > 1:
-            total -= len(_text_cache.popitem(last=False)[1][1])
-    return text
+            _, t, low = _text_cache.popitem(last=False)[1]
+            total -= len(t) + len(low)
+    return text, lower
 
 
 def search_sessions(query):
@@ -883,16 +894,16 @@ def search_sessions(query):
     if not q:
         return out
     paths = session_files()
+    present = set(paths)
     with text_lock:
-        for gone in [p for p in _text_cache if p not in set(paths)]:
+        for gone in [p for p in _text_cache if p not in present]:
             del _text_cache[gone]
     for path in paths:
         try:
-            text = session_text(path)
+            flat, lower = session_text(path)
         except OSError:
             continue
-        flat = ' '.join(text.split())
-        i = flat.lower().find(q)
+        i = lower.find(q)
         if i < 0:
             continue
         start = max(0, i - 16)

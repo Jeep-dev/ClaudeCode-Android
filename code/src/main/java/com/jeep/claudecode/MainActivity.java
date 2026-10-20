@@ -995,6 +995,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void renderSessions() {
         if (sessionsBox == null) return;
+        drawnState = drawerState();
         sessionsBox.removeAllViews();
         String q = search.trim().toLowerCase(Locale.ROOT);
         String group = "";
@@ -1174,7 +1175,19 @@ public final class MainActivity extends Activity implements Bridge.Events {
         for (JSONObject ev : batch) onEvent(ev);
         for (Chat ch : new ArrayList<>(chats.values())) sendQueued(ch);
         render();
-        if (frame.isOpen()) renderSessions();
+        // Events come many times a second while a reply streams: the list is built again only when
+        // what it shows of the live conversations changed.
+        if (frame.isOpen() && !drawerState().equals(drawnState)) renderSessions();
+    }
+
+    /** What the drawer's list was last built with of the live conversations (see drawerState). */
+    private String drawnState = "";
+
+    /** The open conversation and those running: all the list shows that events change. */
+    private String drawerState() {
+        StringBuilder s = new StringBuilder(current == null ? "" : String.valueOf(current.sessionId));
+        for (Chat ch : chats.values()) if (ch.running && ch.sessionId != null) s.append(' ').append(ch.sessionId);
+        return s.toString();
     }
 
     private Chat chatFor(JSONObject ev) {

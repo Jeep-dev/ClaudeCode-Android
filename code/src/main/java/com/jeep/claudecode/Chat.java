@@ -40,7 +40,9 @@ final class Chat {
         String text = "";
         String title = "";
         // tools
-        String toolId, name, partial = "", result;
+        String toolId, name, result;
+        /** The tool's input as it streams, read whole when its block ends. */
+        final StringBuilder partial = new StringBuilder();
         /** Images in the tool's result (a picture Read): data: URLs, or ccimg: references to a saved one. */
         final List<String> images = new ArrayList<>();
         JSONObject input = new JSONObject();
@@ -261,17 +263,20 @@ final class Chat {
                         b.text += dl.optString("thinking");
                         break;
                     case "input_json_delta":
-                        b.partial += dl.optString("partial_json");
-                        // Read when it can be whole, not on every piece (a long file's input is thousands).
-                        if (b.partial.trim().endsWith("}")) {
-                            try { b.input = new JSONObject(b.partial); } catch (Exception ignored) { /* incomplete */ }
-                        }
-                        break;
+                        // Kept until the block ends (a long file's input is thousands of pieces): nothing
+                        // shown changes meanwhile, so the row is not drawn again for each.
+                        b.partial.append(dl.optString("partial_json"));
+                        return false;
                     default:
                 }
                 b.touch();
             } else if ("content_block_stop".equals(et)) {
                 Block b = m.index.get(index);
+                if (b != null && b.kind == Block.TOOL && b.partial.length() > 0) {
+                    try { b.input = new JSONObject(b.partial.toString()); } catch (Exception ignored) { /* incomplete */ }
+                    b.partial.setLength(0);
+                    b.touch();
+                }
                 if (b != null && b.kind == Block.THINKING) {
                     b.streaming = false;
                     b.millis = System.currentTimeMillis() - b.started;
