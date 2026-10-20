@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.67)
+# Claude Code for Android (v0.4.68)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -56,11 +56,12 @@ interface is plain Android views (Java), so scrolling and text selection are the
   对话, which also sets text for `--append-system-prompt` and extra arguments, kept in
   `~/.ccapp/launch.json`, and edits the global `~/.claude/CLAUDE.md` and the working folder's
   `CLAUDE.md`; all apply from the next message), kept alive between turns (stopped after 15
-  idle minutes) and resumed from its saved session (`--resume`) when needed. One idle three
-  minutes or more is started again before its next message, so it has no API connection the
-  network dropped meanwhile; the app asks for that when it comes to the front, when a conversation
-  is opened and as soon as something is typed, so it is mostly done before the message is sent
-  (Settings → 后台 → 闲置后重启 Claude Code turns it off). In a permission
+  idle minutes) and resumed from its saved session (`--resume`) when needed. A saved
+  conversation's process starts only when a message is sent (opening one starts nothing); only a
+  new conversation's is made ready ahead (the spare, kept fresh when the app comes to the front, a
+  new conversation is opened or something is typed in it). One idle three minutes or more is
+  started again before its next message, so it has no API connection the network dropped
+  meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). In a permission
   mode that asks, Claude Code's question whether a tool may run comes to the app: the tool's row
   shows what it would do with 允许 / 拒绝. Stop sends Claude Code's `interrupt` control request,
   and ends the process if that turn has not ended 5 s later.

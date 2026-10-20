@@ -1086,21 +1086,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (linked) opened(chat);
     }
 
-    /** Its Claude Code is started now (or again, idle so long its connections may be gone, unless
-     *  restartIdle is off), and so is the one for a new conversation: the next message does not wait
-     *  for one to start. */
+    /** A new conversation's Claude Code (the bridge's spare) is made ready, so its first message
+     *  does not wait for one to start. A saved conversation's starts only when a message is sent. */
     private void opened(Chat chat) {
-        if (chat == null) return;
+        if (chat == null || chat.sessionId != null) return;
         warmedAt = android.os.SystemClock.uptimeMillis();
         bridge.post("/open", obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
                 "restart", restartIdle()), null);
     }
 
-    /** When the conversation was last opened (or written in): see warm. */
+    /** When a new conversation was last opened (or written in): see warm. */
     private long warmedAt;
 
-    /** Something is being written: its Claude Code gets ready meanwhile (opened), at most every 20 s. */
+    /** Something is being written in a new conversation: its Claude Code gets ready meanwhile
+     *  (opened), at most every 20 s. */
     private void warm() {
         if (!linked || current == null || current.running) return;
         if (android.os.SystemClock.uptimeMillis() - warmedAt < 20_000) return;
@@ -3109,8 +3109,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         restart.addView(segmented(new String[]{"关", "开"}, restartIdle() ? 1 : 0, i ->
                 prefs.edit().putBoolean("restartIdle", i == 1).apply()));
         idle.addView(restart, Ui.fill());
-        TextView why = Ui.text(this, "闲置 3 分钟以上的对话，在你打字时先在后台重启，换掉可能已断开的网络连接。"
-                + "关掉后不会因此多等几秒，但手机断过网后，偶尔会有一条消息卡住约 3 分钟。", 12.5f, R.color.text3);
+        TextView why = Ui.text(this, "闲置 3 分钟以上的对话，发消息时先重启 Claude Code（多等几秒），换掉可能已断开的网络连接。"
+                + "关掉后不用等，但手机断过网后，偶尔会有一条消息卡住约 3 分钟。", 12.5f, R.color.text3);
         why.setPadding(dp(14), dp(2), dp(14), dp(10));
         idle.addView(why, Ui.fill());
         LinearLayout keep = card(box);
