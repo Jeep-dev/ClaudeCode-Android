@@ -1026,6 +1026,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         String q = search.trim().toLowerCase(Locale.ROOT);
         String group = "";
         int shown = 0;
+        // Only the working folder's (Settings → 外观 → 只显示当前目录): new conversations' folder, not its subfolders.
+        String here = onlyHere() ? workFolder().replaceAll("/+$", "") : "";
         // Pinned ones first, under their own heading.
         java.util.Set<String> pins = pinned();
         List<JSONObject> ordered = new ArrayList<>();
@@ -1037,6 +1039,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         for (JSONObject s : ordered) {
             String titleText = s.optString("title").isEmpty() ? "新对话" : s.optString("title"), folder = s.optString("cwd"), id = s.optString("id");
+            if (!here.isEmpty() && !folder.replaceAll("/+$", "").equals(here)) continue;
             boolean byName = titleText.toLowerCase(Locale.ROOT).contains(q) || folder.toLowerCase(Locale.ROOT).contains(q);
             if (!q.isEmpty() && !byName && !hits.containsKey(id)) continue;
             String g = pins.contains(id) ? "置顶" : group(s.optDouble("mtime"));
@@ -1100,7 +1103,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
             shown++;
         }
         if (shown == 0) {
-            TextView empty = Ui.text(this, linked ? (q.isEmpty() ? "还没有对话" : "没有匹配的对话") : "连接后显示历史对话", 14, R.color.text3);
+            String none = !q.isEmpty() ? "没有匹配的对话" : here.isEmpty() ? "还没有对话" : Ui.base(here) + " 里还没有对话";
+            TextView empty = Ui.text(this, linked ? none : "连接后显示历史对话", 14, R.color.text3);
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(dp(16), dp(28), dp(16), dp(28));
             sessionsBox.addView(empty, Ui.fill());
@@ -1144,6 +1148,16 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (!linked || current == null || current.running) return;
         if (android.os.SystemClock.uptimeMillis() - warmedAt < 20_000) return;
         opened(current);
+    }
+
+    /** The drawer lists only the working folder's conversations (off by default; Settings → 外观). */
+    private boolean onlyHere() {
+        return prefs.getBoolean("drawerOnlyHere", false);
+    }
+
+    /** The folder new conversations start in (Settings → 对话), Claude Code's default until one is picked. */
+    private String workFolder() {
+        return cwd.isEmpty() ? defaultCwd : cwd;
     }
 
     /** An idle Claude Code is started again before its next message (on by default; Settings → 后台). */
@@ -2079,6 +2093,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 if (current.sessionId == null) current.cwd = cwd;
                 sheet.dismiss();
                 renderNow();
+                renderSessions(); // the drawer may list only this folder's
                 refreshSettings();
             });
             use.setBackground(Ui.press(this, Ui.round(col(R.color.text), dp(10)), dp(10)));
@@ -2407,6 +2422,16 @@ public final class MainActivity extends Activity implements Bridge.Events {
             renderSessions();
         }));
         themes.addView(times, Ui.fill());
+        LinearLayout here = Ui.row(this);
+        here.setPadding(dp(14), dp(6), dp(8), dp(6));
+        here.setMinimumHeight(dp(50));
+        here.addView(Ui.text(this, "只显示当前目录", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
+        here.addView(segmented(new String[]{"关", "开"}, onlyHere() ? 1 : 0, i -> {
+            prefs.edit().putBoolean("drawerOnlyHere", i == 1).apply();
+            fillSettings(launchCache);
+            renderSessions();
+        }));
+        themes.addView(here, Ui.fill());
         String footer = prefs.getString("footer", "");
         option(themes, 0, "底部文字", footer, false, () -> textSheet("底部文字", footer, "", false, (t, done) -> {
             prefs.edit().putString("footer", t.trim()).apply();

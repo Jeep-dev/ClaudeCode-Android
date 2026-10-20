@@ -90,7 +90,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
 Drawer with the conversation list, each with how long ago its last message was at the end of its folder's
 line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width; in the accent colour while the API likely still keeps the
 conversation's prompt cache: the last reply's time plus the cache life its requests wrote with, 1 hour or
-5 minutes, as the transcript's usage tells; Settings → 外观 → 对话时间 hides it) (swipe right anywhere to open, left to close; long-press a
+5 minutes, as the transcript's usage tells; Settings → 外观 → 对话时间 hides it; 只显示当前目录 lists only the conversations of the folder new ones start in, not of its subfolders) (swipe right anywhere to open, left to close; long-press a
 conversation to pin it on top or delete it), a one-line composer (+, the text, and a plain Enter icon to send, a ringed square to stop) where the keyboard's Enter (a Send key) or the button sends and the
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go to the model scaled to 1568 px JPEG; other
 files are saved into the working folder, never overwriting, and their paths added to the
