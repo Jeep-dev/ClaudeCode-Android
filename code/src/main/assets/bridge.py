@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 42  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 43  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -38,6 +38,7 @@ DEFAULT_CWD = os.path.join(HOME, 'work')
 LOG_FILE = os.path.join(STATE_DIR, 'bridge.log')
 LAUNCH_FILE = os.path.join(STATE_DIR, 'launch.json')
 MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's settings
+SPARE_FILE = os.path.join(STATE_DIR, 'spare.json')  # how the last new conversation was started
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
 # Idle this long, a claude's connections to the API may be gone (dropped by the phone's network, or
 # all was frozen) with nothing telling it: a request sent on one gets no answer until Claude Code's
@@ -182,10 +183,33 @@ class Spare:
         self.lock = threading.Lock()
         self.proc = None
         self.key = None
-        self.want = (DEFAULT_CWD, None, None)  # folder, model and effort of the last new conversation
+        # Folder, model and effort of the last new conversation (kept for the next bridge): the spare is
+        # started with them, as switching a running claude to a model it does not know (another
+        # provider's) costs about a second when the message comes.
+        self.want = (DEFAULT_CWD, None, None)
+        try:
+            with open(SPARE_FILE, encoding='utf-8') as f:
+                saved = json.load(f)
+            if isinstance(saved, list) and len(saved) == 3 and all(v is None or isinstance(v, str) for v in saved):
+                self.want = (saved[0] or DEFAULT_CWD, saved[1], saved[2])
+        except (OSError, ValueError):
+            pass
         self.retry_at = 0.0
         self.failures = 0
         self.started = 0.0
+
+    def wish(self, cwd, model, effort):
+        """The next spare is started for a new conversation like this one."""
+        want = (cwd or DEFAULT_CWD, model, effort)
+        if want == self.want:
+            return
+        self.want = want
+        try:
+            os.makedirs(STATE_DIR, exist_ok=True)
+            with open(SPARE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(list(want), f)
+        except OSError:
+            pass
 
     def take(self, cwd, model, effort):
         """The spare's process and the model and effort it was started with, when it fits a new
@@ -385,7 +409,7 @@ class Chat:
                     self.switch(old_model, old_effort)
             new = not self.session_id and not self.alive()
             if new:  # the next spare is started like this one
-                spare.want = (self.cwd, model, effort)
+                spare.wish(self.cwd, model, effort)
             if restart:
                 self.refresh()
             if not self.alive():
@@ -1587,6 +1611,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'ok': True})
         elif path == '/open':
             restart = data.get('restart') is not False
+            if not data.get('sessionId'):  # a new conversation: the spare is started for its model
+                spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
             threading.Thread(target=spare.fill, args=(restart,), daemon=True).start()
             if data.get('sessionId'):
                 chat = chat_for(data['chat'], data['sessionId'])
