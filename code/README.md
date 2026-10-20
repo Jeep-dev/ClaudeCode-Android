@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.77)
+# Claude Code for Android (v0.4.78)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -64,11 +64,12 @@ interface is plain Android views (Java), so scrolling and text selection are the
   started again before its next message, so it has no API connection the network dropped
   meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). In a permission
   mode that asks, Claude Code's question whether a tool may run comes to the app: the tool's row
-  shows what it would do with 允许 / 拒绝. A message written while a reply runs is sent at once (插入, the default; Settings → 对话 → 回复中发消息):
-  Claude Code gives it to the model with its next request, or starts a turn for it when the reply
-  ends; it waits below the reply until that request begins, and the transcript keeps it as a queued
-  command, shown in its place when the conversation is read again. 排队 sends it when the reply
-  ends instead. Stop sends Claude Code's `interrupt` control request,
+  shows what it would do with 允许 / 拒绝. A message written while a reply runs waits below it (edited, taken back or sent now
+  meanwhile). With 插入 (the default; Settings → 对话 → 回复中发消息) it is sent as soon as the reply
+  runs a tool: Claude Code gives it to the model with the tool's result, or starts a turn for it
+  when the reply ends; it shows in the conversation once that request begins, and the transcript
+  keeps it as a queued command, shown in its place when the conversation is read again. With 排队,
+  or when no tool runs, it is sent when the reply ends. Stop sends Claude Code's `interrupt` control request,
   and ends the process if that turn has not ended 5 s later.
 - The conversation list and history come from Claude Code's own transcripts in
   `~/.claude/projects` (the list's titles kept in `~/.ccapp/sessions.json`, and by the app, so

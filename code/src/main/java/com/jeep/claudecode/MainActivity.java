@@ -1438,14 +1438,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
         chat.attachments.clear();
         input.setText("");
         hideMenu();
-        if (chat.running && insertWhileRunning() && !chat.stopping) {
-            insert(chat, text, attached);
-            return;
-        }
         if (chat.running) {
-            // Written while a reply runs (排队): it waits, and goes when the reply ends.
+            // Written while a reply runs: it waits (edited, taken back or sent now meanwhile), and goes
+            // when the reply runs a tool (插入) or when it ends (排队): sendQueued.
             chat.queue.add(new Chat.Queued(text, attached));
             stick = true;
+            sendQueued(chat);
             renderNow();
             return;
         }
@@ -1453,27 +1451,26 @@ public final class MainActivity extends Activity implements Bridge.Events {
         submit(chat, text, attached);
     }
 
-    /** What is written while a reply runs: 插入 (sent now, the model gets it at its next step; the
-     *  default) or 排队 (sent when the reply ends). Settings → 对话. */
+    /** What is written while a reply runs: 插入 (sent when the reply runs a tool, the model gets it
+     *  with the tool's result; the default) or 排队 (sent when the reply ends). Settings → 对话. */
     private boolean insertWhileRunning() {
         return prefs.getBoolean("insertWhileRunning", true);
     }
 
     /** Sends a message while a reply runs: Claude Code hands it to the model with its next request,
      *  or starts a turn for it when this one ends. It waits below the reply until then (Chat.inserted). */
-    private void insert(Chat chat, String text, List<Chat.Attachment> attached) {
-        Chat.Queued q = new Chat.Queued(text, attached);
+    private void insert(Chat chat, Chat.Queued q) {
+        chat.queue.remove(q);
         q.inserted = true;
         chat.inserted.add(q);
-        stick = true;
-        renderNow();
-        upload(chat, attached, 0, new ArrayList<>(), text, q);
+        upload(chat, q.attachments, 0, new ArrayList<>(), q.text, q);
     }
 
     /** An inserted message could not be sent: it waits for the reply to end instead. */
     private void notInserted(Chat chat, Chat.Queued q, String why) {
         if (!chat.inserted.remove(q)) return;
         q.inserted = false;
+        q.notInserted = true; // not tried again: it goes when the reply ends
         chat.queue.add(0, q);
         toast("没能插入，改为回复结束后发送：" + why);
         if (!chat.running) sendQueued(chat);
@@ -1507,7 +1504,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     /** The reply ended: the next queued message goes, unless the reply was stopped by hand. */
     private void sendQueued(Chat chat) {
-        if (chat.running || chat.queue.isEmpty() || !linked) return;
+        if (chat.queue.isEmpty() || !linked) return;
+        if (chat.running) {
+            // 插入: while the reply runs a tool, what waits goes now and the model gets it with the
+            // tool's result, without the reply ending (a stop asked for keeps it waiting).
+            if (!insertWhileRunning() || chat.stopping || !chat.toolRunning()) return;
+            for (Chat.Queued q : new ArrayList<>(chat.queue)) if (!q.now && !q.notInserted) insert(chat, q);
+            return;
+        }
         Chat.Queued q = chat.queue.get(0);
         if (chat.stopped && !q.now) return;
         chat.queue.remove(0);
@@ -2466,7 +2470,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         meanwhile.addView(segmented(new String[]{"排队", "插入"}, insertWhileRunning() ? 1 : 0, i ->
                 prefs.edit().putBoolean("insertWhileRunning", i == 1).apply()));
         talk.addView(meanwhile, Ui.fill());
-        TextView how = Ui.text(this, "插入：马上交给 Claude，它做下一步时就会看到，不打断当前回复。排队：等这次回复结束后再发。",
+        TextView how = Ui.text(this, "插入：Claude 调用工具时就交给它，这一步做完它就会看到，不打断当前回复；交出去之前还可以编辑或取消。排队：等这次回复结束后再发。",
                 12.5f, R.color.text3);
         how.setPadding(dp(14), dp(2), dp(14), dp(10));
         talk.addView(how, Ui.fill());

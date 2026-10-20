@@ -97,6 +97,8 @@ final class Chat {
         boolean now;
         /** Sent already, while a reply ran: waits in Chat.inserted for the model to get it. */
         boolean inserted;
+        /** Could not be inserted: waits for the reply to end instead. */
+        boolean notInserted;
 
         Queued(String text, List<Attachment> attachments) { this.text = text; this.attachments = attachments; }
     }
@@ -110,6 +112,15 @@ final class Chat {
     String randomVerb() { return VERBS[new Random().nextInt(VERBS.length)]; }
 
     /** The reply being written, created on demand. */
+    /** The running reply has a tool running (or being written): a message sent now goes to the
+     *  model with the tool's result. */
+    boolean toolRunning() {
+        Msg m = reply(false);
+        if (m == null) return false;
+        for (Block b : m.blocks) if (b.kind == Block.TOOL && b.running) return true;
+        return false;
+    }
+
     /** Claude Code's next request has begun: what was inserted went with it, after what came before. */
     private void deliverInserted() {
         for (Queued q : inserted) {
