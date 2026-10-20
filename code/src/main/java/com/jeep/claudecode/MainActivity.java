@@ -984,23 +984,18 @@ public final class MainActivity extends Activity implements Bridge.Events {
         for (int i = 0; from != null && i < from.length(); i++) to.add(from.optString(i));
     }
 
-    /** How long ago a conversation last changed (its last message), in English words: just now,
-     *  1 minute, 5 minutes, 1 hour, 3 days, 2 weeks, 4 months, 1 year. Read again each time the
-     *  drawer opens. */
+    /** How long ago a conversation last changed (its last message), short: now, 5m, 1h, 3d, 2w,
+     *  4mo, 1y. Read again each time the drawer opens. */
     private static String ago(double mtime) {
         if (Double.isNaN(mtime)) return "";
         long s = Math.max(0, System.currentTimeMillis() / 1000 - (long) mtime), day = 86_400;
-        if (s < 60) return "just now";
-        if (s < 3600) return count(s / 60, "minute");
-        if (s < day) return count(s / 3600, "hour");
-        if (s < 7 * day) return count(s / day, "day");
-        if (s < 30 * day) return count(s / (7 * day), "week");
-        if (s < 365 * day) return count(s / (30 * day), "month");
-        return count(s / (365 * day), "year");
-    }
-
-    private static String count(long n, String unit) {
-        return n + " " + unit + (n == 1 ? "" : "s");
+        if (s < 60) return "now";
+        if (s < 3600) return s / 60 + "m";
+        if (s < day) return s / 3600 + "h";
+        if (s < 7 * day) return s / day + "d";
+        if (s < 30 * day) return s / (7 * day) + "w";
+        if (s < 365 * day) return s / (30 * day) + "mo";
+        return s / (365 * day) + "y";
     }
 
     private static String group(double mtime) {
@@ -1061,11 +1056,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             line.addView(t, Ui.weight());
-            TextView when = Ui.text(this, ago(s.optDouble("mtime")), 12.5f, R.color.text3);
-            when.setFontFeatureSettings("tnum"); // digits of one width: the column lines up
-            when.setSingleLine(true);
-            when.setPadding(dp(10), 0, 0, 0);
-            line.addView(when);
             item.addView(line, Ui.fill());
             TextView meta = Ui.text(this, Ui.base(folder), 12.5f, R.color.text3);
             meta.setPadding(0, dp(3), 0, 0);
@@ -1078,7 +1068,18 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 meta.setText(sb);
                 meta.setEllipsize(TextUtils.TruncateAt.END);
             }
-            item.addView(meta);
+            // How long ago, in a column of one width at the end of the folder's line, its text from the
+            // column's start: 55m, 1h and 3d begin at one place.
+            LinearLayout under = Ui.row(this);
+            under.addView(meta, Ui.weight());
+            TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
+            when.setFontFeatureSettings("tnum");
+            when.setSingleLine(true);
+            when.setPadding(0, dp(3), 0, 0);
+            int column = (int) Math.ceil(when.getPaint().measureText("88mo"));
+            under.addView(when, new LinearLayout.LayoutParams(column + dp(2), -2));
+            Ui.margins(when, this, 10, 0, 0, 0);
+            item.addView(under, Ui.fill());
             item.setOnClickListener(v -> openSession(id, titleText, folder));
             item.setOnLongClickListener(v -> { sessionActions(id, titleText, folder); return true; });
             sessionsBox.addView(item, Ui.fill());
