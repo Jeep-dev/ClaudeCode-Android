@@ -235,7 +235,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
         banner.setVisibility(View.GONE);
 
         list = new RecyclerView(this);
-        list.setLayoutManager(new LinearLayoutManager(this));
+        list.setLayoutManager(new LinearLayoutManager(this) {
+            // A long press that starts selecting gives the message's text focus, and the list would
+            // then scroll that whole text into view: to its top, when it is taller than the screen.
+            // The list stays put; dragging a handle to the edge still scrolls (another path).
+            @Override public boolean onRequestChildFocus(RecyclerView parent, RecyclerView.State state,
+                                                         View child, View focused) {
+                return true;
+            }
+        });
         list.setClipToPadding(false);
         list.setPadding(dp(22), dp(2), dp(22), dp(24));
         list.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
