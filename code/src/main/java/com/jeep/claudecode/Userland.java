@@ -694,6 +694,27 @@ final class Userland {
         replace(new File(rootfs, "opt/ccapp/bridge.py"), read(context.getAssets().open("bridge.py")));
     }
 
+    /**
+     * The webview command (assets/webview.py, served by {@link Browser}), and once a skill telling
+     * Claude Code of it: one deleted stays deleted.
+     */
+    void writeWebview() throws IOException {
+        replace(new File(rootfs, "opt/ccapp/webview.py"), read(context.getAssets().open("webview.py")));
+        File cmd = new File(rootfs, "usr/local/bin/webview");
+        replace(cmd, "#!/bin/sh\nexec python3 /opt/ccapp/webview.py \"$@\"\n");
+        File stamp = new File(rootfs, "opt/ccapp/webview-skill");
+        File skill = file(HOME + "/.claude/skills/webview/SKILL.md");
+        if (!stamp.exists()) {
+            if (!skill.exists()) write(skill, read(context.getAssets().open("webview-skill.md")));
+            write(stamp, "");
+        }
+        try {
+            Os.chmod(cmd.getPath(), 0755);
+        } catch (ErrnoException e) {
+            throw new IOException(e);
+        }
+    }
+
     // ---- files ----
 
     static void write(File f, String text) throws IOException {
