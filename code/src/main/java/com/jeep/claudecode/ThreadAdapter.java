@@ -306,11 +306,10 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         bubble.setPadding(Ui.dp(c, 15), Ui.dp(c, 10), Ui.dp(c, 15), Ui.dp(c, 10));
         bubble.setBackground(Ui.round(0, Ui.dp(c, 20), Ui.dp(c, 1), Ui.color(c, R.color.borderStrong)));
         box.addView(bubble, Ui.wrap());
+        if (q.inserted) return; // sent already: nothing to do with it but wait for the model to get it
         LinearLayout row = Ui.row(c);
         row.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        if (q.inserted) {
-            row.addView(Ui.text(c, "已插入，Claude 下一步就会看到…", 13, R.color.text3));
-        } else if (q.now) {
+        if (q.now) {
             row.addView(Ui.text(c, "停止当前回复后发送…", 13, R.color.text3));
         } else {
             ImageView edit = Ui.iconButton(c, R.drawable.ic_pencil, 34, 17, R.color.text3);
