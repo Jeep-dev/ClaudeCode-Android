@@ -162,7 +162,8 @@ final class Bridge {
     }
 
     /**
-     * One HTTP exchange; status REFUSED when nothing listens, -1 when the bridge cannot be reached
+     * One HTTP exchange; status REFUSED when the bridge's socket could not be connected to (the
+     * error's text as the body), -1 when the bridge cannot be reached
      * otherwise, -2 when it does not answer in time.
      */
     private Object[] exchange(String method, String path, String type, long length, Body body) {
@@ -174,7 +175,7 @@ final class Bridge {
         try (Answer a = send(method, path, type, length, body, timeout)) {
             return new Object[]{a.status, readBody(a)};
         } catch (Refused e) {
-            return new Object[]{REFUSED, ""};
+            return new Object[]{REFUSED, String.valueOf(e.getMessage())};
         } catch (IOException e) {
             // A read that timed out is only an error on a LocalSocket: told by the time it took.
             return new Object[]{System.currentTimeMillis() - start >= timeout - 50 ? -2 : -1, ""};
@@ -182,7 +183,9 @@ final class Bridge {
     }
 
     /** Nothing listens on the bridge's socket (or there is none). */
-    private static final class Refused extends IOException {}
+    private static final class Refused extends IOException {
+        Refused(IOException cause) { super(cause.getMessage(), cause); }
+    }
 
     /** An answer whose head is read: its status and length; the body is read from in. */
     private static final class Answer implements java.io.Closeable {
@@ -208,7 +211,7 @@ final class Bridge {
             try {
                 s.connect(new LocalSocketAddress(socket, LocalSocketAddress.Namespace.FILESYSTEM));
             } catch (IOException e) {
-                throw new Refused();
+                throw new Refused(e);
             }
             s.setSoTimeout(timeout);
             OutputStream out = new BufferedOutputStream(s.getOutputStream(), 16384);
@@ -309,15 +312,20 @@ final class Bridge {
      */
     private String isUp() {
         int status = 0;
+        String error = "";
         for (int i = 0; i < 3; i++) {
             Object[] health = exchange("GET", "/health", null);
             if (isCurrent(health)) return null;
             status = (int) health[0];
             if (status == 200) return "another version was running";
-            if (status == REFUSED) return "no bridge was running";
-            try { Thread.sleep(500); } catch (InterruptedException e) { return "interrupted"; }
+            // No socket: no bridge. A socket that refused may be a bridge too busy to take it (or one
+            // killed, its socket left): it gets the tries too, as starting one would replace it.
+            if (status == REFUSED && !new java.io.File(socket).exists()) return "no bridge was running";
+            if (status == REFUSED) error = (String) health[1];
+            try { Thread.sleep(300); } catch (InterruptedException e) { return "interrupted"; }
         }
-        return status == -2 ? "the running bridge did not answer within 3 s, three times"
+        return status == REFUSED ? "nothing took the connection on the socket, three times (" + error + ")"
+                : status == -2 ? "the running bridge did not answer within 3 s, three times"
                 : status == -1 ? "the running bridge could not be reached, three times" : "the running bridge answered " + status;
     }
 
