@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 45  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 46  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -287,7 +287,6 @@ class Chat:
         self.began = 0  # counts turns begun (init), also those Claude Code starts for an inserted message
         self.asks = {}  # request id -> Claude Code's question whether a tool may run, not answered yet
         self.titling = False  # a name is being made from its first message
-        self.opened = False  # started when the app opened it, no message sent since
         self.write_lock = threading.Lock()
         self.waiting = {}  # request id -> {'event': ..., 'response': ...}: control requests of ours
         self.taken = False  # its claude was the spare, started ahead
@@ -423,7 +422,6 @@ class Chat:
                 self.refresh()
             if not self.alive():
                 self.start()
-            self.opened = False
             if not inserting:
                 self.sent_at, self.init_at, self.api_at, self.api_usage = came, None, None, {}
             self.sent_how = self.sent_how if inserting else ('running' if self.proc is before else 'started again' if before is not None
@@ -521,31 +519,6 @@ class Chat:
             return None
         return ' '.join(str((response.get('response') or {}).get('title') or '').split())[:80]
 
-    def open(self, session_id, cwd=None, model=None, effort=None, restart=True):
-        """Starts the claude of a saved conversation the app opened (or that is being written in),
-        so its next message does not wait for one to start; restart: also one idle so long its
-        connections may be gone. Only the last one opened waits like this."""
-        global last_opened
-        with self.lock:
-            if not self.alive():
-                self.session_id = self.session_id or session_id
-                if cwd:
-                    self.cwd = cwd
-                self.model, self.effort = model, effort
-                self.start()
-                self.opened = True
-                self.used = time.time()
-            elif restart:
-                self.refresh()
-        with chats_lock:
-            before, last_opened = last_opened, self
-        if before is not None and before is not self:
-            with before.lock:
-                if before.opened and before.alive() and not before.running:
-                    log('chat %s: opened without a message, stopping its claude' % before.key[:8])
-                    before.opened = False
-                    before.close()
-
     def answer(self, request_id, allow, answers=None):
         """Answers Claude Code's question whether a tool may run; False when it is not asked any more.
         answers: for AskUserQuestion, what the user chose (question -> answer), given back with its input."""
@@ -617,7 +590,6 @@ def end(proc):
 
 chats = {}
 chats_lock = threading.Lock()
-last_opened = None  # the conversation the app opened last (Chat.open)
 seen_messages = []  # ids of messages already sent: the app may repeat a request whose answer it lost
 
 
@@ -1687,17 +1659,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             self.reply(200, {'ok': True})
         elif path == '/open':
+            # A new conversation was opened: the spare is made ready for it (a saved one's claude
+            # starts only when a message is sent).
             restart = data.get('restart') is not False
-            if not data.get('sessionId'):  # a new conversation: the spare is started for its model
+            if not data.get('sessionId'):
                 spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
             threading.Thread(target=spare.fill, args=(restart,), daemon=True).start()
-            if data.get('sessionId'):
-                chat = chat_for(data['chat'], data['sessionId'])
-                try:
-                    chat.open(data['sessionId'], cwd=data.get('cwd'), model=data.get('model') or None,
-                              effort=data.get('effort') or None, restart=restart)
-                except OSError as e:
-                    return self.reply(500, {'error': str(e)})
             self.reply(200, {'ok': True})
         elif path == '/launch':
             launch.set(data)
