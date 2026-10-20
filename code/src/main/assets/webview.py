@@ -46,9 +46,9 @@ def main():
             c.add_argument('url', nargs='?', help='网址；省略时用已经打开的页面')
         c.add_argument('--wait', type=float, default=1, metavar='秒', help='加载完再等几秒，让页面的脚本跑完（默认 1）')
         c.add_argument('--timeout', type=float, default=30, metavar='秒', help='最多等多久（默认 30）')
-        c.add_argument('--desktop', action='store_true', help='打开网址时用电脑版（桌面浏览器标识，宽 1280）')
-        c.add_argument('--width', type=int, metavar='px', help='页面宽度，CSS 像素（默认手机屏幕宽）')
-        c.add_argument('--height', type=int, metavar='px', help='页面高度，CSS 像素（默认手机屏幕高）')
+        c.add_argument('--mobile', action='store_true', help='打开网址时用手机版（默认电脑版，宽 1280）')
+        c.add_argument('--width', type=int, metavar='px', help='页面宽度，CSS 像素（默认 1280，手机版为屏幕宽）')
+        c.add_argument('--height', type=int, metavar='px', help='页面高度，CSS 像素（默认 800，手机版为屏幕高）')
         return c
 
     command('open', '打开网址，输出标题和最终地址', url='required')
@@ -60,10 +60,10 @@ def main():
     shot = command('shot', '截图，输出图片路径')
     shot.add_argument('-o', '--out', metavar='文件', help='PNG 存到哪里（默认 /tmp/webview-时间.png）')
     shot.add_argument('--full', action='store_true', help='整页（最高 8000 CSS 像素）')
-    shot.add_argument('--scale', type=float, default=2, help='每 CSS 像素几个图片像素（默认 2）')
+    shot.add_argument('--scale', type=float, help='每 CSS 像素几个图片像素（默认电脑版 1，手机版 2）')
     a = p.parse_args()
 
-    req = {'cmd': a.cmd, 'wait': a.wait, 'timeout': a.timeout, 'desktop': a.desktop}
+    req = {'cmd': a.cmd, 'wait': a.wait, 'timeout': a.timeout, 'desktop': not a.mobile}
     if a.width:
         req['width'] = a.width
     if a.height:
@@ -83,7 +83,8 @@ def main():
         req['url'] = url
     if a.cmd == 'shot':
         req['full'] = a.full
-        req['scale'] = a.scale
+        if a.scale:
+            req['scale'] = a.scale
 
     r = ask(req, a.timeout)
     if not r.get('ok'):

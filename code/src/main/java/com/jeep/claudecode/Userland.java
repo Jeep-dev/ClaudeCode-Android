@@ -695,8 +695,10 @@ final class Userland {
     }
 
     /**
-     * The webview command (assets/webview.py, served by {@link Browser}), and once a skill telling
-     * Claude Code of it: one deleted stays deleted.
+     * The webview command (assets/webview.py, served by {@link Browser}), and a skill telling
+     * Claude Code of it: written the first time, then kept up with this app while it is as last
+     * written (the stamp keeps that text; an empty stamp is from when it was written only once).
+     * One deleted stays deleted; one edited is left as it is.
      */
     void writeWebview() throws IOException {
         replace(new File(rootfs, "opt/ccapp/webview.py"), read(context.getAssets().open("webview.py")));
@@ -704,9 +706,15 @@ final class Userland {
         replace(cmd, "#!/bin/sh\nexec python3 /opt/ccapp/webview.py \"$@\"\n");
         File stamp = new File(rootfs, "opt/ccapp/webview-skill");
         File skill = file(HOME + "/.claude/skills/webview/SKILL.md");
-        if (!stamp.exists()) {
-            if (!skill.exists()) write(skill, read(context.getAssets().open("webview-skill.md")));
-            write(stamp, "");
+        String text = read(context.getAssets().open("webview-skill.md"));
+        String written = stamp.exists() ? read(new FileInputStream(stamp)) : null;
+        boolean ours = written == null ? !skill.exists()
+                : skill.exists() && (written.isEmpty() || written.equals(read(new FileInputStream(skill))));
+        if (ours && !text.equals(written)) {
+            write(skill, text);
+            write(stamp, text);
+        } else if (written == null) {
+            write(stamp, "(the user's own)"); // never equal to a SKILL.md: theirs stays
         }
         try {
             Os.chmod(cmd.getPath(), 0755);

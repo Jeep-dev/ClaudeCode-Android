@@ -12,8 +12,8 @@ description: 用手机系统的 WebView 打开网页：读 JS 渲染后的文字
 - `webview js [网址] '<代码>'`：在页面里执行。代码是 async 函数体，用 `return` 返回结果（可以 `await`）；只有一个表达式时可以省略 `return`；`-` 从标准输入读。
   代码让页面跳转（点链接、提交表单）时，等新页面加载完才返回。
   例：`webview js "return [...document.querySelectorAll('h2')].map(e => e.innerText)"`
-- `webview shot [网址] [-o 文件.png] [--full]`：截图，默认手机屏幕大小，`--full` 整页；输出图片路径，再用 Read 看图
+- `webview shot [网址] [-o 文件.png] [--full]`：截图，默认 1280×800，`--full` 整页；输出图片路径，再用 Read 看图
 
-通用选项：`--desktop`（打开电脑版网页）、`--wait 秒`（加载完再等，默认 1）、`--timeout 秒`（默认 30）、`--width` / `--height`（CSS 像素）。
+默认打开电脑版网页。通用选项：`--mobile`（打开手机版）、`--wait 秒`（加载完再等，默认 1）、`--timeout 秒`（默认 30）、`--width` / `--height`（CSS 像素）。
 
 本机的服务（如 `python3 -m http.server`）用 `http://127.0.0.1:端口` 打开；不支持 `file://`。

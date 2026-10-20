@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.86)
+# Claude Code for Android (v0.4.87)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -55,11 +55,12 @@ interface is plain Android views (Java), so scrolling and text selection are the
 - The userland's `webview` command (`assets/webview.py`) opens web pages in the phone's own
   WebView, which `BridgeService` keeps off screen (`Browser`): no browser in the userland. It
   prints a page's text (as rendered, after its scripts), its HTML, what a script run in it
-  returned (the body of an async function), or a screenshot (`-o`, `--full`); `--desktop` asks for
-  the desktop site. One page, kept between commands with its cookies (a command without an
+  returned (the body of an async function), or a screenshot (`-o`, `--full`); pages are the desktop
+  site, 1280 wide (`--mobile`: the phone's). One page, kept between commands with its cookies (a command without an
   address works on it), let go after 10 idle minutes; addresses for other apps open nothing.
   Requests are lines of JSON on `~/.ccapp/webview.sock` (in this app's files, as the bridge's).
-  A skill (`~/.claude/skills/webview`, written once: deleted, it stays deleted) tells Claude Code of it.
+  A skill (`~/.claude/skills/webview`) tells Claude Code of it: kept up with the app while
+  unedited; deleted, it stays deleted.
 - Each conversation is a `claude -p --input-format stream-json --output-format stream-json
   --permission-prompt-tool stdio` process (bypass-permissions mode unless changed in Settings →
   对话, which also sets text for `--append-system-prompt` and extra arguments, kept in

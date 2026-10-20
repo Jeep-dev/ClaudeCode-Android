@@ -72,6 +72,7 @@ final class Browser {
     private static boolean wholeDocument;
     private WebView view;
     private String mobileAgent, desktopAgent;
+    private volatile boolean desktop = true; // the page's site is the desktop one
     private int widthCss, heightCss;
     // Written on the main thread, read by the request's.
     private volatile boolean loading;
@@ -182,12 +183,13 @@ final class Browser {
         long deadline = SystemClock.uptimeMillis() + (long) (req.optDouble("timeout", 30) * 1000);
         long waitMs = (long) (req.optDouble("wait", 1) * 1000);
         boolean load = !url.isEmpty();
-        boolean desktop = req.optBoolean("desktop", false);
+        boolean desktop = req.optBoolean("desktop", true);
         int width = req.optInt("width", 0), height = req.optInt("height", 0);
         JSONObject out = new JSONObject();
         boolean open = onMain(() -> {
             if (view == null) create();
             if (load) {
+                this.desktop = desktop;
                 view.getSettings().setUserAgentString(desktop ? desktopAgent : mobileAgent);
                 DisplayMetrics dm = context.getResources().getDisplayMetrics();
                 widthCss = width > 0 ? width : desktop ? 1280 : Math.round(dm.widthPixels / dm.density);
@@ -227,7 +229,7 @@ final class Browser {
                 break;
             }
             case "shot":
-                out.put("png", shot(req.optBoolean("full"), req.optDouble("scale", 2), deadline));
+                out.put("png", shot(req.optBoolean("full"), req.optDouble("scale", this.desktop ? 1 : 2), deadline));
                 break;
             default:
                 throw new IllegalArgumentException("不认识的命令 " + cmd);
