@@ -7,6 +7,7 @@ import android.text.style.ClickableSpan;
 import android.util.TypedValue;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -373,7 +374,9 @@ final class Md {
         body.setPadding(Ui.dp(c, 14), Ui.dp(c, 12), Ui.dp(c, 14), Ui.dp(c, 12));
         body.setHorizontallyScrolling(true);
         body.setTextIsSelectable(true);
-        scroll.addView(body);
+        // Wrap-content: a TextView whose width is fixed is not measured again when its text
+        // grows within one line, so a streamed one-line block kept the width of its first letters.
+        scroll.addView(body, new FrameLayout.LayoutParams(-2, -2));
         card.addView(scroll, Ui.fill());
         return card;
     }
