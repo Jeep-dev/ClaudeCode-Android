@@ -670,7 +670,6 @@ final class Userland {
         } catch (RuntimeException ignored) {
             // fallbacks below
         }
-        dns.add("223.5.5.5");
         dns.add("8.8.8.8");
         StringBuilder resolv = new StringBuilder();
         for (String d : dns) if (!d.contains("%")) resolv.append("nameserver ").append(d).append('\n');
