@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 47  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 48  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -836,11 +836,10 @@ def name_later(key, session_id):
                 naming.discard(session_id)
     threading.Thread(target=run, daemon=True).start()
 
-def cache_until(path, tail=262_144):
-    """Until when the API likely keeps the conversation's prompt cache (seconds since the epoch): its
-    last reply's time plus the cache life its requests wrote with (1 hour or 5 minutes, as the
-    transcript's usage tells; each read renews it). None when unknown: no Claude reply in the end
-    of the transcript, or another provider's model."""
+def last_said(path, tail=262_144):
+    """When the conversation's last message was said (seconds since the epoch), from the end of its
+    transcript; None when none is there. Not the file's time: Claude Code also appends bookkeeping
+    (last-prompt, cost-state) when its process ends, with nothing said."""
     import datetime
     try:
         with open(path, 'rb') as f:
@@ -848,32 +847,20 @@ def cache_until(path, tail=262_144):
             lines = f.read().split(b'\n')
     except OSError:
         return None
-    last, ttl = None, None
     for raw in reversed(lines):
-        if b'"usage"' not in raw:
+        if b'"timestamp"' not in raw:
             continue
         try:
             e = json.loads(raw.decode('utf-8', 'replace'))
         except ValueError:
             continue
-        msg = e.get('message') if isinstance(e, dict) and e.get('type') == 'assistant' else None
-        if not isinstance(msg, dict) or not str(msg.get('model') or '').startswith('claude'):
-            if last is None and isinstance(msg, dict) and msg.get('model') and not str(msg['model']).startswith('<'):
-                return None  # the last reply is another provider's
+        if not isinstance(e, dict) or e.get('type') not in ('user', 'assistant') or e.get('isMeta') or e.get('isSidechain'):
             continue
-        if last is None:
-            try:
-                last = datetime.datetime.fromisoformat(str(e.get('timestamp')).replace('Z', '+00:00')).timestamp()
-            except ValueError:
-                return None
-        made = (msg.get('usage') or {}).get('cache_creation') or {}
-        if made.get('ephemeral_1h_input_tokens'):
-            ttl = 3600
-        elif made.get('ephemeral_5m_input_tokens'):
-            ttl = 300
-        if ttl:
-            break
-    return last + ttl if last and ttl else None
+        try:
+            return datetime.datetime.fromisoformat(str(e.get('timestamp')).replace('Z', '+00:00')).timestamp()
+        except ValueError:
+            continue
+    return None
 
 
 def session_summary(path):
@@ -907,7 +894,7 @@ def session_summary(path):
     info = None
     if title:
         info = {'id': os.path.basename(path)[:-6], 'title': custom or title, 'named': bool(custom), 'cwd': cwd or '',
-                'mtime': st.st_mtime, 'size': st.st_size, 'cacheUntil': cache_until(path)}
+                'mtime': last_said(path) or st.st_mtime, 'size': st.st_size}
     summary_cache()[path] = (st.st_mtime, info)
     _summary_changed = True
     return info

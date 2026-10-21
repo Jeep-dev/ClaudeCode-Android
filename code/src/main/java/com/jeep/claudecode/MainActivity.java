@@ -1085,10 +1085,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             LinearLayout under = Ui.row(this);
             under.addView(meta, Ui.weight());
             if (prefs.getBoolean("drawerTimes", true)) {
-                // In the accent while the API likely still keeps its prompt cache (bridge.py cache_until):
-                // going on with it then is quick and cheap; grey once it has lapsed, or when unknown.
-                boolean cached = s.optDouble("cacheUntil", 0) > System.currentTimeMillis() / 1000.0;
-                TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, cached ? R.color.accent : R.color.text3);
+                TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
                 when.setFontFeatureSettings("tnum");
                 when.setSingleLine(true);
                 when.setPadding(0, dp(3), 0, 0);
