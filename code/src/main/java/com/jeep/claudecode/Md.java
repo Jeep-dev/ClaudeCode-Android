@@ -247,6 +247,7 @@ final class Md {
                     cell.setMaxWidth(maxCell);
                     cell.setPadding(Ui.dp(c, 10), Ui.dp(c, 7), Ui.dp(c, 10), Ui.dp(c, 7));
                     cell.setBackgroundColor(Ui.color(c, i == 0 ? R.color.surface2 : R.color.bg));
+                    selectable(cell);
                     android.widget.TableRow.LayoutParams lp = new android.widget.TableRow.LayoutParams(-2, -1);
                     lp.setMargins(0, 0, line, line);
                     row.addView(cell, lp);
