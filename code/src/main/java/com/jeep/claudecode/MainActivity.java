@@ -1509,7 +1509,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         Chat.Msg user = new Chat.Msg(Chat.Msg.USER);
         user.text = text;
         for (Chat.Attachment a : attached) {
-            if (a.image) user.images.add("data:" + a.type + ";base64," + a.data);
+            if (a.image) user.images.add(a.shown);
             else user.files.add(a.name);
         }
         chat.messages.add(user);
@@ -1892,38 +1892,32 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         String type = getContentResolver().getType(uri);
         try {
-            if (type != null && type.matches("image/(png|jpe?g|gif|webp|bmp)")) {
-                // Sent as it is: Claude Code scales it for the model itself, and keeps the original
-                // (its path, size and scale go to the model with it, for the details).
-                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-                try (InputStream in = getContentResolver().openInputStream(uri)) {
-                    if (in == null) return null;
-                    Userland.copy(in, bytes);
-                }
-                Bitmap thumb = Images.decode(bytes.toByteArray(), dp(128));
-                if (thumb == null) { ui.post(() -> toast("这张图片读不了")); return null; }
-                return new Chat.Attachment(true, name, type.equals("image/jpg") ? "image/jpeg" : type,
-                        Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP), null, bytes.size(), thumb);
-            }
-            if (type != null && type.matches("image/(heic|heif|avif)")) {
-                // Claude Code reads none of these: made a JPEG of its own size (up to 4096 px, past what
-                // Claude Code gives the model, so the phone's memory holds it).
+            if (type != null && type.matches("image/(png|jpe?g|gif|webp|bmp|heic|heif|avif)")) {
+                // Claude Code scales a picture for the model itself and keeps the original, whose path,
+                // size and scale it gives the model: one it reads goes as it is, up to 10 MB (held in
+                // memory as it is sent). HEIC, HEIF and AVIF, which it cannot read, and a larger one go
+                // as JPEG of up to 4096 px.
+                byte[] raw = type.matches("image/(heic|heif|avif)") ? null : readUpTo(uri, 10 << 20);
                 BitmapFactory.Options o = new BitmapFactory.Options();
                 o.inJustDecodeBounds = true;
                 try (InputStream in = getContentResolver().openInputStream(uri)) { BitmapFactory.decodeStream(in, null, o); }
-                int sample = 1;
-                while (Math.max(o.outWidth, o.outHeight) / sample > 4096) sample *= 2;
+                int longer = Math.max(o.outWidth, o.outHeight), sample = 1;
+                // Decoded only as large as needed: for the thread's copy (1568 px), or for the JPEG sent (4096 px).
+                if (raw != null) while (longer / (sample * 2) >= 1568) sample *= 2;
+                else while (longer / sample > 4096) sample *= 2;
                 o.inJustDecodeBounds = false;
                 o.inSampleSize = sample;
                 Bitmap bmp;
                 try (InputStream in = getContentResolver().openInputStream(uri)) { bmp = BitmapFactory.decodeStream(in, null, o); }
                 if (bmp == null) { ui.post(() -> toast("这张图片读不了")); return null; }
-                ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
-                bmp.compress(Bitmap.CompressFormat.JPEG, 95, jpeg);
+                byte[] sent = raw != null ? raw : jpeg(bmp, 4096, 95);
                 Bitmap thumb = Bitmap.createScaledBitmap(bmp, dp(64), Math.max(1, dp(64) * bmp.getHeight() / bmp.getWidth()), true);
-                bmp.recycle();
-                if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(".jpg")) name = name.replaceFirst("\\.[^.]*$", "") + ".jpg";
-                return new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), null, jpeg.size(), thumb);
+                Chat.Attachment a = new Chat.Attachment(true, name, raw == null || type.equals("image/jpg") ? "image/jpeg" : type,
+                        Base64.encodeToString(sent, Base64.NO_WRAP), null, sent.length, thumb);
+                // The thread keeps a smaller copy to show, not the picture sent.
+                a.shown = "data:image/jpeg;base64," + Base64.encodeToString(jpeg(bmp, 1568, 92), Base64.NO_WRAP);
+                if (thumb != bmp) bmp.recycle(); // the same bitmap when it is already thumbnail size
+                return a;
             }
             // A file is read only when it is saved, straight into the folder: never held here.
             try (InputStream in = getContentResolver().openInputStream(uri)) {
@@ -1934,6 +1928,36 @@ public final class MainActivity extends Activity implements Bridge.Events {
             ui.post(() -> toast("这个文件读不了"));
             return null;
         }
+    }
+
+    /** The bytes at uri, or null when there are more than max. */
+    private byte[] readUpTo(Uri uri, int max) throws java.io.IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) throw new java.io.IOException("unreadable");
+            byte[] buf = new byte[65536];
+            for (int n; (n = in.read(buf)) > 0; ) {
+                out.write(buf, 0, n);
+                if (out.size() > max) return null;
+            }
+        }
+        return out.toByteArray();
+    }
+
+    /** A picture as JPEG, scaled down to fit maxPx, on white (JPEG has no transparency). */
+    private static byte[] jpeg(Bitmap bmp, int maxPx, int quality) {
+        float scale = Math.min(1f, (float) maxPx / Math.max(bmp.getWidth(), bmp.getHeight()));
+        Bitmap out = Bitmap.createBitmap(Math.max(1, Math.round(bmp.getWidth() * scale)),
+                Math.max(1, Math.round(bmp.getHeight() * scale)), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(out);
+        canvas.drawColor(Color.WHITE);
+        canvas.scale(scale, scale);
+        // Filtered: unfiltered scaling drops pixels and leaves text jagged and blurred.
+        canvas.drawBitmap(bmp, 0, 0, new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
+        ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+        out.compress(Bitmap.CompressFormat.JPEG, quality, jpeg);
+        out.recycle();
+        return jpeg.toByteArray();
     }
 
     private void renderAttachments() {

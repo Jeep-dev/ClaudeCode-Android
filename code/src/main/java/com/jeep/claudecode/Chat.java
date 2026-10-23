@@ -85,6 +85,8 @@ final class Chat {
         final android.net.Uri uri;
         final long size;
         final android.graphics.Bitmap thumb;
+        /** A picture: the copy the thread shows (a JPEG of up to 1568 px); the one sent may be up to 10 MB. */
+        String shown;
 
         Attachment(boolean image, String name, String type, String data, android.net.Uri uri, long size, android.graphics.Bitmap thumb) {
             this.image = image; this.name = name; this.type = type; this.data = data; this.uri = uri; this.size = size; this.thumb = thumb;
@@ -146,7 +148,7 @@ final class Chat {
         Msg u = new Msg(Msg.USER);
         u.text = q.text;
         for (Attachment a : q.attachments) {
-            if (a.image) u.images.add("data:" + a.type + ";base64," + a.data);
+            if (a.image) u.images.add(a.shown);
             else u.files.add(a.name);
         }
         messages.add(u);
