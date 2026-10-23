@@ -591,6 +591,18 @@ class Chat:
                     self.close()
         threading.Thread(target=force, daemon=True).start()
 
+    def warm(self, session_id, cwd, model, effort):
+        """Starts a saved conversation's claude ahead of its next message (/open)."""
+        with self.lock:
+            if self.alive() or self.running:
+                return
+            self.session_id = self.session_id or session_id
+            self.cwd = cwd or self.cwd
+            self.model, self.effort = model, effort
+            self.start()
+            self.used = self.last_out = time.time()
+            log('chat %s: claude started ahead' % self.key[:8])
+
     def close(self):
         end(self.proc)
 
@@ -1674,10 +1686,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             self.reply(200, {'ok': True})
         elif path == '/open':
-            # A new conversation was opened: the spare is made ready for it (a saved one's claude
-            # starts only when a message is sent).
+            # A conversation was opened (or is being written in): a new one gets the spare made
+            # ready for it, a saved one its own claude started (resumed) ahead, so the message
+            # does not wait seconds for one to start.
             restart = data.get('restart') is not False
-            if not data.get('sessionId'):
+            if data.get('sessionId'):
+                chat = chat_for(data['chat'], data['sessionId'])
+                threading.Thread(target=chat.warm, args=(data['sessionId'], data.get('cwd'),
+                                 data.get('model') or None, data.get('effort') or None), daemon=True).start()
+            else:
                 spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
             threading.Thread(target=spare.fill, args=(restart,), daemon=True).start()
             self.reply(200, {'ok': True})
