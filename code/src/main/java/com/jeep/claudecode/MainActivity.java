@@ -1902,8 +1902,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 o.inJustDecodeBounds = true;
                 try (InputStream in = getContentResolver().openInputStream(uri)) { BitmapFactory.decodeStream(in, null, o); }
                 int longer = Math.max(o.outWidth, o.outHeight), sample = 1;
-                // Decoded only as large as needed: for the thread's copy (1568 px), or for the JPEG sent (4096 px).
-                if (raw != null) while (longer / (sample * 2) >= 1568) sample *= 2;
+                // Decoded only as large as needed: for the thread's copy (2000 px), or for the JPEG sent (4096 px).
+                if (raw != null) while (longer / (sample * 2) >= 2000) sample *= 2;
                 else while (longer / sample > 4096) sample *= 2;
                 o.inJustDecodeBounds = false;
                 o.inSampleSize = sample;
@@ -1914,8 +1914,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 Bitmap thumb = Bitmap.createScaledBitmap(bmp, dp(64), Math.max(1, dp(64) * bmp.getHeight() / bmp.getWidth()), true);
                 Chat.Attachment a = new Chat.Attachment(true, name, raw == null || type.equals("image/jpg") ? "image/jpeg" : type,
                         Base64.encodeToString(sent, Base64.NO_WRAP), null, sent.length, thumb);
-                // The thread keeps a smaller copy to show, not the picture sent.
-                a.shown = "data:image/jpeg;base64," + Base64.encodeToString(jpeg(bmp, 1568, 92), Base64.NO_WRAP);
+                // The thread keeps a copy to show, of the size the model sees, not the picture sent.
+                int w = raw != null ? o.outWidth : bmp.getWidth(), h = raw != null ? o.outHeight : bmp.getHeight();
+                a.shown = "data:image/jpeg;base64," + Base64.encodeToString(jpeg(bmp, modelLonger(w, h), 92), Base64.NO_WRAP);
                 if (thumb != bmp) bmp.recycle(); // the same bitmap when it is already thumbnail size
                 return a;
             }
@@ -1942,6 +1943,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
         }
         return out.toByteArray();
+    }
+
+    /** The longer side of a w x h picture as the model sees it: Claude Code brings it down to 2000 px
+     *  (as tried), then the API to at most 4784 visual tokens of 28 x 28 px (Claude 4.7 and later). */
+    private static int modelLonger(int w, int h) {
+        double s = Math.min(1, 2000.0 / Math.max(w, h));
+        while (Math.ceil(w * s / 28) * Math.ceil(h * s / 28) > 4784) s *= 0.99;
+        return (int) Math.round(Math.max(w, h) * s);
     }
 
     /** A picture as JPEG, scaled down to fit maxPx, on white (JPEG has no transparency). */

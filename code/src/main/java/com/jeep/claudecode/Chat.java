@@ -85,7 +85,7 @@ final class Chat {
         final android.net.Uri uri;
         final long size;
         final android.graphics.Bitmap thumb;
-        /** A picture: the copy the thread shows (a JPEG of up to 1568 px); the one sent may be up to 10 MB. */
+        /** A picture: the copy the thread shows (a JPEG of the size the model sees); the one sent may be up to 10 MB. */
         String shown;
 
         Attachment(boolean image, String name, String type, String data, android.net.Uri uri, long size, android.graphics.Bitmap thumb) {
