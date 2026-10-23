@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.96)
+# Claude Code for Android (v0.4.97)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -67,7 +67,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   10 s without traffic, so the phone's network does not drop them, and one that is gone anyway is
   closed within seconds (data not acknowledged in 5 s too), so Claude Code makes a new one instead
   of waiting on it. When the phone's network changes (another one, new addresses, none), the app
-  tells the bridge (SIGUSR2) to close them all at once and writes the new network's DNS servers.
+  tells the bridge (SIGUSR2) to close them all at once.
   A request that still gets no response headers is given up after 30 s
   (`CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`, Claude Code's own default three minutes) and retried
   once on a new connection. Each is started with the

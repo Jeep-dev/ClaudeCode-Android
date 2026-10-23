@@ -61,7 +61,7 @@ public final class BridgeService extends Service {
     /**
      * The phone's network changed (another one, or its addresses did, or none is left): the
      * connections Claude Code has are of the old one and get no answer, so the bridge is told
-     * (SIGUSR2) to close them all at once, and the userland gets the new network's DNS servers.
+     * (SIGUSR2) to close them all at once.
      */
     private final ConnectivityManager.NetworkCallback network = new ConnectivityManager.NetworkCallback() {
         /** The default network and its addresses; null until the first call (the network then). */
@@ -70,12 +70,12 @@ public final class BridgeService extends Service {
         @Override public void onLinkPropertiesChanged(Network n, LinkProperties lp) {
             java.util.TreeSet<String> addresses = new java.util.TreeSet<>();  // not their flags or lifetimes
             for (android.net.LinkAddress a : lp.getLinkAddresses()) addresses.add(a.getAddress().getHostAddress());
-            changed(n + " " + addresses, n);
+            changed(n + " " + addresses);
         }
 
-        @Override public void onLost(Network n) { changed("none", null); }
+        @Override public void onLost(Network n) { changed("none"); }
 
-        private void changed(String now, Network n) {
+        private void changed(String now) {
             String was = last;
             last = now;
             if (was == null || was.equals(now)) return;
@@ -84,12 +84,6 @@ public final class BridgeService extends Service {
                     int pid = bridgePid();
                     if (pid > 0) android.os.Process.sendSignal(pid, 12); // SIGUSR2: USR1 is blocked in processes the app starts (ART)
                     log("network changed (" + now + "): " + (pid > 0 ? "the bridge closes its connections" : "no bridge"));
-                    if (n == null) return;
-                    try {
-                        userland.writeDns(n);
-                    } catch (IOException e) {
-                        log("could not write the DNS servers: " + e);
-                    }
                 });
             } catch (java.util.concurrent.RejectedExecutionException e) {
                 // the service was stopped meanwhile

@@ -2,9 +2,6 @@ package com.jeep.claudecode;
 
 import android.content.Context;
 import android.content.res.AssetManager;
-import android.net.ConnectivityManager;
-import android.net.LinkProperties;
-import android.net.Network;
 import android.os.Environment;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -21,10 +18,8 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -661,7 +656,8 @@ final class Userland {
     private void prepareFiles() throws IOException {
         mkdirs(tmp);
         writeRish();
-        writeDns(null);
+        // Google's: the network's own may answer first with a wrong address (musl asks all at once)
+        replace(new File(rootfs, "etc/resolv.conf"), "nameserver 8.8.8.8\n");
         replace(new File(rootfs, "etc/hosts"), "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n");
         File procs = new File(base, "proc");
         mkdirs(procs);
@@ -675,26 +671,6 @@ final class Userland {
         replace(new File(procs, "uptime"), up + ".00 " + up + ".00\n");
         replace(new File(procs, "version"), "Linux version " + System.getProperty("os.version") + " (android)\n");
         replace(new File(procs, "vmstat"), "nr_free_pages 100000\n");
-    }
-
-    /**
-     * The userland's resolv.conf: the DNS servers of the network (the default one when null), then
-     * 8.8.8.8. Written again when the phone's network changes (BridgeService).
-     */
-    void writeDns(Network n) throws IOException {
-        Set<String> dns = new LinkedHashSet<>();
-        try {
-            ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-            if (n == null) n = cm.getActiveNetwork();
-            LinkProperties lp = n == null ? null : cm.getLinkProperties(n);
-            if (lp != null) for (InetAddress a : lp.getDnsServers()) dns.add(a.getHostAddress());
-        } catch (RuntimeException ignored) {
-            // fallbacks below
-        }
-        dns.add("8.8.8.8");
-        StringBuilder resolv = new StringBuilder();
-        for (String d : dns) if (!d.contains("%")) resolv.append("nameserver ").append(d).append('\n');
-        replace(new File(rootfs, "etc/resolv.conf"), resolv.toString());
     }
 
     void writeBridge() throws IOException {
