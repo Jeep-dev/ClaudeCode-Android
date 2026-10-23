@@ -46,7 +46,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   started) and MCP servers (kept in `~/.ccapp/mcp.json` and passed with `--mcp-config`; pasting
   a README's JSON adds them; servers added with `claude mcp add` are listed with their state);
   storage; keeping it running (and whether an idle Claude Code is started again); and 关于.
-- The top bar's terminal button opens a terminal in the userland (`bash -l` as root in `/root`), built on
+- The top bar's right button (three dots) opens a small menu for what the app adds, kept off the screen otherwise: 终端 and 搜索对话 (which puts `/find ` in the box). 终端 opens a terminal in the userland (`bash -l` as root in `/root`), built on
   Termux's terminal emulator and view (Apache 2.0): for commands, `apk add`, and interactive
   programs such as vim or `claude` itself (its `/login` for a Claude subscription). A row of
   keys gives ESC, TAB, CTRL, ALT, arrows, common symbols and paste; pinch changes the text
@@ -116,6 +116,9 @@ it); queued messages go one by one as replies end, and wait after a reply stoppe
 
 Typing `/` lists commands. Handled by the app: `/help`, `/new` and `/clear` (new
 conversation), `/effort low|medium|high|xhigh|max|default`, `/model [name]`, `/folder`,
+`/find <words>` (marks the words in this conversation's messages and replies and goes to the
+last place, ↑↓ then going between the places; `/find` alone, a message sent or another
+conversation ends it),
 `/stop`. Effort and model apply from the next message: the bridge restarts the idle process
 with `--model` and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'` and resumes the
 session (a `CLAUDE_CODE_EFFORT_LEVEL` in the user's settings would override `--effort` and

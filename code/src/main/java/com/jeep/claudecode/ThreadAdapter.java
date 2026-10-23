@@ -66,6 +66,9 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     /** Answers Claude Code's question whether a tool may run. */
     interface Asks { void answer(Chat chat, Chat.Block b, boolean allow, JSONObject answers); }
     Asks asks;
+    /** Told of each row once it is bound or its text rendered again (marks what /find looks for). */
+    interface Marker { void mark(View row, int position); }
+    Marker marker;
     private List<Item> items = new ArrayList<>();
     private Chat chat;
     final List<Holder> statusRows = new ArrayList<>();
@@ -146,6 +149,13 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         return out;
     }
 
+    /** The text /find looks in for a row: the user's messages and the replies' text; null for the rest. */
+    String searchText(int position) {
+        if (position < 0 || position >= items.size()) return null;
+        Item it = items.get(position);
+        return it.type == USER ? it.msg.text : it.type == TEXT ? it.block.text : null;
+    }
+
     @Override public int getItemCount() { return items.size(); }
     @Override public long getItemId(int position) { return items.get(position).id; }
     @Override public int getItemViewType(int position) { return items.get(position).type; }
@@ -176,6 +186,11 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     }
 
     @Override public void onBindViewHolder(@NonNull Holder h, int position) {
+        bind(h, position);
+        if (marker != null) marker.mark(h.box, position);
+    }
+
+    private void bind(Holder h, int position) {
         Item it = items.get(position);
         boolean same = h.item != null && h.item.id == it.id && h.item.type == it.type;
         h.item = it;
@@ -234,6 +249,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             return;
         }
         md.render(h.box, it.block.text);
+        if (marker != null && h.getBindingAdapterPosition() != RecyclerView.NO_POSITION) marker.mark(h.box, h.getBindingAdapterPosition());
         long end = SystemClock.uptimeMillis();
         h.nextRender = end + 3 * (end - now);
     }

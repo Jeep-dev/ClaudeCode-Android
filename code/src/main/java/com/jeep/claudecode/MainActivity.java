@@ -269,6 +269,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         });
         adapter.queue = queueActions;
         adapter.asks = this::answer;
+        adapter.marker = this::mark;
         list.setAdapter(adapter);
         list.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
@@ -288,9 +289,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         jump.setVisibility(View.GONE);
         if (immersive) host = new Glass.Host(this);
         toTop = jumpButton(R.drawable.ic_arrow_up);
-        toTop.setOnClickListener(v -> scrollToTop());
+        toTop.setOnClickListener(v -> { if (finding()) findGo(findAt - 1); else scrollToTop(); });
         toBottom = jumpButton(R.drawable.ic_arrow_down);
-        toBottom.setOnClickListener(v -> scrollToEnd(true));
+        toBottom.setOnClickListener(v -> { if (finding()) findGo(findAt + 1); else scrollToEnd(true); });
         jump.addView(toTop, new LinearLayout.LayoutParams(dp(36), dp(36)));
         LinearLayout.LayoutParams down = new LinearLayout.LayoutParams(dp(36), dp(36));
         down.topMargin = dp(10);
@@ -321,9 +322,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         top.addView(menu, new LinearLayout.LayoutParams(dp(34), dp(34)));
         top.addView(title, Ui.weight());
         if (!Themes.showTitle(this)) title.setVisibility(View.INVISIBLE);
-        ImageView terminal = Ui.iconButton(this, R.drawable.ic_terminal, 34, 20, R.color.text2);
-        terminal.setOnClickListener(v -> openTerminal());
-        top.addView(terminal, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        ImageView more = Ui.iconButton(this, R.drawable.ic_more, 34, 20, R.color.text2);
+        more.setOnClickListener(this::moreMenu);
+        top.addView(more, new LinearLayout.LayoutParams(dp(34), dp(34)));
         main.addView(top, new LinearLayout.LayoutParams(-1, dp(34)));
         main.addView(banner, Ui.fill());
         Ui.margins(banner, this, 12, 4, 12, 0);
@@ -385,9 +386,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
             topButtons.addView(pill, new LinearLayout.LayoutParams(-2, dp(44)));
             topButtons.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         }
-        Glass.Pane terminal = glassButton(R.drawable.ic_terminal, 21);
-        terminal.setOnClickListener(v -> openTerminal());
-        topButtons.addView(terminal, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        Glass.Pane more = glassButton(R.drawable.ic_more, 21);
+        more.setOnClickListener(this::moreMenu);
+        topButtons.addView(more, new LinearLayout.LayoutParams(dp(44), dp(44)));
         host.addView(topButtons, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
 
         host.addView(banner, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
@@ -655,6 +656,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     private void switchTo(Chat chat) {
+        if (finding()) findEnd();
         if (current != null) current.draft = input.getText().toString();
         current = chat;
         input.setText(chat.draft);
@@ -717,8 +719,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     /** Shows the jumps that lead somewhere; they go again a moment after the scrolling stops. */
     private void showJump() {
-        toTop.setVisibility(list.canScrollVertically(-1) ? View.VISIBLE : View.GONE);
-        toBottom.setVisibility(list.canScrollVertically(1) ? View.VISIBLE : View.GONE);
+        // While /find looks for something they go between the places found, and stay.
+        boolean finding = finding();
+        toTop.setVisibility(finding || list.canScrollVertically(-1) ? View.VISIBLE : View.GONE);
+        toBottom.setVisibility(finding || list.canScrollVertically(1) ? View.VISIBLE : View.GONE);
         ui.removeCallbacks(hideJump);
         if (toTop.getVisibility() != View.VISIBLE && toBottom.getVisibility() != View.VISIBLE) {
             jump.setVisibility(View.GONE);
@@ -730,7 +734,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             jump.setVisibility(View.VISIBLE);
         }
         jump.animate().alpha(1f).setDuration(120).start();
-        ui.postDelayed(hideJump, 1500);
+        if (!finding) ui.postDelayed(hideJump, 1500);
     }
 
     private void scrollToTop() {
@@ -1478,6 +1482,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             if (!connecting) connect(false);
             return;
         }
+        if (finding()) findEnd();
         List<Chat.Attachment> attached = new ArrayList<>(chat.attachments);
         chat.attachments.clear();
         input.setText("");
@@ -1729,6 +1734,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             {"help", "", "所有命令"}, {"new", "", "新对话"}, {"clear", "", "新对话"},
             {"effort", "", "思考级别"},
             {"model", "", "模型"}, {"folder", "", "工作文件夹"},
+            {"find", "<词>", "在本对话里搜索，↑↓ 换一处，不带词结束"},
             {"stop", "", "停止"}};
     /** name -> {args, description, "local" when the app handles it} */
     private LinkedHashMap<String, String[]> commandList() {
@@ -1790,6 +1796,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
             case "stop":
                 if (current.running) stop(current); else toast("现在没有在运行");
                 return true;
+            case "find":
+                find(arg);
+                return true;
             case "folder":
                 if (current.sessionId != null) toast("已有对话的文件夹不能更改，新对话可以选");
                 else folderSheet(null);
@@ -1810,6 +1819,127 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
             default:
                 return false; // Claude Code's own command or skill
+        }
+    }
+
+    // ================= /find =================
+
+    private String findQuery = ""; // lower case; empty when not looking
+    private final List<int[]> findHits = new ArrayList<>(); // {row, which place in the row}
+    private int findAt;
+    private Toast findToast;
+
+    private static final class Found extends android.text.style.BackgroundColorSpan {
+        Found(int color) { super(color); }
+    }
+
+    private boolean finding() { return !findHits.isEmpty(); }
+
+    /**
+     * /find: the places in this conversation's messages and replies where the words are, marked,
+     * from the last; ↑↓ go between them. With no words it stops looking.
+     */
+    private void find(String words) {
+        findQuery = words.toLowerCase(Locale.ROOT);
+        findHits.clear();
+        unCache();
+        for (int p = 0; !findQuery.isEmpty() && p < adapter.getItemCount(); p++) {
+            String s = adapter.searchText(p);
+            if (s == null) continue;
+            s = s.toLowerCase(Locale.ROOT);
+            for (int i = s.indexOf(findQuery), k = 0; i >= 0; i = s.indexOf(findQuery, i + findQuery.length()), k++) {
+                findHits.add(new int[]{p, k});
+            }
+        }
+        if (findHits.isEmpty()) {
+            if (!findQuery.isEmpty()) toast("没有找到「" + words + "」");
+            findEnd();
+            return;
+        }
+        hideKeyboard();
+        findGo(findHits.size() - 1);
+    }
+
+    private void findEnd() {
+        findQuery = "";
+        findHits.clear();
+        unCache();
+        for (int i = 0; i < list.getChildCount(); i++) mark(list.getChildAt(i), list.getChildAdapterPosition(list.getChildAt(i)));
+        showJump();
+    }
+
+    /** Rows kept aside off screen come back without being bound again: they must not keep old marks. */
+    private void unCache() {
+        list.setItemViewCacheSize(0);
+        list.setItemViewCacheSize(2); // RecyclerView's default
+    }
+
+    /** Goes to a place found: its line a third of the way down the screen. */
+    private void findGo(int i) {
+        findAt = Math.max(0, Math.min(findHits.size() - 1, i));
+        int[] at = findHits.get(findAt);
+        stick = false;
+        list.stopScroll();
+        LinearLayoutManager lm = (LinearLayoutManager) list.getLayoutManager();
+        lm.scrollToPositionWithOffset(at[0], list.getHeight() / 4);
+        list.post(() -> {
+            if (!finding()) return;
+            for (int k = 0; k < list.getChildCount(); k++) mark(list.getChildAt(k), list.getChildAdapterPosition(list.getChildAt(k)));
+            View row = lm.findViewByPosition(at[0]);
+            int y = row == null ? -1 : findSpot(row, at[1]);
+            if (y >= 0) list.scrollBy(0, y - list.getHeight() / 3);
+            showJump();
+        });
+        if (findToast != null) findToast.cancel();
+        findToast = Toast.makeText(this, (findAt + 1) + " / " + findHits.size(), Toast.LENGTH_SHORT);
+        findToast.show();
+    }
+
+    /** The text a row shows that /find looks in: what can be selected (not labels such as 复制). */
+    private static void findTexts(View v, List<TextView> out) {
+        if (v instanceof TextView) { if (((TextView) v).isTextSelectable()) out.add((TextView) v); return; }
+        if (!(v instanceof ViewGroup)) return;
+        for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) findTexts(((ViewGroup) v).getChildAt(i), out);
+    }
+
+    /** How far down the list the k-th place found in a row is; -1 when it is not shown. */
+    private int findSpot(View row, int k) {
+        List<TextView> texts = new ArrayList<>();
+        findTexts(row, texts);
+        int n = 0;
+        for (TextView t : texts) {
+            String s = t.getText().toString().toLowerCase(Locale.ROOT);
+            for (int i = s.indexOf(findQuery); i >= 0; i = s.indexOf(findQuery, i + findQuery.length())) {
+                if (n++ < k) continue;
+                android.text.Layout layout = t.getLayout();
+                if (layout == null) return -1;
+                int[] a = new int[2], b = new int[2];
+                t.getLocationInWindow(a);
+                list.getLocationInWindow(b);
+                return a[1] - b[1] + t.getTotalPaddingTop() + layout.getLineTop(layout.getLineForOffset(i));
+            }
+        }
+        return -1;
+    }
+
+    /** Marks the places found in a row, the one gone to darker; or takes the marks away. */
+    private void mark(View row, int position) {
+        boolean marked = !findQuery.isEmpty() && adapter.searchText(position) != null;
+        int[] at = finding() ? findHits.get(findAt) : null;
+        List<TextView> texts = new ArrayList<>();
+        findTexts(row, texts);
+        int n = 0;
+        for (TextView t : texts) {
+            if (!(t.getText() instanceof android.text.Spannable)) continue;
+            android.text.Spannable s = (android.text.Spannable) t.getText();
+            for (Found f : s.getSpans(0, s.length(), Found.class)) s.removeSpan(f);
+            if (!marked) continue;
+            String lower = s.toString().toLowerCase(Locale.ROOT);
+            for (int i = lower.indexOf(findQuery); i >= 0; i = lower.indexOf(findQuery, i + findQuery.length()), n++) {
+                boolean here = at != null && at[0] == position && at[1] == n;
+                s.setSpan(new Found(Glass.alpha(col(R.color.accent), here ? 0.55f : 0.2f)),
+                        i, Math.min(s.length(), i + findQuery.length()), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
         }
     }
 
@@ -3865,6 +3995,61 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     // ---- Claude Code's settings.json, read and written here directly ----
+
+    /**
+     * The top bar's menu: a small card under its button, holding what the app adds (the terminal,
+     * searching the conversation) rather than more buttons; each also a / command where it has one.
+     */
+    private void moreMenu(View anchor) {
+        int width = dp(212), shade = dp(14); // room around the card for its shadow
+        FrameLayout room = new FrameLayout(this);
+        room.setPadding(shade, shade, shade, shade);
+        LinearLayout card = Ui.column(this);
+        card.setPadding(dp(6), dp(6), dp(6), dp(6));
+        card.setBackground(Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.border)));
+        card.setElevation(dp(8));
+        room.addView(card, new FrameLayout.LayoutParams(width, -2));
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(room, width + 2 * shade, -2, true);
+        pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+        pop.setOutsideTouchable(true);
+        menuItem(card, pop, R.drawable.ic_terminal, "终端", null, this::openTerminal);
+        menuItem(card, pop, R.drawable.ic_search, "搜索对话", "/find", () -> {
+            input.setText("/find ");
+            input.setSelection(input.length());
+            input.requestFocus();
+            showKeyboard();
+        });
+        // Its right edge on the button's, a little below it; it grows out of that corner.
+        pop.showAsDropDown(anchor, shade, dp(6) - shade, Gravity.END);
+        card.setPivotX(width);
+        card.setPivotY(0);
+        card.setAlpha(0f);
+        card.setScaleX(0.9f);
+        card.setScaleY(0.9f);
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+    }
+
+    private void menuItem(LinearLayout card, android.widget.PopupWindow pop, int icon, String label, String command, Runnable click) {
+        LinearLayout row = Ui.row(this);
+        row.setPadding(dp(12), 0, dp(12), 0);
+        row.setMinimumHeight(dp(46));
+        row.setBackground(Ui.press(this, null, dp(12)));
+        row.addView(Ui.icon(this, icon, 19, R.color.text2));
+        TextView l = Ui.text(this, label, 15, R.color.text);
+        l.setPadding(dp(12), 0, 0, 0);
+        row.addView(l, new LinearLayout.LayoutParams(0, -2, 1));
+        if (command != null) {
+            TextView c = Ui.text(this, command, 12.5f, R.color.text3);
+            c.setTypeface(Ui.MONO);
+            row.addView(c);
+        }
+        row.setOnClickListener(v -> {
+            pop.dismiss();
+            click.run();
+        });
+        card.addView(row, Ui.fill());
+    }
 
     private void openTerminal() {
         if (!userland.ready()) { toast("运行环境还没准备好"); return; }
