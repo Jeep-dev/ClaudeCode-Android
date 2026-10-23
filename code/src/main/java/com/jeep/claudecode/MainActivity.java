@@ -112,6 +112,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private ThreadAdapter adapter;
     private ScrollView emptyView;
     private View toTop, toBottom;
+    private int jumpLowest; // the jumps' least bottom margin: clear of the box
     private ImageView sendBtn;
     /** The jump to the top and to the end: shown while the list is scrolled by hand, then hidden. */
     private LinearLayout jump;
@@ -295,10 +296,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
         down.topMargin = dp(10);
         jump.addView(toBottom, down);
         FrameLayout.LayoutParams tb = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
-        tb.bottomMargin = dp(12);
-        tb.rightMargin = dp(14);
+        tb.bottomMargin = jumpLowest = dp(12);
+        tb.rightMargin = dp(8);
 
         View main = immersive ? buildImmersive(tb) : buildPlain(tb);
+        ((View) jump.getParent()).addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> v.post(this::placeJump));
         frame = new DrawerFrame(this, main, buildDrawer());
         placeImmersive(); // the drawer too, now that it is there
         frame.setListener(() -> {
@@ -433,7 +435,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         int box = composer.getHeight() > 0 ? composer.getHeight() : below + dp(58);
         fadeTop.getLayoutParams().height = insetTop + dp(68);
         fadeBottom.getLayoutParams().height = box + dp(24);
-        ((FrameLayout.LayoutParams) jump.getLayoutParams()).bottomMargin = box + dp(8);
+        jumpLowest = box + dp(8);
+        placeJump();
         int top = insetTop + dp(50);
         if (list.getPaddingTop() != top || list.getPaddingBottom() != box + dp(12)) {
             list.setPadding(dp(22), top, dp(22), box + dp(12));
@@ -693,6 +696,20 @@ public final class MainActivity extends Activity implements Bridge.Events {
         b.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.border)), dp(18)));
         b.setElevation(dp(3));
         return b;
+    }
+
+    /** The jumps sit where a right thumb rests, two thirds down the screen; never down on the box. */
+    private void placeJump() {
+        View parent = (View) jump.getParent();
+        int screen = getWindow().getDecorView().getHeight();
+        if (parent == null || parent.getHeight() == 0 || screen == 0) return;
+        int[] at = new int[2];
+        parent.getLocationInWindow(at);
+        int m = Math.max(jumpLowest, at[1] + parent.getHeight() - Math.round(screen * 0.67f));
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) jump.getLayoutParams();
+        if (lp.bottomMargin == m) return;
+        lp.bottomMargin = m;
+        jump.setLayoutParams(lp);
     }
 
     private final Runnable hideJump = () -> jump.animate().alpha(0f).setDuration(200)
