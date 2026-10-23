@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.89)
+# Claude Code for Android (v0.4.90)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -62,7 +62,10 @@ interface is plain Android views (Java), so scrolling and text selection are the
   new conversation's is made ready ahead (the spare, kept fresh when the app comes to the front, a
   new conversation is opened or something is typed in it). One idle three minutes or more is
   started again before its next message, so it has no API connection the network dropped
-  meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). In a permission
+  meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). Each is started with the
+  phone's time zone in `TZ` (the app keeps it in `~/.ccapp/timezone`, also when it changes): the
+  userland has no `/etc/localtime`, and with neither Claude Code reads every file under
+  `/usr/share/zoneinfo` as it starts, 0.5 to 2.5 s through proot. In a permission
   mode that asks, Claude Code's question whether a tool may run comes to the app: the tool's row
   shows what it would do with 允许 / 拒绝. Claude Code's questions to the user (AskUserQuestion, asked so in
   every mode) show as their options to pick (several where allowed) and a line of one's own (其他),

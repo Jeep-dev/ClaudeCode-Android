@@ -5,8 +5,10 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.IBinder;
 import android.os.PowerManager;
 
@@ -19,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +43,17 @@ public final class BridgeService extends Service {
     /** Restarts after the bridge died on its own, in the last minute: a crash loop stops at three. */
     private final long[] deaths = new long[3];
     private int deathCount;
+    /** The phone's time zone changed: the next Claude Code started gets the new one. */
+    private final BroadcastReceiver zone = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            String id = intent.getStringExtra(Intent.EXTRA_TIMEZONE);
+            try {
+                worker.execute(() -> writeTimeZone(id));
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                // the service was stopped meanwhile
+            }
+        }
+    };
 
     /** Asks the service to (re)start the bridge. */
     static void start(Context context, String reason) {
@@ -64,6 +78,7 @@ public final class BridgeService extends Service {
         wake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "claudecode:bridge");
         wake.setReferenceCounted(false);
         wake.acquire();
+        registerReceiver(zone, new IntentFilter(Intent.ACTION_TIMEZONE_CHANGED));
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -75,6 +90,7 @@ public final class BridgeService extends Service {
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public void onDestroy() {
+        unregisterReceiver(zone);
         worker.shutdownNow();
         Process p = proc;
         proc = null; // its watcher must not start another on the stopped worker
@@ -94,6 +110,7 @@ public final class BridgeService extends Service {
         }
         try {
             userland.writeBridge();
+            writeTimeZone(null);
             ProcessBuilder pb = new ProcessBuilder(userland.command("python3", "/opt/ccapp/bridge.py",
                     "--socket", Bridge.SOCKET, "--reason", "app: " + reason));
             userland.env(pb);
@@ -128,6 +145,26 @@ public final class BridgeService extends Service {
             if (!p.waitFor(2, TimeUnit.SECONDS)) p.destroyForcibly();
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    /**
+     * Writes the phone's time zone (id, or the default one) where the bridge reads it for each
+     * Claude Code it starts (TZ_FILE in bridge.py): the userland has no /etc/localtime. Written
+     * aside and moved in. On the worker thread.
+     */
+    private void writeTimeZone(String id) {
+        File f = userland.file(Userland.HOME + "/.ccapp/timezone");
+        File aside = new File(f.getPath() + ".new");
+        try {
+            File dir = f.getParentFile();
+            if (dir != null) dir.mkdirs();
+            try (OutputStream out = new FileOutputStream(aside)) {
+                out.write((id != null ? id : TimeZone.getDefault().getID()).getBytes(StandardCharsets.UTF_8));
+            }
+            if (!aside.renameTo(f)) throw new IOException("could not move " + aside + " in");
+        } catch (IOException e) {
+            log("could not write the time zone: " + e);
         }
     }
 

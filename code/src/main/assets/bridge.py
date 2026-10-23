@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 49  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 50  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -39,6 +39,7 @@ LOG_FILE = os.path.join(STATE_DIR, 'bridge.log')
 LAUNCH_FILE = os.path.join(STATE_DIR, 'launch.json')
 MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's settings
 SPARE_FILE = os.path.join(STATE_DIR, 'spare.json')  # how the last new conversation was started
+TZ_FILE = os.path.join(STATE_DIR, 'timezone')  # the phone's time zone, kept by the app (BridgeService)
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
 # Idle this long, a claude's connections to the API may be gone (dropped by the phone's network, or
 # all was frozen) with nothing telling it: a request sent on one gets no answer until Claude Code's
@@ -146,6 +147,21 @@ def claude_path():
     return shutil.which('claude') or os.path.join(os.environ.get('PREFIX', '/usr'), 'bin', 'claude')
 
 
+def claude_env():
+    """A claude's environment: the bridge's, with the phone's time zone in TZ. The userland has no
+    /etc/localtime, and with neither Claude Code reads every file under /usr/share/zoneinfo as it
+    starts, its main thread held 0.5 to 2.5 s by proot. None (the bridge's own) when the app has
+    told no zone the userland has."""
+    try:
+        with open(TZ_FILE, encoding='utf-8') as f:
+            tz = f.read().strip()
+    except OSError:
+        return None
+    if not re.fullmatch(r'[\w+-]+(/[\w+-]+)*', tz, re.ASCII) or not os.path.isfile('/usr/share/zoneinfo/' + tz):
+        return None
+    return dict(os.environ, TZ=tz)
+
+
 def claude_args(session_id, model, effort):
     # Questions whether a tool may run come here (the app answers them); in a mode that asks
     # nothing, there are none.
@@ -169,7 +185,7 @@ def spawn(args, cwd):
     global last_spawn
     last_spawn = time.time()
     os.makedirs(cwd, exist_ok=True)
-    return subprocess.Popen(args, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+    return subprocess.Popen(args, cwd=cwd, env=claude_env(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
                             bufsize=1, start_new_session=True)
 
@@ -1459,7 +1475,7 @@ def find_models():
         try:
             proc = subprocess.Popen(low([claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
                                          '--verbose']), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                    text=True, cwd=HOME)
+                                    text=True, cwd=HOME, env=claude_env())
         except OSError:
             return
         timer = threading.Timer(120, proc.kill)
