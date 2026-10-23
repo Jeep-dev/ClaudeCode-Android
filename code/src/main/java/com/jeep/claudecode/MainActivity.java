@@ -1631,6 +1631,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
             full.append(saved.size() > 1 ? "附件已保存到：" : "附件已保存为：");
             for (String p : saved) full.append("\n- ").append(p);
         }
+        // The model sees pictures scaled; their originals, where they are on the phone, for the details.
+        List<String> originals = new ArrayList<>();
+        for (Chat.Attachment a : attached) if (a.image && a.path != null) originals.add(a.path);
+        if (!originals.isEmpty()) {
+            if (full.length() > 0) full.append("\n\n");
+            full.append("原图：");
+            for (String p : originals) full.append("\n- ").append(p);
+        }
         if (full.length() > 0) content.put(obj("type", "text", "text", full.toString()));
         long sentAt = System.currentTimeMillis();
         JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
@@ -1914,7 +1922,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
                 out.compress(Bitmap.CompressFormat.JPEG, 92, jpeg);
                 Bitmap thumb = Bitmap.createScaledBitmap(out, dp(64), Math.max(1, dp(64) * out.getHeight() / out.getWidth()), true);
-                return new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), null, jpeg.size(), thumb);
+                Chat.Attachment a = new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), null, jpeg.size(), thumb);
+                a.path = phonePath(uri);
+                return a;
             }
             // A file is read only when it is saved, straight into the folder: never held here.
             try (InputStream in = getContentResolver().openInputStream(uri)) {
@@ -1923,6 +1933,36 @@ public final class MainActivity extends Activity implements Bridge.Events {
             return new Chat.Attachment(false, name, type, null, uri, size, null);
         } catch (Exception e) {
             ui.post(() -> toast("这个文件读不了"));
+            return null;
+        }
+    }
+
+    /** Where a picked picture is in the phone's storage (/storage/emulated/0/…, shared in to Claude
+     *  Code too), so the model can read the original for its details; null when it is not a file there. */
+    private String phonePath(Uri uri) {
+        try {
+            Uri table = uri;
+            String id = null;
+            if (android.provider.DocumentsContract.isDocumentUri(this, uri)) {
+                String[] doc = android.provider.DocumentsContract.getDocumentId(uri).split(":", 2);
+                if (doc.length < 2) return null;
+                if ("com.android.externalstorage.documents".equals(uri.getAuthority()) && "primary".equals(doc[0])) {
+                    String path = "/storage/emulated/0/" + doc[1];
+                    return new java.io.File(path).isFile() ? path : null;
+                }
+                if ("raw".equals(doc[0])) return new java.io.File(doc[1]).isFile() ? doc[1] : null;
+                if (!"com.android.providers.media.documents".equals(uri.getAuthority())) return null;
+                table = android.provider.MediaStore.Files.getContentUri("external");
+                id = doc[1];
+            } else if (!"media".equals(uri.getAuthority())) {
+                return null;
+            }
+            try (Cursor c = getContentResolver().query(table, new String[]{android.provider.MediaStore.MediaColumns.DATA},
+                    id == null ? null : android.provider.BaseColumns._ID + "=?", id == null ? null : new String[]{id}, null)) {
+                String path = c != null && c.moveToFirst() ? c.getString(0) : null;
+                return path != null && new java.io.File(path).isFile() ? path : null;
+            }
+        } catch (RuntimeException e) {
             return null;
         }
     }
