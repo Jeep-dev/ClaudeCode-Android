@@ -85,8 +85,6 @@ final class Chat {
         final android.net.Uri uri;
         final long size;
         final android.graphics.Bitmap thumb;
-        /** A picture: where its original is on the phone (Claude Code reads it there), when known. */
-        String path;
 
         Attachment(boolean image, String name, String type, String data, android.net.Uri uri, long size, android.graphics.Bitmap thumb) {
             this.image = image; this.name = name; this.type = type; this.data = data; this.uri = uri; this.size = size; this.thumb = thumb;

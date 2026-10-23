@@ -1631,14 +1631,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             full.append(saved.size() > 1 ? "附件已保存到：" : "附件已保存为：");
             for (String p : saved) full.append("\n- ").append(p);
         }
-        // The model sees pictures scaled; their originals, where they are on the phone, for the details.
-        List<String> originals = new ArrayList<>();
-        for (Chat.Attachment a : attached) if (a.image && a.path != null) originals.add(a.path);
-        if (!originals.isEmpty()) {
-            if (full.length() > 0) full.append("\n\n");
-            full.append("原图：");
-            for (String p : originals) full.append("\n- ").append(p);
-        }
         if (full.length() > 0) content.put(obj("type", "text", "text", full.toString()));
         long sentAt = System.currentTimeMillis();
         JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
@@ -1900,31 +1892,38 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         String type = getContentResolver().getType(uri);
         try {
-            if (type != null && type.matches("image/(png|jpe?g|gif|webp|bmp|heic|heif)")) {
+            if (type != null && type.matches("image/(png|jpe?g|gif|webp|bmp)")) {
+                // Sent as it is: Claude Code scales it for the model itself, and keeps the original
+                // (its path, size and scale go to the model with it, for the details).
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (InputStream in = getContentResolver().openInputStream(uri)) {
+                    if (in == null) return null;
+                    Userland.copy(in, bytes);
+                }
+                Bitmap thumb = Images.decode(bytes.toByteArray(), dp(128));
+                if (thumb == null) { ui.post(() -> toast("这张图片读不了")); return null; }
+                return new Chat.Attachment(true, name, type.equals("image/jpg") ? "image/jpeg" : type,
+                        Base64.encodeToString(bytes.toByteArray(), Base64.NO_WRAP), null, bytes.size(), thumb);
+            }
+            if (type != null && type.matches("image/(heic|heif|avif)")) {
+                // Claude Code reads none of these: made a JPEG of its own size (up to 4096 px, past what
+                // Claude Code gives the model, so the phone's memory holds it).
                 BitmapFactory.Options o = new BitmapFactory.Options();
                 o.inJustDecodeBounds = true;
                 try (InputStream in = getContentResolver().openInputStream(uri)) { BitmapFactory.decodeStream(in, null, o); }
                 int sample = 1;
-                while (Math.max(o.outWidth, o.outHeight) / (sample * 2) >= 1568) sample *= 2;
+                while (Math.max(o.outWidth, o.outHeight) / sample > 4096) sample *= 2;
                 o.inJustDecodeBounds = false;
                 o.inSampleSize = sample;
                 Bitmap bmp;
                 try (InputStream in = getContentResolver().openInputStream(uri)) { bmp = BitmapFactory.decodeStream(in, null, o); }
                 if (bmp == null) { ui.post(() -> toast("这张图片读不了")); return null; }
-                float scale = Math.min(1f, 1568f / Math.max(bmp.getWidth(), bmp.getHeight()));
-                Bitmap out = Bitmap.createBitmap(Math.max(1, Math.round(bmp.getWidth() * scale)),
-                        Math.max(1, Math.round(bmp.getHeight() * scale)), Bitmap.Config.ARGB_8888);
-                Canvas canvas = new Canvas(out);
-                canvas.drawColor(Color.WHITE);
-                canvas.scale(scale, scale);
-                // Filtered: unfiltered scaling drops pixels and leaves text jagged and blurred.
-                canvas.drawBitmap(bmp, 0, 0, new android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG));
                 ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
-                out.compress(Bitmap.CompressFormat.JPEG, 92, jpeg);
-                Bitmap thumb = Bitmap.createScaledBitmap(out, dp(64), Math.max(1, dp(64) * out.getHeight() / out.getWidth()), true);
-                Chat.Attachment a = new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), null, jpeg.size(), thumb);
-                a.path = phonePath(uri);
-                return a;
+                bmp.compress(Bitmap.CompressFormat.JPEG, 95, jpeg);
+                Bitmap thumb = Bitmap.createScaledBitmap(bmp, dp(64), Math.max(1, dp(64) * bmp.getHeight() / bmp.getWidth()), true);
+                bmp.recycle();
+                if (!name.toLowerCase(java.util.Locale.ROOT).endsWith(".jpg")) name = name.replaceFirst("\\.[^.]*$", "") + ".jpg";
+                return new Chat.Attachment(true, name, "image/jpeg", Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP), null, jpeg.size(), thumb);
             }
             // A file is read only when it is saved, straight into the folder: never held here.
             try (InputStream in = getContentResolver().openInputStream(uri)) {
@@ -1933,36 +1932,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             return new Chat.Attachment(false, name, type, null, uri, size, null);
         } catch (Exception e) {
             ui.post(() -> toast("这个文件读不了"));
-            return null;
-        }
-    }
-
-    /** Where a picked picture is in the phone's storage (/storage/emulated/0/…, shared in to Claude
-     *  Code too), so the model can read the original for its details; null when it is not a file there. */
-    private String phonePath(Uri uri) {
-        try {
-            Uri table = uri;
-            String id = null;
-            if (android.provider.DocumentsContract.isDocumentUri(this, uri)) {
-                String[] doc = android.provider.DocumentsContract.getDocumentId(uri).split(":", 2);
-                if (doc.length < 2) return null;
-                if ("com.android.externalstorage.documents".equals(uri.getAuthority()) && "primary".equals(doc[0])) {
-                    String path = "/storage/emulated/0/" + doc[1];
-                    return new java.io.File(path).isFile() ? path : null;
-                }
-                if ("raw".equals(doc[0])) return new java.io.File(doc[1]).isFile() ? doc[1] : null;
-                if (!"com.android.providers.media.documents".equals(uri.getAuthority())) return null;
-                table = android.provider.MediaStore.Files.getContentUri("external");
-                id = doc[1];
-            } else if (!"media".equals(uri.getAuthority())) {
-                return null;
-            }
-            try (Cursor c = getContentResolver().query(table, new String[]{android.provider.MediaStore.MediaColumns.DATA},
-                    id == null ? null : android.provider.BaseColumns._ID + "=?", id == null ? null : new String[]{id}, null)) {
-                String path = c != null && c.moveToFirst() ? c.getString(0) : null;
-                return path != null && new java.io.File(path).isFile() ? path : null;
-            }
-        } catch (RuntimeException e) {
             return null;
         }
     }
