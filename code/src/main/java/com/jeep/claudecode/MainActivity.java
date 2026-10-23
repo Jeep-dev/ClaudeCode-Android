@@ -1474,7 +1474,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             return;
         }
         if (text.matches("^/\\S[^\\n]*$") && localCommand(text)) {
-            if (!finding()) input.setText(""); // /find's words stay in the box while it looks
+            if (!text.startsWith("/find ")) input.setText(""); // /find's words stay in the box
             hideMenu();
             updateChrome();
             return;
@@ -1855,7 +1855,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
         }
         if (findHits.isEmpty()) {
-            if (!findQuery.isEmpty()) toast("没有找到「" + words + "」");
             findEnd();
             return;
         }
