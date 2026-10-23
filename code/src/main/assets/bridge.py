@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 50  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 51  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -46,6 +46,11 @@ STARTED = time.time()  # tells the app a new bridge took over (turns of the old 
 # timeout, and its retry may get another such one. It is started again first (Chat.refresh), unless
 # the app's setting turns that off (restart false in /open and /send).
 STALE_SECONDS = 3 * 60
+# Without that restart (or when a connection is dropped sooner), a request on a dead connection has
+# no response headers: Claude Code gives up on it after CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS (its own
+# default three minutes, more with a large body) and retries once on a new connection, waiting long
+# then. The API's headers came within 20 s for every request in the logs, cache expired or not.
+FIRST_BYTE_MS = '30000'
 SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
 IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
 
@@ -148,18 +153,20 @@ def claude_path():
 
 
 def claude_env():
-    """A claude's environment: the bridge's, with the phone's time zone in TZ. The userland has no
-    /etc/localtime, and with neither Claude Code reads every file under /usr/share/zoneinfo as it
-    starts, its main thread held 0.5 to 2.5 s by proot. None (the bridge's own) when the app has
-    told no zone the userland has."""
+    """A claude's environment: the bridge's, with the wait for the API's first byte (FIRST_BYTE_MS,
+    unless set) and the phone's time zone in TZ. The userland has no /etc/localtime, and with
+    neither Claude Code reads every file under /usr/share/zoneinfo as it starts, its main thread
+    held 0.5 to 2.5 s by proot. No TZ when the app has told no zone the userland has."""
+    env = dict(os.environ)
+    env.setdefault('CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS', FIRST_BYTE_MS)
     try:
         with open(TZ_FILE, encoding='utf-8') as f:
             tz = f.read().strip()
     except OSError:
-        return None
-    if not re.fullmatch(r'[\w+-]+(/[\w+-]+)*', tz, re.ASCII) or not os.path.isfile('/usr/share/zoneinfo/' + tz):
-        return None
-    return dict(os.environ, TZ=tz)
+        return env
+    if re.fullmatch(r'[\w+-]+(/[\w+-]+)*', tz, re.ASCII) and os.path.isfile('/usr/share/zoneinfo/' + tz):
+        env['TZ'] = tz
+    return env
 
 
 def claude_args(session_id, model, effort):
@@ -373,9 +380,12 @@ class Chat:
                 log('chat %s: change refused: %s' % (self.key[:8], msg['response'].get('error')))
                 self.launch_gen = None  # started again with it on the next message
             if kind == 'system' and sub == 'api_retry':
-                log('chat %s: API retry %s/%s in %sms: %s %s' % (
+                gone = msg.get('no_response') or {}  # no headers in time: a dead connection, mostly
+                log('chat %s: API retry %s/%s in %sms: %s %s%s' % (
                     self.key[:8], msg.get('attempt'), msg.get('max_retries'), msg.get('retry_delay_ms'),
-                    msg.get('error_status') or '', msg.get('error') or ''))
+                    msg.get('error_status') or '', msg.get('error') or '',
+                    ' (no response in %.0fs, the retry waits %.0fs)' % (
+                        gone.get('waited_ms', 0) / 1000, gone.get('retry_wait_ms', 0) / 1000) if gone else ''))
             elif kind == 'result':
                 self.running = False
                 self.used = time.time()
