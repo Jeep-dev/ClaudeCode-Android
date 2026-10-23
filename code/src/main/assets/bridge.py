@@ -10,6 +10,7 @@ Standard library only.
 import argparse
 import base64
 import collections
+import errno
 import json
 import mmap
 import os
@@ -17,6 +18,7 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import socketserver
 import subprocess
 import sys
@@ -26,7 +28,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 51  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 52  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -51,6 +53,11 @@ STALE_SECONDS = 3 * 60
 # default three minutes, more with a large body) and retries once on a new connection, waiting long
 # then. The API's headers came within 20 s for every request in the logs, cache expired or not.
 FIRST_BYTE_MS = '30000'
+# Every claude's connections go through the bridge (Relay), which keeps them alive and knows when
+# one is gone: probed after this long without traffic, every few seconds, twice more; data not
+# acknowledged in USER_TIMEOUT_MS is given up. Quiet ten minutes, probed less often (battery).
+KEEP_IDLE, KEEP_INTERVAL, KEEP_COUNT, USER_TIMEOUT_MS = 10, 3, 2, 5000
+QUIET_KEEP_IDLE, QUIET_SECONDS = 240, 10 * 60
 SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
 IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
 
@@ -159,6 +166,9 @@ def claude_env():
     held 0.5 to 2.5 s by proot. No TZ when the app has told no zone the userland has."""
     env = dict(os.environ)
     env.setdefault('CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS', FIRST_BYTE_MS)
+    if relay.port and not any(env.get(k) for k in ('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy')):
+        env['HTTPS_PROXY'] = 'http://127.0.0.1:%d' % relay.port  # https only: the relay only tunnels
+        env['NO_PROXY'] = ','.join(filter(None, [env.get('NO_PROXY') or env.get('no_proxy'), 'localhost,127.0.0.1,::1']))
     try:
         with open(TZ_FILE, encoding='utf-8') as f:
             tz = f.read().strip()
@@ -167,6 +177,138 @@ def claude_env():
     if re.fullmatch(r'[\w+-]+(/[\w+-]+)*', tz, re.ASCII) and os.path.isfile('/usr/share/zoneinfo/' + tz):
         env['TZ'] = tz
     return env
+
+
+class Relay:
+    """The way out for every claude (HTTPS_PROXY in claude_env): a CONNECT proxy on localhost that
+    opens each connection itself, with TCP keepalive (KEEP_IDLE...) so the phone's network does not
+    drop one that is idle, and one that is gone anyway (a dead network, or it was dropped) is found
+    and closed by the kernel within seconds instead of a request waiting on it. Closed with it, its
+    side to claude tells Claude Code, which makes a new one. The app tells of a change of network
+    (SIGUSR2): all are closed then, as none of the old network's work any more."""
+
+    def __init__(self):
+        self.port = None
+        self.lock = threading.Lock()
+        self.tunnels = {}  # (claude's side, the server's side) -> [host, last traffic]
+
+    def start(self):
+        try:
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.bind(('127.0.0.1', 0))
+            server.listen(64)
+        except OSError as e:
+            log('relay not started (claude connects directly): %s' % e)
+            return
+        self.port = server.getsockname()[1]
+        threading.Thread(target=self.accept, args=(server,), daemon=True).start()
+        threading.Thread(target=self.quieten, daemon=True).start()
+
+    def accept(self, server):
+        while True:
+            conn, _ = server.accept()
+            threading.Thread(target=self.open, args=(conn,), daemon=True).start()
+
+    def open(self, conn):
+        try:
+            conn.settimeout(10)
+            head = b''
+            while b'\r\n\r\n' not in head and len(head) < 16384:
+                part = conn.recv(4096)
+                if not part:
+                    raise OSError('closed before asking')
+                head += part
+            line = head.split(b'\r\n', 1)[0].decode('latin-1').split()
+            if len(line) < 2 or line[0] != 'CONNECT' or ':' not in line[1]:
+                conn.sendall(b'HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n')
+                raise OSError('not a CONNECT: %s' % line[:1])
+            host, port = line[1].rsplit(':', 1)
+            try:
+                up = socket.create_connection((host.strip('[]'), int(port)), timeout=10)
+            except (OSError, ValueError) as e:
+                conn.sendall(b'HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
+                raise OSError('%s: %s' % (line[1], e))
+            self.keep(up, KEEP_IDLE)
+            up.setsockopt(socket.IPPROTO_TCP, socket.TCP_USER_TIMEOUT, USER_TIMEOUT_MS)
+            up.settimeout(None)
+            conn.settimeout(None)
+            conn.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n')
+            rest = head.split(b'\r\n\r\n', 1)[1]
+            if rest:
+                up.sendall(rest)
+        except OSError:
+            conn.close()
+            return
+        pair = (conn, up)
+        with self.lock:
+            self.tunnels[pair] = [host, time.time()]
+        threading.Thread(target=self.pump, args=(pair, up, conn), daemon=True).start()
+        self.pump(pair, conn, up)
+
+    def keep(self, s, idle):
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, idle)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, KEEP_INTERVAL)
+        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, KEEP_COUNT)
+
+    def pump(self, pair, src, dst):
+        """One way of a tunnel; its end (either side closed, or the kernel gave the server's side up)
+        closes both."""
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                dst.sendall(data)
+                slot = self.tunnels.get(pair)
+                if slot:
+                    slot[1] = time.time()
+        except OSError as e:
+            slot = self.tunnels.get(pair)
+            if slot and e.errno == errno.ETIMEDOUT:
+                log('relay: the connection to %s was gone (quiet %ds), closed' % (slot[0], time.time() - slot[1]))
+        self.close(pair)
+
+    def close(self, pair):
+        with self.lock:
+            had = self.tunnels.pop(pair, None)
+        if had is not None:
+            for s in pair:
+                try:
+                    s.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                s.close()
+
+    def quieten(self):
+        """Probes a connection quiet QUIET_SECONDS less often: an idle claude would keep the phone's
+        radio waking for nothing."""
+        quiet = set()
+        while True:
+            time.sleep(60)
+            with self.lock:
+                live = list(self.tunnels.items())
+            now = time.time()
+            for pair, (host, last) in live:
+                idle = now - last > QUIET_SECONDS
+                if idle != (pair in quiet):
+                    try:
+                        self.keep(pair[1], QUIET_KEEP_IDLE if idle else KEEP_IDLE)
+                    except OSError:
+                        continue
+                    (quiet.add if idle else quiet.discard)(pair)
+            quiet &= {pair for pair, _ in live}
+
+    def drop(self):
+        """The phone's network changed: every connection is closed (Claude Code makes new ones)."""
+        with self.lock:
+            live = list(self.tunnels)
+        for pair in live:
+            self.close(pair)
+        log('relay: network changed, %d connection%s closed' % (len(live), '' if len(live) == 1 else 's'))
+
+
+relay = Relay()
 
 
 def claude_args(session_id, model, effort):
@@ -1997,6 +2139,7 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    signal.signal(signal.SIGUSR2, lambda *_: threading.Thread(target=relay.drop, daemon=True).start())
 
     def crashed(kind, value, tb):
         import traceback
@@ -2009,6 +2152,7 @@ def main():
     except OSError as e:
         log('exit pid %d: cannot listen on %s: %s' % (os.getpid(), args.socket, e))
         sys.exit('cannot listen on %s: %s' % (args.socket, e))
+    relay.start()  # before any claude starts
     threading.Thread(target=reaper, daemon=True).start()
     threading.Thread(target=spare.fill, daemon=True).start()  # ready for the first new conversation
     threading.Thread(target=lambda: (find_claude_info(), find_models()), daemon=True).start()
