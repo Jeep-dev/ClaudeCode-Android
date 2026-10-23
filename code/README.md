@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.97)
+# Claude Code for Android (v0.4.95)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -62,15 +62,9 @@ interface is plain Android views (Java), so scrolling and text selection are the
   new conversation's is made ready ahead (the spare, kept fresh when the app comes to the front, a
   new conversation is opened or something is typed in it). One idle three minutes or more is
   started again before its next message, so it has no API connection the network dropped
-  meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). Its connections go out
-  through the bridge (`HTTPS_PROXY`, a CONNECT relay on localhost) with TCP keepalive: probed after
-  10 s without traffic, so the phone's network does not drop them, and one that is gone anyway is
-  closed within seconds (data not acknowledged in 5 s too), so Claude Code makes a new one instead
-  of waiting on it. When the phone's network changes (another one, new addresses, none), the app
-  tells the bridge (SIGUSR2) to close them all at once.
-  A request that still gets no response headers is given up after 30 s
-  (`CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`, Claude Code's own default three minutes) and retried
-  once on a new connection. Each is started with the
+  meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). A request that still gets
+  no response headers is given up after 30 s (`CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`, Claude
+  Code's own default three minutes) and retried once on a new connection. Each is started with the
   phone's time zone in `TZ` (the app keeps it in `~/.ccapp/timezone`, also when it changes): the
   userland has no `/etc/localtime`, and with neither Claude Code reads every file under
   `/usr/share/zoneinfo` as it starts, 0.5 to 2.5 s through proot. In a permission

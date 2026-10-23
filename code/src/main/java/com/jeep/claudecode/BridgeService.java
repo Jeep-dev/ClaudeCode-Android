@@ -9,9 +9,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.net.ConnectivityManager;
-import android.net.LinkProperties;
-import android.net.Network;
 import android.os.IBinder;
 import android.os.PowerManager;
 
@@ -58,39 +55,6 @@ public final class BridgeService extends Service {
         }
     };
 
-    /**
-     * The phone's network changed (another one, or its addresses did, or none is left): the
-     * connections Claude Code has are of the old one and get no answer, so the bridge is told
-     * (SIGUSR2) to close them all at once.
-     */
-    private final ConnectivityManager.NetworkCallback network = new ConnectivityManager.NetworkCallback() {
-        /** The default network and its addresses; null until the first call (the network then). */
-        private String last;
-
-        @Override public void onLinkPropertiesChanged(Network n, LinkProperties lp) {
-            java.util.TreeSet<String> addresses = new java.util.TreeSet<>();  // not their flags or lifetimes
-            for (android.net.LinkAddress a : lp.getLinkAddresses()) addresses.add(a.getAddress().getHostAddress());
-            changed(n + " " + addresses);
-        }
-
-        @Override public void onLost(Network n) { changed("none"); }
-
-        private void changed(String now) {
-            String was = last;
-            last = now;
-            if (was == null || was.equals(now)) return;
-            try {
-                worker.execute(() -> {
-                    int pid = bridgePid();
-                    if (pid > 0) android.os.Process.sendSignal(pid, 12); // SIGUSR2: USR1 is blocked in processes the app starts (ART)
-                    log("network changed (" + now + "): " + (pid > 0 ? "the bridge closes its connections" : "no bridge"));
-                });
-            } catch (java.util.concurrent.RejectedExecutionException e) {
-                // the service was stopped meanwhile
-            }
-        }
-    };
-
     /** Asks the service to (re)start the bridge. */
     static void start(Context context, String reason) {
         Intent i = new Intent(context, BridgeService.class).setAction(START).putExtra(EXTRA_REASON, reason);
@@ -115,7 +79,6 @@ public final class BridgeService extends Service {
         wake.setReferenceCounted(false);
         wake.acquire();
         registerReceiver(zone, new IntentFilter(Intent.ACTION_TIMEZONE_CHANGED));
-        getSystemService(ConnectivityManager.class).registerDefaultNetworkCallback(network);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -128,7 +91,6 @@ public final class BridgeService extends Service {
 
     @Override public void onDestroy() {
         unregisterReceiver(zone);
-        getSystemService(ConnectivityManager.class).unregisterNetworkCallback(network);
         worker.shutdownNow();
         Process p = proc;
         proc = null; // its watcher must not start another on the stopped worker
