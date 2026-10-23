@@ -117,8 +117,8 @@ it); queued messages go one by one as replies end, and wait after a reply stoppe
 Typing `/` lists commands. Handled by the app: `/help`, `/new` and `/clear` (new
 conversation), `/effort low|medium|high|xhigh|max|default`, `/model [name]`, `/folder`,
 `/find <words>` (marks the words in this conversation's messages and replies and goes to the
-last place, ↑↓ then going between the places; `/find` alone, a message sent or another
-conversation ends it),
+last place, ↑↓ then going between the places; the `/find` line stays in the box meanwhile,
+and changing or clearing it, `/find` alone or another conversation ends it),
 `/stop`. Effort and model apply from the next message: the bridge restarts the idle process
 with `--model` and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'` and resumes the
 session (a `CLAUDE_CODE_EFFORT_LEVEL` in the user's settings would override `--effort` and

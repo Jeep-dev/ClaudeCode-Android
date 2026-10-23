@@ -538,6 +538,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void afterTextChanged(Editable s) {
+                // The /find line stays in the box while it looks; changed or cleared, it stops.
+                if (finding() && !s.toString().trim().equals(findLine)) findEnd();
                 showMenu();
                 updateChrome();
                 if (s.length() > 0) warm();
@@ -1472,7 +1474,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             return;
         }
         if (text.matches("^/\\S[^\\n]*$") && localCommand(text)) {
-            input.setText("");
+            if (!finding()) input.setText(""); // /find's words stay in the box while it looks
             hideMenu();
             updateChrome();
             return;
@@ -1825,6 +1827,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     // ================= /find =================
 
     private String findQuery = ""; // lower case; empty when not looking
+    private String findLine = ""; // the /find line as sent, kept in the box while it looks
     private final List<int[]> findHits = new ArrayList<>(); // {row, which place in the row}
     private int findAt;
     private Toast findToast;
@@ -1856,6 +1859,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             findEnd();
             return;
         }
+        findLine = input.getText().toString().trim();
         hideKeyboard();
         findGo(findHits.size() - 1);
     }
