@@ -778,7 +778,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
 
     /** A box of monospace text, headed by the tool's name when given. */
     private View io(String label, String text, int colorRes) {
-        String body = text == null ? "" : text.length() > 8000 ? text.substring(0, 8000) + "\n…" : text;
+        String body = text == null ? "" : text;
         SpannableStringBuilder s = new SpannableStringBuilder();
         if (label != null) {
             s.append(label);

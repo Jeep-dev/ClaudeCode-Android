@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 52  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 53  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -1214,7 +1214,7 @@ def load_history(session_id):
                                      and isinstance(x.get('source'), dict) and x['source'].get('type') == 'base64'
                                      and x['source'].get('data')]
                             if tool is not None:
-                                tool['result'] = tool_result_text(b.get('content'))[:20000]
+                                tool['result'] = tool_result_text(b.get('content'))
                                 tool['images'] = shown
                                 tool['isError'] = bool(b.get('is_error'))
                                 tool['status'] = 'error' if tool['isError'] else 'done'
