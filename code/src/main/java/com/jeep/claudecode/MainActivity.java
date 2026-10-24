@@ -1737,6 +1737,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             {"effort", "", "思考级别"},
             {"model", "", "模型"}, {"folder", "", "工作文件夹"},
             {"find", "<词>", "在本对话里搜索，↑↓ 换一处，不带词结束"},
+            {"tree", "", "回到之前的某条消息，重新编辑"}, {"rewind", "", "同 /tree"},
             {"stop", "", "停止"}};
     /** name -> {args, description, "local" when the app handles it} */
     private LinkedHashMap<String, String[]> commandList() {
@@ -1801,6 +1802,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
             case "find":
                 find(arg);
                 return true;
+            case "tree": case "rewind":
+                tree();
+                return true;
             case "folder":
                 if (current.sessionId != null) toast("已有对话的文件夹不能更改，新对话可以选");
                 else folderSheet(null);
@@ -1822,6 +1826,95 @@ public final class MainActivity extends Activity implements Bridge.Events {
             default:
                 return false; // Claude Code's own command or skill
         }
+    }
+
+    // ================= /tree =================
+
+    /**
+     * /tree: the user's messages in this conversation, the last first. One picked, the conversation
+     * goes back to before it (the bridge's /rewind cuts the transcript there: the model never sees
+     * what was after, a message its safeguards refused included) and its text is in the box again.
+     */
+    private void tree() {
+        Chat chat = current;
+        if (chat.sessionId == null) { toast("这个对话还没有可以回退的消息"); return; }
+        if (chat.running) { toast("回复结束后才能回退"); return; }
+        if (!linked) { toast("Claude Code 正在启动，稍后再试"); return; }
+        // Read again: a message sent from here knows its uuid only from the transcript.
+        bridge.get("/history?id=" + Uri.encode(chat.sessionId), (status, data) -> {
+            if (status != 200) { toast("读取对话失败：" + data.optString("error", "HTTP " + status)); return; }
+            chat.load(data);
+            chat.loaded = true;
+            if (current == chat) { adapter.show(chat, true); renderNow(); }
+            List<Chat.Msg> users = new ArrayList<>();
+            for (Chat.Msg m : chat.messages) if (m.kind == Chat.Msg.USER && m.uuid != null) users.add(m);
+            if (users.isEmpty()) { toast("没有可以回退的消息"); return; }
+            Dialog sheet = sheet("回到哪条消息之前", "选中的消息和它之后的对话都会删掉，它的文字放回输入框");
+            LinearLayout card = card(sheet);
+            for (int i = users.size() - 1; i >= 0; i--) {
+                Chat.Msg m = users.get(i);
+                option(card, 0, (i + 1) + ". " + preview(m), null, false, () -> {
+                    sheet.dismiss();
+                    rewindAsk(chat, m);
+                });
+            }
+            sheet.show();
+        });
+    }
+
+    private static String preview(Chat.Msg m) {
+        String t = m.text.trim().replaceAll("\\s+", " ");
+        return !t.isEmpty() ? t : !m.images.isEmpty() ? "[图片]" : "（空）";
+    }
+
+    private void rewindAsk(Chat chat, Chat.Msg m) {
+        Dialog sheet = sheet("回到这条消息之前？", preview(m) + "\n\n它和之后的对话会删掉，不能恢复。");
+        LinearLayout actions = Ui.row(this);
+        TextView cancel = button("取消", false, v -> sheet.dismiss());
+        TextView ok = button("回退", true, v -> { sheet.dismiss(); rewind(chat, m); });
+        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
+        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
+        Ui.margins(ok, this, 10, 0, 0, 0);
+        content(sheet).addView(actions, Ui.fill());
+        Ui.margins(actions, this, 0, 14, 0, 0);
+        sheet.show();
+    }
+
+    private void rewind(Chat chat, Chat.Msg m) {
+        String id = chat.sessionId;
+        bridge.post("/rewind", obj("chat", chat.key, "sessionId", id, "uuid", m.uuid), (status, data) -> {
+            if (status != 200) { toast("回退失败：" + data.optString("error", "HTTP " + status)); return; }
+            if (data.optInt("left") == 0) {
+                // Nothing was before it: the conversation is gone, a new one starts with its text.
+                JSONArray next = new JSONArray();
+                for (int i = 0; i < sessions.length(); i++) {
+                    JSONObject s = sessions.optJSONObject(i);
+                    if (s != null && !id.equals(s.optString("id"))) next.put(s);
+                }
+                keepSessions(next);
+                chats.remove(chat.key);
+                bySession.remove(id);
+                Chat fresh = newChat();
+                fresh.cwd = chat.cwd;
+                fresh.draft = m.text;
+                if (current == chat) switchTo(fresh);
+            } else {
+                int at = chat.messages.indexOf(m);
+                if (at >= 0) chat.messages.subList(at, chat.messages.size()).clear();
+                if (current == chat) {
+                    input.setText(m.text);
+                    input.setSelection(input.length());
+                    stick = true;
+                    adapter.show(chat, true);
+                    renderNow();
+                } else {
+                    chat.draft = m.text;
+                }
+            }
+            if (!m.images.isEmpty()) toast("已回退，图片要重新添加");
+            else toast("已回退");
+            loadSessions();
+        });
     }
 
     // ================= /find =================

@@ -21,6 +21,8 @@ final class Chat {
         final long id = IDS.getAndIncrement();
         final int kind;
         String text = "";
+        /** A user's message: its uuid in the transcript (from /history), what /tree goes back to. */
+        String uuid;
         CharSequence note;
         final List<String> images = new ArrayList<>(); // data: URLs, null when not kept
         final List<String> files = new ArrayList<>();
@@ -469,6 +471,7 @@ final class Chat {
             } else if ("user".equals(role)) {
                 Msg m = new Msg(Msg.USER);
                 m.text = h.optString("text");
+                m.uuid = h.isNull("uuid") ? null : h.optString("uuid", null);
                 JSONArray imgs = h.optJSONArray("images");
                 for (int k = 0; imgs != null && k < imgs.length(); k++) m.images.add(imgs.isNull(k) ? null : imgs.optString(k));
                 messages.add(m);

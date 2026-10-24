@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.96)
+# Claude Code for Android (v0.4.97)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -121,7 +121,10 @@ conversation), `/effort low|medium|high|xhigh|max|default`, `/model [name]`, `/f
 `/find <words>` (marks the words in this conversation's messages and replies and goes to the
 last place, ↑↓ then going between the places; the `/find` line stays in the box meanwhile,
 and changing or clearing it, `/find` alone or another conversation ends it),
-`/stop`. Effort and model apply from the next message: the bridge restarts the idle process
+`/tree` or `/rewind` (lists the user's messages, the last first; the one picked and all after it
+are cut from the transcript by the bridge's `/rewind`, its text goes back into the box, and the
+next message resumes from the reply before it: a request the API's safeguards refused is gone
+with it, instead of every message after being refused too), `/stop`. Effort and model apply from the next message: the bridge restarts the idle process
 with `--model` and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'` and resumes the
 session (a `CLAUDE_CODE_EFFORT_LEVEL` in the user's settings would override `--effort` and
 Claude Code's own `/effort`). Everything else, such as `/compact`, `/context`, `/cost`,

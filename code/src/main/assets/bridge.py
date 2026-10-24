@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 51  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 52  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -808,6 +808,57 @@ def rename(session_id, title):
     return True
 
 
+def rewind_session(session_id, message_uuid):
+    """Cuts a transcript before one of the user's messages (its uuid, the app's: Claude Code keeps it
+    as the entry's, or as an inserted one's source_uuid): that message and all after it go, but for
+    the names given. Resumed, Claude Code goes on from the reply before it, the model never seeing
+    what was cut (a message its safeguards flagged stays in the context otherwise, and every message
+    after it is flagged too). Returns the messages left (0: none, and the transcript is gone), None
+    when the message is not in it."""
+    path = find_session(session_id)
+    if not path or not message_uuid:
+        return None
+    with open(path, 'rb') as f:
+        lines = f.readlines()
+    cut, kept_after = None, []
+    for i, raw in enumerate(lines):
+        try:
+            e = json.loads(raw.decode('utf-8', 'replace'))
+        except ValueError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        if cut is None:
+            a = e.get('attachment') if e.get('type') == 'attachment' else None
+            if e.get('uuid') == message_uuid or (isinstance(a, dict) and a.get('source_uuid') == message_uuid):
+                cut = i
+        elif e.get('type') in ('custom-title', 'ai-title', 'tag'):
+            kept_after.append(raw)
+    if cut is None:
+        return None
+    head = lines[:cut]
+    left = 0
+    for raw in head:
+        try:
+            e = json.loads(raw.decode('utf-8', 'replace'))
+        except ValueError:
+            continue
+        if isinstance(e, dict) and e.get('type') in ('user', 'assistant') and not e.get('isSidechain'):
+            left += 1
+    if not left:
+        os.remove(path)
+        shutil.rmtree(path[:-6], ignore_errors=True)
+    else:
+        with open(path + '.tmp', 'wb') as f:
+            f.writelines(head + kept_after)
+        os.replace(path + '.tmp', path)
+    with summary_lock:
+        summary_cache().pop(path, None)
+    log('session %s: cut before message %s, %d lines of %d kept' % (
+        session_id[:8], message_uuid[:8], len(head) + len(kept_after) if left else 0, len(lines)))
+    return left
+
+
 def keep_title(key, session_id, title):
     with titles_lock:
         titles[session_id] = title
@@ -1138,7 +1189,8 @@ def load_history(session_id):
                 if kind == 'attachment':
                     text = inserted_text(e)
                     if text and not (messages and messages[-1]['role'] == 'user' and messages[-1]['text'] == text):
-                        messages.append({'role': 'user', 'text': text, 'images': []})
+                        messages.append({'role': 'user', 'text': text, 'images': [],
+                                         'uuid': e['attachment'].get('source_uuid') or e.get('uuid')})
                     continue
                 cwd = e.get('cwd') or cwd
                 if kind == 'system' and e.get('subtype') == 'compact_boundary':
@@ -1174,7 +1226,7 @@ def load_history(session_id):
                     text = '\n'.join(text_parts)
                     repeated = messages and messages[-1]['role'] == 'user' and messages[-1]['text'] == text and not images
                     if (text_parts or images) and not repeated:  # an inserted one may come as both
-                        messages.append({'role': 'user', 'text': text, 'images': images})
+                        messages.append({'role': 'user', 'text': text, 'images': images, 'uuid': e.get('uuid')})
                 elif kind == 'assistant' and isinstance(content, list):
                     usage = msg.get('usage') or {}
                     if usage.get('input_tokens') is not None:
@@ -1750,6 +1802,24 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(target)
                 shutil.rmtree(target[:-6], ignore_errors=True)
             self.reply(200, {'ok': bool(target)})
+        elif path == '/rewind':
+            # Back to before one of the user's messages: its claude goes first (it holds the
+            # conversation, and would write it again), then the transcript is cut (rewind_session);
+            # the next message resumes it. No exit event: the app asked for it.
+            session_id = str(data.get('sessionId') or '')
+            chat = chat_for(data['chat'], session_id, create=False)
+            if chat:
+                with chat.lock:
+                    if chat.running:
+                        return self.reply(409, {'error': '回复还在进行'})
+                    proc, chat.proc = chat.proc, None
+                    end(proc)
+            left = rewind_session(session_id, str(data.get('uuid') or ''))
+            if left is None:
+                return self.reply(404, {'error': '记录里没有这条消息'})
+            if not left and chat:
+                chat.session_id = None  # nothing left to resume: the next message starts it anew
+            self.reply(200, {'ok': True, 'left': left})
         elif path == '/title':
             session_id = str(data.get('id') or '')
             title = ' '.join(str(data.get('title') or '').split())[:200]
