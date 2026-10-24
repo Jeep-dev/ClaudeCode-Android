@@ -506,8 +506,10 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         // Claude Code's terminal.
         LinearLayout head = head(iconRes(info[0]), true);
         TextView detail = Ui.text(c, info[2], 14.5f, R.color.text);
-        detail.setSingleLine(true);
-        detail.setEllipsize(TextUtils.TruncateAt.END);
+        if (!b.open) { // opened, it is shown whole
+            detail.setSingleLine(true);
+            detail.setEllipsize(TextUtils.TruncateAt.END);
+        }
         detail.setPadding(Ui.dp(c, 9), 0, 0, 0);
         head.addView(detail, Ui.weight());
         View state;
