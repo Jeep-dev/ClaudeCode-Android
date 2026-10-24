@@ -21,7 +21,8 @@ final class Chat {
         final long id = IDS.getAndIncrement();
         final int kind;
         String text = "";
-        /** A user's message: its uuid in the transcript (from /history), what /tree goes back to. */
+        /** Its uuid in the transcript (from /history): a user's message's, or a reply's first entry's;
+         *  what /tree goes back to and 删除 takes out. */
         String uuid;
         CharSequence note;
         final List<String> images = new ArrayList<>(); // data: URLs, null when not kept
@@ -478,6 +479,7 @@ final class Chat {
             } else if ("assistant".equals(role)) {
                 Msg m = new Msg(Msg.ASSISTANT);
                 m.done = true;
+                m.uuid = h.isNull("uuid") ? null : h.optString("uuid", null);
                 JSONArray blocks = h.optJSONArray("blocks");
                 for (int k = 0; blocks != null && k < blocks.length(); k++) {
                     JSONObject o = blocks.optJSONObject(k);

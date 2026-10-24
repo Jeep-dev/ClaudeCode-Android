@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 53  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 54  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -859,6 +859,110 @@ def rewind_session(session_id, message_uuid):
     return left
 
 
+def prompt_of(e):
+    """What a transcript entry gives /history as one of the user's messages: its text, or None when
+    it is not one (a tool's result, a reminder, a reply). A picture alone is one, with no text."""
+    if e.get('isSidechain') or e.get('isMeta'):
+        return None
+    if e.get('type') == 'attachment':
+        return inserted_text(e) or None
+    if e.get('type') != 'user':
+        return None
+    content = (e.get('message') or {}).get('content')
+    if isinstance(content, str):
+        content = [{'type': 'text', 'text': content}]
+    if not isinstance(content, list):
+        return None
+    blocks = [b for b in content if isinstance(b, dict)]
+    texts = [b['text'] for b in blocks if b.get('type') == 'text' and is_prompt_text(b.get('text', ''))]
+    if not texts and not any(b.get('type') == 'image' for b in blocks):
+        return None
+    return '\n'.join(texts)
+
+
+def delete_message(session_id, message_uuid, role):
+    """Takes one message out of a transcript, by its uuid as /history gives it: one of the user's
+    (its entries; an inserted one may be kept twice), or a reply (all its entries, its tools' results
+    with them, up to the next message of the user's or a compaction). What came after it is linked to
+    what came before, so the conversation resumed goes on without it. Returns the messages left (0:
+    none, and the transcript is gone), None when the message is not in it."""
+    path = find_session(session_id)
+    if not path or not message_uuid:
+        return None
+    with open(path, 'rb') as f:
+        lines = f.readlines()
+    entries = []
+    for raw in lines:
+        try:
+            e = json.loads(raw.decode('utf-8', 'replace'))
+        except ValueError:
+            e = None
+        entries.append(e if isinstance(e, dict) else None)
+    gone = set()
+    if role == 'assistant':
+        start = next((i for i, e in enumerate(entries) if e and e.get('uuid') == message_uuid
+                      and e.get('type') == 'assistant'), None)
+        if start is None:
+            return None
+        for i in range(start, len(entries)):
+            e = entries[i]
+            if not e or not e.get('uuid') or e.get('isSidechain'):
+                continue  # titles, file snapshots: not in the conversation
+            if i > start and (prompt_of(e) is not None or e.get('subtype') == 'compact_boundary'):
+                break
+            gone.add(i)
+    else:
+        text = None
+        for i, e in enumerate(entries):
+            if not e:
+                continue
+            a = e.get('attachment') if e.get('type') == 'attachment' else None
+            if e.get('uuid') == message_uuid or (isinstance(a, dict) and a.get('source_uuid') == message_uuid):
+                gone.add(i)
+                text = prompt_of(e) if text is None else text
+            elif gone and text is not None and e.get('uuid') and not e.get('isMeta'):
+                # Right after it, the same text again: the one /history shows once.
+                if prompt_of(e) == text and e.get('type') == 'user':
+                    gone.add(i)
+                break
+        if not gone:
+            return None
+    parent = {entries[i]['uuid']: entries[i].get('parentUuid') for i in gone if entries[i].get('uuid')}
+
+    def alive(u):
+        while u in parent:
+            u = parent[u]
+        return u
+    out, left = [], 0
+    for i, raw in enumerate(lines):
+        if i in gone:
+            continue
+        e = entries[i]
+        if e:
+            moved = False
+            for key in ('parentUuid', 'logicalParentUuid'):
+                if e.get(key) in parent:
+                    e[key] = alive(e[key])
+                    moved = True
+            if moved:
+                raw = (json.dumps(e, ensure_ascii=False, separators=(',', ':')) + '\n').encode('utf-8')
+            if e.get('type') in ('user', 'assistant') and not e.get('isSidechain'):
+                left += 1
+        out.append(raw)
+    if not left:
+        os.remove(path)
+        shutil.rmtree(path[:-6], ignore_errors=True)
+    else:
+        with open(path + '.tmp', 'wb') as f:
+            f.writelines(out)
+        os.replace(path + '.tmp', path)
+    with summary_lock:
+        summary_cache().pop(path, None)
+    log('session %s: %s message %s deleted, %d lines of %d' % (
+        session_id[:8], role, message_uuid[:8], len(gone), len(lines)))
+    return left
+
+
 def keep_title(key, session_id, title):
     with titles_lock:
         titles[session_id] = title
@@ -1235,7 +1339,7 @@ def load_history(session_id):
                     if msg.get('model') and not str(msg['model']).startswith('<'):
                         model = msg['model']
                     if not messages or messages[-1]['role'] != 'assistant':
-                        messages.append({'role': 'assistant', 'blocks': []})
+                        messages.append({'role': 'assistant', 'blocks': [], 'uuid': e.get('uuid')})
                     blocks = messages[-1]['blocks']
                     for b in content:
                         if not isinstance(b, dict):
@@ -1802,10 +1906,11 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(target)
                 shutil.rmtree(target[:-6], ignore_errors=True)
             self.reply(200, {'ok': bool(target)})
-        elif path == '/rewind':
-            # Back to before one of the user's messages: its claude goes first (it holds the
-            # conversation, and would write it again), then the transcript is cut (rewind_session);
-            # the next message resumes it. No exit event: the app asked for it.
+        elif path in ('/rewind', '/delete'):
+            # Back to before one of the user's messages (rewind_session), or one message out
+            # (delete_message): its claude goes first (it holds the conversation, and would write
+            # it again), then the transcript is changed; the next message resumes it. No exit
+            # event: the app asked for it.
             session_id = str(data.get('sessionId') or '')
             chat = chat_for(data['chat'], session_id, create=False)
             if chat:
@@ -1814,7 +1919,9 @@ class Handler(BaseHTTPRequestHandler):
                         return self.reply(409, {'error': '回复还在进行'})
                     proc, chat.proc = chat.proc, None
                     end(proc)
-            left = rewind_session(session_id, str(data.get('uuid') or ''))
+            target = str(data.get('uuid') or '')
+            left = rewind_session(session_id, target) if path == '/rewind' else \
+                delete_message(session_id, target, str(data.get('role') or 'user'))
             if left is None:
                 return self.reply(404, {'error': '记录里没有这条消息'})
             if not left and chat:

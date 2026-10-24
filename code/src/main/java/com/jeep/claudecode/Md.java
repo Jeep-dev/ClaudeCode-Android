@@ -24,6 +24,7 @@ import io.noties.markwon.Markwon;
 import io.noties.markwon.core.MarkwonTheme;
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin;
 import io.noties.markwon.ext.tables.TablePlugin;
+import io.noties.markwon.movement.MovementMethodPlugin;
 import io.noties.markwon.ext.tables.TableTheme;
 import io.noties.markwon.linkify.LinkifyPlugin;
 
@@ -71,6 +72,7 @@ final class Md {
                 .usePlugin(StrikethroughPlugin.create())
                 .usePlugin(TablePlugin.create(table))
                 .usePlugin(LinkifyPlugin.create())
+                .usePlugin(MovementMethodPlugin.none()) // links: links(); no tap on one after a long press
                 .usePlugin(new AbstractMarkwonPlugin() {
                     @Override public void configureTheme(MarkwonTheme.Builder b) {
                         b.codeTextColor(Ui.color(c, R.color.inlineCode))
@@ -169,6 +171,11 @@ final class Md {
         while (box.getChildCount() > parts.size()) box.removeViewAt(parts.size());
     }
 
+    /** Markdown as the text it shows, without its marks. */
+    String plain(String markdown) {
+        return markwon.toMarkdown(markdown.trim()).toString();
+    }
+
     TextView prose(String markdown) {
         TextView t = new TextView(c);
         t.setTag("text");
@@ -177,7 +184,7 @@ final class Md {
         t.setTextColor(Ui.color(c, R.color.text));
         t.setLineSpacing(0, 1.05f);
         t.setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE);
-        selectable(t);
+        links(t);
         setProse(t, markdown);
         return t;
     }
@@ -247,7 +254,7 @@ final class Md {
                     cell.setMaxWidth(maxCell);
                     cell.setPadding(Ui.dp(c, 10), Ui.dp(c, 7), Ui.dp(c, 10), Ui.dp(c, 7));
                     cell.setBackgroundColor(Ui.color(c, i == 0 ? R.color.surface2 : R.color.bg));
-                    selectable(cell);
+                    links(cell);
                     android.widget.TableRow.LayoutParams lp = new android.widget.TableRow.LayoutParams(-2, -1);
                     lp.setMargins(0, 0, line, line);
                     row.addView(cell, lp);
@@ -374,7 +381,6 @@ final class Md {
         body.setLineSpacing(0, 1.12f);
         body.setPadding(Ui.dp(c, 14), Ui.dp(c, 12), Ui.dp(c, 14), Ui.dp(c, 12));
         body.setHorizontallyScrolling(true);
-        body.setTextIsSelectable(true);
         // Wrap-content: a TextView whose width is fixed is not measured again when its text
         // grows within one line, so a streamed one-line block kept the width of its first letters.
         scroll.addView(body, new FrameLayout.LayoutParams(-2, -2));
@@ -382,12 +388,11 @@ final class Md {
         return card;
     }
 
-    /** Selectable text whose links still open with a tap. */
-    void selectable(TextView t) {
-        t.setTextIsSelectable(true);
+    /** Links that open with a tap. The text is not selectable: a long press is the thread's (its menu). */
+    void links(TextView t) {
         t.setOnTouchListener((v, e) -> {
             if (e.getAction() != MotionEvent.ACTION_UP || !(t.getText() instanceof Spanned)) return false;
-            if (t.hasSelection() || e.getEventTime() - e.getDownTime() > 350) return false;
+            if (e.getEventTime() - e.getDownTime() > 350) return false;
             Layout layout = t.getLayout();
             if (layout == null) return false;
             int x = (int) e.getX() - t.getTotalPaddingLeft() + t.getScrollX();
@@ -397,6 +402,8 @@ final class Md {
             int off = layout.getOffsetForHorizontal(line, x);
             ClickableSpan[] links = ((Spanned) t.getText()).getSpans(off, off, ClickableSpan.class);
             if (links.length == 0) return false;
+            t.cancelLongPress(); // the up is taken here: the menu must not open after the tap
+            t.setPressed(false);
             if (links[0] instanceof android.text.style.URLSpan) openLink.accept(((android.text.style.URLSpan) links[0]).getURL());
             else links[0].onClick(t);
             return true;

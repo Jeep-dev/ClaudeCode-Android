@@ -29,6 +29,7 @@ import android.text.style.StyleSpan;
 import android.text.style.TypefaceSpan;
 import android.util.Base64;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -44,6 +45,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -109,6 +111,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private TextView title, banner, linkText;
     private View linkDot;
     private RecyclerView list;
+    private float touchX, touchY; // where the list was last touched, on the screen: a message's menu opens there
     private ThreadAdapter adapter;
     private ScrollView emptyView;
     private View toTop, toBottom;
@@ -249,7 +252,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         list.setPadding(dp(22), dp(2), dp(22), dp(24));
         list.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         list.setItemAnimator(null); // rows change in place; animated moves overlap neighbours
-        adapter = new ThreadAdapter(talkContext(), md, this::copy, row -> {
+        adapter = new ThreadAdapter(talkContext(), md, row -> {
             // A row opened or closed. At the bottom the list keeps following the end; elsewhere it
             // stays where the reader is, and an opened row hidden below is scrolled into view
             // (its head staying on screen).
@@ -270,7 +273,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
         adapter.queue = queueActions;
         adapter.asks = this::answer;
         adapter.marker = this::mark;
+        adapter.menu = this::messageMenu;
         list.setAdapter(adapter);
+        list.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+            @Override public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
+                if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { touchX = e.getRawX(); touchY = e.getRawY(); }
+                return false;
+            }
+        });
         list.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
                 if (rv.getScrollState() == RecyclerView.SCROLL_STATE_IDLE && dy == 0) return;
@@ -1885,19 +1895,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         bridge.post("/rewind", obj("chat", chat.key, "sessionId", id, "uuid", m.uuid), (status, data) -> {
             if (status != 200) { toast("回退失败：" + data.optString("error", "HTTP " + status)); return; }
             if (data.optInt("left") == 0) {
-                // Nothing was before it: the conversation is gone, a new one starts with its text.
-                JSONArray next = new JSONArray();
-                for (int i = 0; i < sessions.length(); i++) {
-                    JSONObject s = sessions.optJSONObject(i);
-                    if (s != null && !id.equals(s.optString("id"))) next.put(s);
-                }
-                keepSessions(next);
-                chats.remove(chat.key);
-                bySession.remove(id);
-                Chat fresh = newChat();
-                fresh.cwd = chat.cwd;
-                fresh.draft = m.text;
-                if (current == chat) switchTo(fresh);
+                gone(chat, id, m.text); // nothing was before it: a new conversation starts with its text
             } else {
                 int at = chat.messages.indexOf(m);
                 if (at >= 0) chat.messages.subList(at, chat.messages.size()).clear();
@@ -1914,6 +1912,162 @@ public final class MainActivity extends Activity implements Bridge.Events {
             if (!m.images.isEmpty()) toast("已回退，图片要重新添加");
             else toast("已回退");
             loadSessions();
+        });
+    }
+
+    /** The conversation's transcript is gone (nothing left in it): a new one takes its place, with this draft. */
+    private void gone(Chat chat, String id, String draft) {
+        JSONArray next = new JSONArray();
+        for (int i = 0; i < sessions.length(); i++) {
+            JSONObject s = sessions.optJSONObject(i);
+            if (s != null && !id.equals(s.optString("id"))) next.put(s);
+        }
+        keepSessions(next);
+        chats.remove(chat.key);
+        bySession.remove(id);
+        Chat fresh = newChat();
+        fresh.cwd = chat.cwd;
+        fresh.draft = draft;
+        if (current == chat) switchTo(fresh);
+    }
+
+    // ================= A message's menu =================
+
+    /** A message pressed long: a small card where the finger is, in place of selecting its text. */
+    private void messageMenu(Chat.Msg m) {
+        Chat chat = current;
+        boolean user = m.kind == Chat.Msg.USER;
+        int width = dp(196), shade = dp(14);
+        FrameLayout room = new FrameLayout(this);
+        room.setPadding(shade, shade, shade, shade);
+        LinearLayout card = Ui.column(this);
+        card.setPadding(dp(6), dp(6), dp(6), dp(6));
+        card.setBackground(Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.borderStrong)));
+        card.setElevation(dp(8));
+        room.addView(card, new FrameLayout.LayoutParams(width, -2));
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(room, width + 2 * shade, -2, true);
+        pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+        pop.setOutsideTouchable(true);
+        if (user) {
+            menuItem(card, pop, R.drawable.ic_copy, "复制", null, () -> copy(m.text));
+        } else {
+            menuItem(card, pop, R.drawable.ic_copy, "复制文字", null, () -> copy(replyText(m, true)));
+            menuItem(card, pop, R.drawable.ic_file, "复制 Markdown", null, () -> copy(replyText(m, false)));
+        }
+        menuItem(card, pop, R.drawable.ic_edit_lines, "选择文字", null, () -> selectSheet(user ? m.text : replyText(m, true)));
+        if (user) menuItem(card, pop, R.drawable.ic_pencil, "编辑重发", null, () -> {
+            if (canChange(chat, "回退")) withUuid(chat, m, found -> rewindAsk(chat, found));
+        });
+        menuItem(card, pop, R.drawable.ic_trash, "删除", null, () -> {
+            if (canChange(chat, "删除")) withUuid(chat, m, found -> deleteAsk(chat, found));
+        });
+        // Where the finger was, kept on the screen: above it when there is no room below.
+        room.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        int w = room.getMeasuredWidth(), h = room.getMeasuredHeight();
+        int screenW = getResources().getDisplayMetrics().widthPixels, screenH = getResources().getDisplayMetrics().heightPixels;
+        int x = Math.max(0, Math.min((int) touchX - w / 2, screenW - w));
+        int y = (int) touchY + h > screenH - dp(24) ? (int) touchY - h : (int) touchY;
+        pop.showAtLocation(list, Gravity.NO_GRAVITY, x, Math.max(0, y));
+        card.setAlpha(0f);
+        card.setScaleX(0.9f);
+        card.setScaleY(0.9f);
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+    }
+
+    /** A reply's text blocks: as shown (plain) or as written (Markdown). */
+    private String replyText(Chat.Msg m, boolean plain) {
+        StringBuilder s = new StringBuilder();
+        for (Chat.Block b : m.blocks) {
+            if (b.kind != Chat.Block.TEXT) continue;
+            if (s.length() > 0) s.append("\n\n");
+            s.append(plain ? md.plain(b.text) : b.text);
+        }
+        return s.toString();
+    }
+
+    /** The text in a sheet, to select a part of it. */
+    private void selectSheet(String text) {
+        Dialog sheet = sheet("选择文字", null);
+        TextView t = Ui.text(this, text, 15.5f, R.color.text);
+        t.setLineSpacing(0, 1.1f);
+        t.setTextIsSelectable(true);
+        content(sheet).addView(t, Ui.fill());
+        sheet.show();
+    }
+
+    /** Whether the conversation's transcript may be changed now; says why not. */
+    private boolean canChange(Chat chat, String what) {
+        if (chat.sessionId == null) { toast("这条消息还没存进对话记录"); return false; }
+        if (chat.running) { toast("回复结束后才能" + what); return false; }
+        if (!linked) { toast("Claude Code 正在启动，稍后再试"); return false; }
+        return true;
+    }
+
+    /**
+     * The message with its uuid. One sent or received here knows it only from the transcript: that
+     * is read again, and the message found there by its place among those of its kind and its text.
+     */
+    private void withUuid(Chat chat, Chat.Msg m, java.util.function.Consumer<Chat.Msg> then) {
+        if (m.uuid != null) { then.accept(m); return; }
+        int nth = 0;
+        for (Chat.Msg o : chat.messages) {
+            if (o == m) break;
+            if (o.kind == m.kind) nth++;
+        }
+        int place = nth;
+        String text = m.kind == Chat.Msg.USER ? m.text : replyText(m, false);
+        bridge.get("/history?id=" + Uri.encode(chat.sessionId), (status, data) -> {
+            if (status != 200) { toast("读取对话失败：" + data.optString("error", "HTTP " + status)); return; }
+            chat.load(data);
+            chat.loaded = true;
+            if (current == chat) { adapter.show(chat, true); renderNow(); }
+            int k = 0;
+            for (Chat.Msg o : chat.messages) {
+                if (o.kind != m.kind || k++ != place) continue;
+                if (o.uuid != null && text.equals(o.kind == Chat.Msg.USER ? o.text : replyText(o, false))) then.accept(o);
+                else toast("对话记录里找不到这条消息");
+                return;
+            }
+            toast("对话记录里找不到这条消息");
+        });
+    }
+
+    private void deleteAsk(Chat chat, Chat.Msg m) {
+        String what = m.kind == Chat.Msg.USER ? preview(m) : replyText(m, true).trim().replaceAll("\\s+", " ");
+        Dialog sheet = sheet("删除这条消息？", (what.length() > 80 ? what.substring(0, 80) + "…" : what)
+                + "\n\n" + (m.kind == Chat.Msg.USER ? "" : "这条回复里的工具调用也一起删掉。")
+                + "Claude Code 的对话记录里也会删掉，不能恢复。");
+        LinearLayout actions = Ui.row(this);
+        TextView cancel = button("取消", false, v -> sheet.dismiss());
+        TextView ok = button("删除", true, v -> { sheet.dismiss(); deleteMessage(chat, m); });
+        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
+        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
+        Ui.margins(ok, this, 10, 0, 0, 0);
+        content(sheet).addView(actions, Ui.fill());
+        Ui.margins(actions, this, 0, 14, 0, 0);
+        sheet.show();
+    }
+
+    /**
+     * Takes the message out of the transcript (the bridge's /delete), then reads it again: what was
+     * on its two sides is shown as the transcript now has it, and pictures are named anew.
+     */
+    private void deleteMessage(Chat chat, Chat.Msg m) {
+        String id = chat.sessionId;
+        String role = m.kind == Chat.Msg.USER ? "user" : "assistant";
+        bridge.post("/delete", obj("chat", chat.key, "sessionId", id, "uuid", m.uuid, "role", role), (status, data) -> {
+            if (status != 200) { toast("删除失败：" + data.optString("error", "HTTP " + status)); return; }
+            toast("已删除");
+            loadSessions();
+            if (data.optInt("left") == 0) { gone(chat, id, ""); return; }
+            Images.forget();
+            bridge.get("/history?id=" + Uri.encode(id), (st, history) -> {
+                if (st != 200) return;
+                chat.load(history);
+                chat.loaded = true;
+                if (current == chat) { adapter.show(chat, true); renderNow(); }
+            });
         });
     }
 

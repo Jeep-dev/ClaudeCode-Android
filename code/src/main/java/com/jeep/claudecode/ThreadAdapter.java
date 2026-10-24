@@ -34,10 +34,10 @@ import java.util.function.Consumer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** The conversation as a list: one row per user message, note, reply block, status and footer. */
+/** The conversation as a list: one row per user message, note, reply block and status. */
 final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     static final int USER = 0, NOTE = 1, DIVIDER = 2, TEXT = 3, THINKING = 4, TOOL = 5, ERROR = 6,
-            STOPPED = 7, STATUS = 8, FOOTER = 9, QUEUED = 10;
+            STOPPED = 7, STATUS = 8, QUEUED = 10;
 
     /** What the queued messages' buttons do. */
     interface Queue { void edit(Chat.Queued q); void cancel(Chat.Queued q); void sendNow(Chat.Queued q); }
@@ -59,7 +59,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
 
     private final Context c;
     private final Md md;
-    private final Consumer<String> copy;
     /** A row was opened or closed; gets the row's view. */
     private final Consumer<View> changed;
     Queue queue;
@@ -69,14 +68,16 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     /** Told of each row once it is bound or its text rendered again (marks what /find looks for). */
     interface Marker { void mark(View row, int position); }
     Marker marker;
+    /** A message was pressed long: its menu (copy, select, delete…). */
+    interface Menu { void open(Chat.Msg m); }
+    Menu menu;
     private List<Item> items = new ArrayList<>();
     private Chat chat;
     final List<Holder> statusRows = new ArrayList<>();
 
-    ThreadAdapter(Context c, Md md, Consumer<String> copy, Consumer<View> changed) {
+    ThreadAdapter(Context c, Md md, Consumer<View> changed) {
         this.c = c;
         this.md = md;
-        this.copy = copy;
         this.changed = changed;
         setHasStableIds(true);
     }
@@ -114,7 +115,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             else if (m.kind == Chat.Msg.DIVIDER) out.add(new Item(DIVIDER, m.id, m.version, m, null, top));
             else {
                 Chat.Block prev = null;
-                boolean text = false;
                 for (Chat.Block b : m.blocks) {
                     // The model may send a thinking block with nothing in it: once it ends, there is nothing to show.
                     if (b.kind == Chat.Block.THINKING && !b.streaming && b.text.trim().isEmpty()) continue;
@@ -131,11 +131,9 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
                     long sig = ((long) b.version << 1) | (b.open ? 1 : 0);
                     out.add(new Item(type, b.id, sig, m, b, gap));
                     prev = b;
-                    text |= b.kind == Chat.Block.TEXT;
                 }
                 boolean last = i == msgs.size() - 1;
                 if (last && chat.running) out.add(new Item(STATUS, -1, 0, m, null, m.blocks.isEmpty() ? 20 : 12));
-                else if (m.done && text) out.add(new Item(FOOTER, -m.id - 2, m.version, m, null, 6));
             }
         }
         if (chat.running && (msgs.isEmpty() || msgs.get(msgs.size() - 1).kind != Chat.Msg.ASSISTANT)) {
@@ -223,7 +221,6 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             case ERROR: error(h.box, it.block); break;
             case STOPPED: h.box.addView(Ui.text(c, "已停止", 13.5f, R.color.text3)); break;
             case STATUS: status(h); break;
-            case FOOTER: footer(h.box, it.msg); break;
             case QUEUED: queued(h.box, it.queued); break;
             default:
         }
@@ -249,6 +246,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             return;
         }
         md.render(h.box, it.block.text);
+        pressable(h.box, it.msg);
         if (marker != null && h.getBindingAdapterPosition() != RecyclerView.NO_POSITION) marker.mark(h.box, h.getBindingAdapterPosition());
         long end = SystemClock.uptimeMillis();
         h.nextRender = end + 3 * (end - now);
@@ -303,7 +301,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             float r = Ui.dp(c, 20), s = Ui.dp(c, 6);
             bg.setCornerRadii(new float[]{r, r, r, r, s, s, r, r});
             bubble.setBackground(bg);
-            bubble.setTextIsSelectable(true);
+            pressable(bubble, m);
             box.addView(bubble, Ui.wrap());
         }
     }
@@ -937,22 +935,16 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         return null;
     }
 
-    private void footer(LinearLayout box, Chat.Msg m) {
-        LinearLayout row = Ui.row(c);
-        ImageView copyBtn = Ui.iconButton(c, R.drawable.ic_copy, 32, 16, R.color.text3);
-        copyBtn.setOnClickListener(v -> {
-            StringBuilder s = new StringBuilder();
-            for (Chat.Block b : m.blocks) {
-                if (b.kind != Chat.Block.TEXT) continue;
-                if (s.length() > 0) s.append("\n\n");
-                s.append(b.text);
-            }
-            copy.accept(s.toString());
-        });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(c, 32), Ui.dp(c, 32));
-        lp.leftMargin = -Ui.dp(c, 8);
-        row.addView(copyBtn, lp);
-        box.addView(row);
+    /** A long press on a message's text (each of its views) opens its menu, instead of selecting. */
+    private void pressable(View v, Chat.Msg m) {
+        if (v instanceof ViewGroup) {
+            for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) pressable(((ViewGroup) v).getChildAt(i), m);
+        } else if (v instanceof TextView) {
+            v.setOnLongClickListener(x -> {
+                if (menu != null) menu.open(m);
+                return true;
+            });
+        }
     }
 
     /** A vertical scroll box with a maximum height, scrolling inside the list. */

@@ -101,6 +101,9 @@ final class Images {
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
     }
 
+    /** Forgets the images read: a transcript changed (a message deleted) names its pictures anew. */
+    static void forget() { cache.evictAll(); }
+
     /** Shows the image in the view when read; a view reused for another image meanwhile is left alone. */
     static void load(ImageView into, String src, File file, int maxPx, Runnable failed) {
         String key = (src != null ? src.hashCode() + ":" + src.length() : String.valueOf(file)) + "@" + maxPx;

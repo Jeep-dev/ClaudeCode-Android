@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.99)
+# Claude Code for Android (v0.4.100)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -104,8 +104,10 @@ keyboard then closes (Shift+Enter on a physical keyboard makes a new line), file
 files are saved into the working folder, never overwriting, and their paths added to the
 message), under the input box the model and thinking level (tap to change both) and the context in use against the model's window as Claude Code reports it (250k/1m), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (asked for summarized, as the API sends it empty otherwise; opened, it scrolls inside a box of at
 most 300 dp) and tool steps collapsed into rows as in Claude Code's terminal
-(the tool's name in a box, then the step's summary or file; opened, the full command; file edits with a diff, to-do lists), selectable text, code
-blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
+(the tool's name in a box, then the step's summary or file, whole when opened; opened, the full command; file edits with a diff, to-do lists), a long
+press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet; 编辑重发 for the
+user's, as `/tree`; 删除, out of the transcript too: the bridge's `/delete` takes the message's entries out, a reply's tool results with it,
+and links what came after to what came before), code blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
 colours.
 
 While Claude Code works, the status line shows elapsed time, API retries (attempt and error)
