@@ -377,6 +377,7 @@ final class Md {
         scroll.setHorizontalScrollBarEnabled(false);
         TextView body = Ui.text(c, Highlight.code(c, code, lang), 13, R.color.text);
         body.setTag("body");
+        body.setTag(R.id.findable, true);
         body.setTypeface(Ui.MONO);
         body.setLineSpacing(0, 1.12f);
         body.setPadding(Ui.dp(c, 14), Ui.dp(c, 12), Ui.dp(c, 14), Ui.dp(c, 12));
@@ -390,6 +391,7 @@ final class Md {
 
     /** Links that open with a tap. The text is not selectable: a long press is the thread's (its menu). */
     void links(TextView t) {
+        t.setTag(R.id.findable, true);
         t.setOnTouchListener((v, e) -> {
             if (e.getAction() != MotionEvent.ACTION_UP || !(t.getText() instanceof Spanned)) return false;
             if (e.getEventTime() - e.getDownTime() > 350) return false;

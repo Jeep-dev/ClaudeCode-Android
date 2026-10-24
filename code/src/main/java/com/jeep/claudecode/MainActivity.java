@@ -2145,9 +2145,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         findToast.show();
     }
 
-    /** The text a row shows that /find looks in: what can be selected (not labels such as 复制). */
+    /** The text a row shows that /find looks in: a message's own (tagged findable), not labels such as 复制. */
     private static void findTexts(View v, List<TextView> out) {
-        if (v instanceof TextView) { if (((TextView) v).isTextSelectable()) out.add((TextView) v); return; }
+        if (v instanceof TextView) { if (v.getTag(R.id.findable) != null) out.add((TextView) v); return; }
         if (!(v instanceof ViewGroup)) return;
         for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) findTexts(((ViewGroup) v).getChildAt(i), out);
     }
@@ -2180,7 +2180,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         findTexts(row, texts);
         int n = 0;
         for (TextView t : texts) {
-            if (!(t.getText() instanceof android.text.Spannable)) continue;
+            // A message's own text is plain (a user's, code): made one that takes marks.
+            if (!(t.getText() instanceof android.text.Spannable)) t.setText(t.getText(), TextView.BufferType.SPANNABLE);
             android.text.Spannable s = (android.text.Spannable) t.getText();
             for (Found f : s.getSpans(0, s.length(), Found.class)) s.removeSpan(f);
             if (!marked) continue;

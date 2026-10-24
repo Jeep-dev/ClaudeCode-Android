@@ -3,4 +3,5 @@
     <item name="markdown" type="id" />
     <item name="font" type="id" />
     <item name="image" type="id" />
+    <item name="findable" type="id" />
 </resources>

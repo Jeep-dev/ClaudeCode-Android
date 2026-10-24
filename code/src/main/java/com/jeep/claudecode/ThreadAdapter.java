@@ -301,6 +301,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             float r = Ui.dp(c, 20), s = Ui.dp(c, 6);
             bg.setCornerRadii(new float[]{r, r, r, r, s, s, r, r});
             bubble.setBackground(bg);
+            bubble.setTag(R.id.findable, true);
             pressable(bubble, m);
             box.addView(bubble, Ui.wrap());
         }
