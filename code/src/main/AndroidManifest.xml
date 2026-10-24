@@ -34,8 +34,11 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
             android:exported="false"
             android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
+        <!-- Swiping the app away from the recent apps stops it whole: the system stops the service
+             with its task, so it is not started again after the process is killed. -->
         <service
             android:name=".BridgeService"
-            android:exported="false" />
+            android:exported="false"
+            android:stopWithTask="true" />
     </application>
 </manifest>

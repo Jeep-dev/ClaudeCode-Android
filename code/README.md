@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.103)
+# Claude Code for Android (v0.4.104)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -13,7 +13,8 @@ interface is plain Android views (Java), so scrolling and text selection are the
   launch, or after an update that brings a new userland, the app unpacks it into its files
   (over what is there: `/root` and packages added with `apk add` stay). targetSdk is 28 so the
   app may run programs from its own files, as Termux does.
-- `BridgeService`, a foreground service holding a wake lock it never releases, runs
+- `BridgeService`, a foreground service holding a wake lock it never releases (until the app is
+  swiped away from the recent apps: the service stops with its task and is not started again), runs
   `assets/bridge.py` under proot as root of the userland (`IS_SANDBOX=1` lets Claude Code skip
   permission prompts as that root); it listens on a Unix socket, `~/.ccapp/bridge.sock` in the
   userland (in this app's own files, mode 0600), not on a port: no other app can reach it, so
