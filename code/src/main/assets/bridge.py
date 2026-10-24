@@ -171,9 +171,12 @@ def claude_env():
 
 def claude_args(session_id, model, effort):
     # Questions whether a tool may run come here (the app answers them); in a mode that asks
-    # nothing, there are none.
+    # nothing, there are none. Thinking comes summarized: with -p, Claude Code leaves the display to
+    # the API, which sends newer models' thinking empty (showThinkingSummaries is read only in a
+    # terminal session).
     args = [claude_path(), '-p', '--input-format', 'stream-json', '--output-format', 'stream-json',
-            '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio']
+            '--verbose', '--include-partial-messages', '--permission-prompt-tool', 'stdio',
+            '--thinking-display', 'summarized']
     if session_id:
         args += ['--resume', session_id]
     if model:

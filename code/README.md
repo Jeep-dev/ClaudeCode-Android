@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.95)
+# Claude Code for Android (v0.4.96)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -102,7 +102,7 @@ of the file, which Claude Code also writes to when its process ends; Settings �
 conversation to pin it on top or delete it), a one-line composer (+, the text, and a plain Enter icon to send, a ringed square to stop) where the keyboard's Enter (a Send key) or the button sends and the
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go as they are, up to 10 MB, Claude Code scaling them for the model and keeping the originals, whose paths it gives the model; HEIC, HEIF and AVIF, which it cannot read, and larger ones as JPEG of up to 4096 px; the thread shows a copy of each at the size the model sees it (2000 px on the long edge, as Claude Code scales them, and at most 4784 visual tokens); other
 files are saved into the working folder, never overwriting, and their paths added to the
-message), under the input box the model and thinking level (tap to change both) and the context in use against the model's window as Claude Code reports it (250k/1m), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (opened, it scrolls inside a box of at
+message), under the input box the model and thinking level (tap to change both) and the context in use against the model's window as Claude Code reports it (250k/1m), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (asked for summarized, as the API sends it empty otherwise; opened, it scrolls inside a box of at
 most 300 dp) and tool steps collapsed into rows as in Claude Code's terminal
 (the tool's name in a box, then the step's summary or file; opened, the full command; file edits with a diff, to-do lists), selectable text, code
 blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
