@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 54  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 55  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -1906,7 +1906,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.remove(target)
                 shutil.rmtree(target[:-6], ignore_errors=True)
             self.reply(200, {'ok': bool(target)})
-        elif path in ('/rewind', '/delete'):
+        elif path in ('/rewind', '/delete-message'):
             # Back to before one of the user's messages (rewind_session), or one message out
             # (delete_message): its claude goes first (it holds the conversation, and would write
             # it again), then the transcript is changed; the next message resumes it. No exit

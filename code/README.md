@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.100)
+# Claude Code for Android (v0.4.101)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -106,7 +106,7 @@ message), under the input box the model and thinking level (tap to change both) 
 most 300 dp) and tool steps collapsed into rows as in Claude Code's terminal
 (the tool's name in a box, then the step's summary or file, whole when opened; opened, the full command; file edits with a diff, to-do lists), a long
 press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet; 编辑重发 for the
-user's, as `/tree`; 删除, out of the transcript too: the bridge's `/delete` takes the message's entries out, a reply's tool results with it,
+user's, as `/tree`; 删除, out of the transcript too: the bridge's `/delete-message` takes the message's entries out, a reply's tool results with it,
 and links what came after to what came before), code blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
 colours.
 

@@ -2056,8 +2056,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void deleteMessage(Chat chat, Chat.Msg m) {
         String id = chat.sessionId;
         String role = m.kind == Chat.Msg.USER ? "user" : "assistant";
-        bridge.post("/delete", obj("chat", chat.key, "sessionId", id, "uuid", m.uuid, "role", role), (status, data) -> {
-            if (status != 200) { toast("删除失败：" + data.optString("error", "HTTP " + status)); return; }
+        bridge.post("/delete-message", obj("chat", chat.key, "sessionId", id, "uuid", m.uuid, "role", role), (status, data) -> {
+            if (status != 200 || !data.has("left")) { toast("删除失败：" + data.optString("error", "HTTP " + status)); return; }
             toast("已删除");
             loadSessions();
             if (data.optInt("left") == 0) { gone(chat, id, ""); return; }
