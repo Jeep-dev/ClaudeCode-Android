@@ -738,6 +738,17 @@ final class Userland {
     /** A file inside the userland, by its path there. */
     File file(String path) { return new File(rootfs, path.startsWith("/") ? path.substring(1) : path); }
 
+    /** The running bridge's pid (it writes it), or 0: none, or a process that got its pid since. */
+    int bridgePid() {
+        try {
+            int pid = Integer.parseInt(read(new FileInputStream(file(HOME + "/.ccapp/bridge.pid"))).trim());
+            String cmd = read(new FileInputStream("/proc/" + pid + "/cmdline"));
+            return cmd.contains("bridge.py") ? pid : 0;
+        } catch (IOException | NumberFormatException e) {
+            return 0;
+        }
+    }
+
     /** The last bytes of a file, whole lines. */
     static String tail(File f, int bytes) {
         try (java.io.RandomAccessFile r = new java.io.RandomAccessFile(f, "r")) {

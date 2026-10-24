@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.102)
+# Claude Code for Android (v0.4.103)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -22,8 +22,8 @@ interface is plain Android views (Java), so scrolling and text selection are the
   itself (proot ignores SIGTERM): the bridge ends its conversations and exits, and proot then
   ends what is left under it. Phone storage is shared in as
   `/sdcard` once the app may read it; DNS servers come from the current network.
-- The app checks the bridge (nothing listening: started at once; no answer: three tries, so a
-  busy one is not taken for dead), has the service start it when it is gone or of another
+- The app checks the bridge (nothing listening and no bridge process, as after the app was killed
+  with it: started at once; no answer: three tries, so a busy one is not taken for dead), has the service start it when it is gone or of another
   version, and gives it 30 s to answer. The event stream resumes where it left off with the
   same bridge; events dropped meanwhile (it keeps the last 4000) make the app read the
   conversations again from their transcripts. When

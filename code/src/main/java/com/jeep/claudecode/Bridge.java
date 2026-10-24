@@ -37,6 +37,7 @@ final class Bridge {
     interface Events { void events(List<JSONObject> batch); void link(boolean up); }
 
     private final Context context;
+    private final Userland userland;
     /** {@link #SOCKET} as a path of this app's files. */
     private final String socket;
     private final Events listener;
@@ -56,7 +57,8 @@ final class Bridge {
     Bridge(Context context, Events listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
-        socket = new Userland(this.context).file(SOCKET).getPath();
+        userland = new Userland(this.context);
+        socket = userland.file(SOCKET).getPath();
     }
 
     /** VERSION in the bridge.py this app carries: a running bridge of another version is replaced. */
@@ -284,7 +286,7 @@ final class Bridge {
             String result;
             String why = restart ? "restart asked in the app" : isUp();
             if (why == null) result = "ok";
-            else if (!new Userland(context).ready()) result = "install";
+            else if (!userland.ready()) result = "install";
             else if (System.currentTimeMillis() - startedAt < 30_000 && !restart) result = waitUntilUp();
             else {
                 run(why);
@@ -307,8 +309,8 @@ final class Bridge {
 
     /**
      * Null when the bridge answers, else why it is to be started (for its log). Nothing listening
-     * means no bridge: started at once; one that does not answer gets three tries, so a busy
-     * bridge is not taken for a dead one.
+     * and no bridge process (the app was killed with it, its socket left) means no bridge: started
+     * at once; one that does not answer gets three tries, so a busy bridge is not taken for a dead one.
      */
     private String isUp() {
         int status = 0;
@@ -318,9 +320,10 @@ final class Bridge {
             if (isCurrent(health)) return null;
             status = (int) health[0];
             if (status == 200) return "another version was running";
-            // No socket: no bridge. A socket that refused may be a bridge too busy to take it (or one
-            // killed, its socket left): it gets the tries too, as starting one would replace it.
+            // No socket, or no bridge process: no bridge. A socket that refused while its bridge runs
+            // may be one too busy to take it: it gets the tries, as starting one would replace it.
             if (status == REFUSED && !new java.io.File(socket).exists()) return "no bridge was running";
+            if (status == REFUSED && userland.bridgePid() == 0) return "no bridge was running, its socket left";
             if (status == REFUSED) error = (String) health[1];
             try { Thread.sleep(300); } catch (InterruptedException e) { return "interrupted"; }
         }

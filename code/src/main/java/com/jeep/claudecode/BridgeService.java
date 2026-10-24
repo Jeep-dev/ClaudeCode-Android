@@ -13,7 +13,6 @@ import android.os.IBinder;
 import android.os.PowerManager;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -94,7 +93,7 @@ public final class BridgeService extends Service {
         worker.shutdownNow();
         Process p = proc;
         proc = null; // its watcher must not start another on the stopped worker
-        int pid = bridgePid();
+        int pid = userland.bridgePid();
         if (pid > 0) android.os.Process.sendSignal(pid, 15); // proot ignores SIGTERM: the bridge is told
         if (p != null) p.destroy();
         if (wake != null && wake.isHeld()) wake.release();
@@ -136,7 +135,7 @@ public final class BridgeService extends Service {
     private void stopBridge() {
         Process p = proc;
         proc = null;
-        int pid = bridgePid();
+        int pid = userland.bridgePid();
         if (pid > 0) android.os.Process.sendSignal(pid, 15);
         if (p == null) return;
         try {
@@ -165,17 +164,6 @@ public final class BridgeService extends Service {
             if (!aside.renameTo(f)) throw new IOException("could not move " + aside + " in");
         } catch (IOException e) {
             log("could not write the time zone: " + e);
-        }
-    }
-
-    /** The running bridge's pid (it writes it), or 0. */
-    private int bridgePid() {
-        try {
-            int pid = Integer.parseInt(Userland.read(new FileInputStream(userland.file(Userland.HOME + "/.ccapp/bridge.pid"))).trim());
-            String cmd = Userland.read(new FileInputStream("/proc/" + pid + "/cmdline"));
-            return cmd.contains("bridge.py") ? pid : 0;
-        } catch (IOException | NumberFormatException e) {
-            return 0;
         }
     }
 
