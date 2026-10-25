@@ -200,8 +200,9 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         if (same && it.type == THINKING && h.thinkOpen == it.block.open) { // same: no rebuild, no jump
             h.box.setPadding(0, Ui.dp(c, it.gap), 0, 0);
             h.thinkLabel.setText(thinkingLabel(it.block));
-            if (h.thinkBody != null && !it.block.text.contentEquals(h.thinkBody.getText())) {
-                h.thinkBody.setText(it.block.text); // the box follows the end unless scrolled up by hand
+            String text = thinkingText(it.block);
+            if (h.thinkBody != null && !text.contentEquals(h.thinkBody.getText())) {
+                h.thinkBody.setText(text); // the box follows the end unless scrolled up by hand
             }
             return;
         }
@@ -399,6 +400,11 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         return b.streaming ? "思考中…" : b.millis > 0 ? "已思考 " + Math.max(1, Math.round(b.millis / 1000f)) + " 秒" : "已思考";
     }
 
+    /** The model ends its thinking with blank lines; shown, they leave an empty tail under the words. */
+    private static String thinkingText(Chat.Block b) {
+        return b.text.replaceAll("\\s+$", "");
+    }
+
     private void thinking(Holder h, Chat.Block b) {
         LinearLayout box = h.box;
         // The words and the chevron, no icon.
@@ -414,7 +420,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         box.addView(head);
         if (!b.open) return;
         MaxScroll scroll = new MaxScroll(c, Ui.dp(c, 300));
-        TextView body = Ui.text(c, b.text, 14.5f, R.color.text2);
+        TextView body = Ui.text(c, thinkingText(b), 14.5f, R.color.text2);
         body.setTypeface(Fonts.body(c));
         body.setLineSpacing(0, 1.2f);
         body.setTextIsSelectable(true);
