@@ -271,8 +271,11 @@ final class Chat {
                 if (d.has("session_id")) sessionId = d.optString("session_id");
                 model = d.optString("model", model);
             } else if ("api_retry".equals(sub)) {
-                String why = d.has("error_status") ? d.optString("error_status") + (d.has("error") ? " " + d.optString("error") : "")
-                        : d.optString("error", "");
+                // No HTTP status (null) means the connection itself failed, e.g. dropped mid-request;
+                // Claude Code then calls the error "unknown".
+                String error = d.isNull("error") ? "" : d.optString("error");
+                String why = !d.isNull("error_status") ? (d.optString("error_status") + " " + error).trim()
+                        : error.isEmpty() || "unknown".equals(error) ? "连接断开" : error;
                 detail = "重试 " + d.optInt("attempt") + "/" + d.optInt("max_retries") + (why.isEmpty() ? "" : " · " + why);
             } else if ("status".equals(sub)) {
                 if ("requesting".equals(d.optString("status"))) detail = "";
