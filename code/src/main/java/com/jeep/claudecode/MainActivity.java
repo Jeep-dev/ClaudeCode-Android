@@ -665,17 +665,24 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
         LinearLayout foot = Ui.row(this);
         foot.setPadding(dp(12), dp(4), dp(12), dp(12));
+        // A pill as the gear beside it is: white with a hairline, as wide as its words.
         LinearLayout link = Ui.row(this);
-        link.setPadding(dp(12), 0, dp(12), 0);
-        link.setMinimumHeight(dp(44));
-        link.setBackground(Ui.press(this, null, dp(22)));
+        link.setPadding(dp(18), 0, dp(18), 0);
+        link.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
         linkDot = new View(this);
         link.addView(linkDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
-        linkText = Ui.text(this, "正在连接…", 14, R.color.text2);
+        linkText = Ui.text(this, "正在连接…", 15, R.color.text);
+        linkText.setTypeface(Ui.MEDIUM);
+        linkText.setSingleLine(true);
+        linkText.setMaxWidth(dp(240));
+        linkText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         linkText.setPadding(dp(9), 0, 0, 0);
         link.addView(linkText);
         link.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
-        foot.addView(link, Ui.weight());
+        LinearLayout.LayoutParams pill = new LinearLayout.LayoutParams(-2, dp(44));
+        pill.weight = 0;
+        foot.addView(link, pill);
+        foot.addView(new View(this), Ui.weight());
         // Round, white with a hairline: as the conversation's own buttons.
         ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 44, 20, R.color.text2);
         gear.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
@@ -1209,7 +1216,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             empty.addView(words);
             // Only the working folder's are listed: one tap lists them all (the setting goes off).
             if (linked && !here.isEmpty()) {
-                TextView all = Ui.text(this, "显示所有文件夹的对话", 14, R.color.accent);
+                TextView all = Ui.text(this, "显示所有目录的对话", 14, R.color.accent);
                 all.setTypeface(Ui.MEDIUM);
                 all.setPadding(dp(16), dp(10), dp(16), dp(10));
                 all.setBackground(Ui.press(this, null, dp(20)));
@@ -1542,6 +1549,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         linkDot.setVisibility(linked ? View.GONE : View.VISIBLE);
         linkText.setPadding(linked ? 0 : dp(9), 0, 0, 0);
         linkText.setText(label);
+        ((View) linkText.getParent()).setVisibility(label.isEmpty() ? View.INVISIBLE : View.VISIBLE);
     }
 
     private boolean hasStorage() { return checkSelfPermission(STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED; }
@@ -1829,7 +1837,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private static final String[][] LOCAL = {
             {"help", "", "所有命令"}, {"new", "", "新对话"}, {"clear", "", "新对话"},
             {"effort", "", "思考级别"},
-            {"model", "", "模型"}, {"folder", "", "工作文件夹"},
+            {"model", "", "模型"}, {"folder", "", "工作目录"},
             {"find", "<词>", "在本对话里搜索，↑↓ 换一处，不带词结束"},
             {"tree", "", "回到之前的某条消息，重新编辑"}, {"rewind", "", "同 /tree"},
             {"stop", "", "停止"}};
@@ -1900,7 +1908,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 tree();
                 return true;
             case "folder":
-                if (current.sessionId != null) toast("已有对话的文件夹不能更改，新对话可以选");
+                if (current.sessionId != null) toast("已有对话的目录不能更改，新对话可以选");
                 else folderSheet(null);
                 return true;
             case "model":
@@ -2750,9 +2758,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void folderSheet(String path) {
         String at = path != null ? path : !cwd.isEmpty() ? cwd : defaultCwd;
         bridge.get("/dirs?path=" + Uri.encode(at), (status, d) -> {
-            if (status != 200) { toast("读取文件夹失败"); return; }
+            if (status != 200) { toast("读取目录失败"); return; }
             String here = d.optString("path");
-            Dialog sheet = sheet("工作文件夹", tilde(here));
+            Dialog sheet = sheet("工作目录", tilde(here));
             LinearLayout card = card(sheet);
             String parent = d.isNull("parent") ? "" : d.optString("parent");
             if (!parent.isEmpty()) option(card, R.drawable.ic_up, "上一级", null, false, () -> { sheet.dismiss(); folderSheet(parent); });
@@ -2762,14 +2770,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 option(card, R.drawable.ic_folder, name, null, false, () -> { sheet.dismiss(); folderSheet(here + "/" + name); });
             }
             if (dirs == null || dirs.length() == 0) {
-                TextView none = Ui.text(this, "没有子文件夹", 14, R.color.text3);
+                TextView none = Ui.text(this, "没有子目录", 14, R.color.text3);
                 none.setGravity(Gravity.CENTER);
                 none.setPadding(0, dp(18), 0, dp(18));
                 card.addView(none, Ui.fill());
             }
             LinearLayout field = Ui.row(this);
             EditText name = new EditText(this);
-            name.setHint("新建文件夹名");
+            name.setHint("新建目录名");
             name.setSingleLine(true);
             name.setTextSize(15);
             name.setTextColor(col(R.color.text));
@@ -2779,7 +2787,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             field.addView(name, new LinearLayout.LayoutParams(0, dp(40), 1));
             TextView make = button("新建", false, v -> {
                 String n = name.getText().toString().trim();
-                if (n.isEmpty() || n.contains("/")) { toast("文件夹名不能为空，也不能带 /"); return; }
+                if (n.isEmpty() || n.contains("/")) { toast("目录名不能为空，也不能带 /"); return; }
                 bridge.post("/mkdir", obj("path", here + "/" + n), (s2, r2) -> {
                     if (s2 == 200) { sheet.dismiss(); folderSheet(here + "/" + n); } else toast("新建失败");
                 });
@@ -2790,7 +2798,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             Ui.margins(field, this, 0, 10, 0, 0);
             LinearLayout actions = Ui.row(this);
             TextView cancel = button("取消", false, v -> sheet.dismiss());
-            TextView use = button("使用这个文件夹", true, v -> {
+            TextView use = button("使用这个目录", true, v -> {
                 cwd = here;
                 prefs.edit().putString("cwd", cwd).apply();
                 if (current.sessionId == null) current.cwd = cwd;
@@ -2923,7 +2931,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private JSONObject launchCache;
 
     private static final String[][] PAGES = {
-            {"look", "外观", "主题、显示和字体"}, {"talk", "对话", "工作文件夹、权限、系统提示和 CLAUDE.md"},
+            {"look", "外观", "主题、显示和字体"}, {"talk", "对话", "工作目录、权限、系统提示和 CLAUDE.md"},
             {"model", "模型", "API Key"},
             {"claude", "Claude Code", "settings.json 和环境变量"}, {"ext", "扩展", "技能、插件、MCP、子代理和 Hooks"},
             {"storage", "存储", "占用的空间和清理"}, {"keep", "后台", "闲置重启、电池优化和保活"},
@@ -2954,6 +2962,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 return true;
             });
             d.setOnDismissListener(x -> {
+                // Told after restyle has opened the next one already: that one stays as it is.
+                if (settingsPage != d) return;
                 settingsPage = null;
                 settingsAt = null;
                 Motion.reset(under);
@@ -3217,7 +3227,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             fillSettings(launchCache);
             renderSessions();
         });
-        toggle(show, "只显示当前目录", "侧栏只列出当前工作文件夹里的对话", onlyHere(), on -> {
+        toggle(show, "只显示当前目录", "侧栏只列出当前工作目录里的对话", onlyHere(), on -> {
             prefs.edit().putBoolean("drawerOnlyHere", on).apply();
             fillSettings(launchCache);
             renderSessions();
@@ -3300,7 +3310,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             fillSettings(launchCache); // shown chosen
         });
         String folderNow = cwd.isEmpty() ? defaultCwd : cwd;
-        option(talk, R.drawable.ic_folder, "工作文件夹", folderNow.isEmpty() ? "~/work" : tilde(folderNow), false, () -> {
+        option(talk, R.drawable.ic_folder, "工作目录", folderNow.isEmpty() ? "~/work" : tilde(folderNow), false, () -> {
             if (!linked) { toast("Claude Code 还没启动好"); return; }
             folderSheet(null);
         });
@@ -3766,7 +3776,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         java.util.Set<String> seen = new java.util.HashSet<>();
         java.io.File here = userland.file(mcpFolder() + "/.claude/" + kind);
         addItems(out, seen, itemsDir(kind), itemsDir(kind), null);
-        if (!here.equals(itemsDir(kind))) addItems(out, seen, here, here, "本文件夹");
+        if (!here.equals(itemsDir(kind))) addItems(out, seen, here, here, "本目录");
         JSONArray reported = savedArray(kind.equals(AGENTS) ? "agents" : "slashCommands");
         java.util.Set<String> skills = new java.util.HashSet<>();
         JSONArray sk = savedArray("skills");
@@ -3958,7 +3968,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         long[] s = storage;
         LinearLayout sizes = card(box);
         option(sizes, R.drawable.ic_compose, "对话记录", s == null ? "…" : Ui.size(s[0]), false, null);
-        option(sizes, R.drawable.ic_folder, "工作文件夹", s == null ? "…" : Ui.size(s[1]), false, null);
+        option(sizes, R.drawable.ic_folder, "工作目录", s == null ? "…" : Ui.size(s[1]), false, null);
         option(sizes, R.drawable.ic_file, "临时文件", s == null ? "…" : Ui.size(s[2]), false, null);
         option(sizes, R.drawable.ic_terminal, "运行环境", s == null ? "…" : Ui.size(Math.max(0, s[3] - s[0] - s[1] - s[2])), false, null);
         LinearLayout clean = card(box);
@@ -4054,7 +4064,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void restyle() {
         String at = settingsAt;
         boolean open = settingsPage != null;
-        if (open) settingsPage.dismiss();
+        int scrolled = open ? settingsScroll().getScrollY() : 0;
+        if (open) {
+            // Its dismissal is told later: Settings is let go of now, to be opened again below.
+            settingsPage.dismiss();
+            settingsPage = null;
+        }
         Chat chat = current;
         chat.draft = input.getText().toString();
         current = null;
@@ -4068,7 +4083,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
             settingsInstant = true;
             settingsSheet();
             settingsInstant = false;
+            // Where it was, not back at its top.
+            ScrollView again = settingsScroll();
+            again.post(() -> again.scrollTo(0, scrolled));
         }
+    }
+
+    /** The scrolling of the Settings page in front. */
+    private ScrollView settingsScroll() {
+        return (ScrollView) settingsBox.getParent();
     }
 
     /** The context conversation text is made in: the chosen text size over the system's. */
@@ -4221,7 +4244,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             java.util.Arrays.sort(dirs);
             for (java.io.File d : dirs) {
                 if (!new java.io.File(d, "SKILL.md").isFile() || !seen.add(d.getName())) continue;
-                out.add(new Skill(d.getName(), d, "本文件夹"));
+                out.add(new Skill(d.getName(), d, "本目录"));
             }
         }
         JSONArray reported = savedArray("skills");
