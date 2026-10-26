@@ -682,7 +682,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         LinearLayout.LayoutParams pill = new LinearLayout.LayoutParams(-2, dp(44));
         pill.weight = 0;
         foot.addView(link, pill);
-        foot.addView(new View(this), Ui.weight());
+        // No height of its own: a bare View as tall as it may be would take the list's place.
+        foot.addView(new View(this), new LinearLayout.LayoutParams(0, 0, 1));
         // Round, white with a hairline: as the conversation's own buttons.
         ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 44, 20, R.color.text2);
         gear.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
