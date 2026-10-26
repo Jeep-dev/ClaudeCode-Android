@@ -42,7 +42,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   command in Settings whitelists the app and turns off Android's limit on child processes.
 - Settings is a full-screen page of pages: 外观 (the colours: the app's own, Claude, or one of
   RikkaHub's palettes, 樱花粉, 海湾蓝, 原野绿, 秋黄, 中性黑 and 极简白, each light, dark or as the
-  system, and dark on pure black if chosen); 对话 (the working folder for new
+  system, and dark on pure black if chosen; Claude, as the system, until another is chosen); 对话 (the working folder for new
   conversations, Claude Code's launch options); 模型; Claude Code (its settings); 扩展: skills
   (`~/.claude/skills/<name>/SKILL.md`, made, edited and deleted here), tools (switched off
   with `--disallowedTools`; the list is the one Claude Code reported when a conversation last
@@ -101,7 +101,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
 
 Drawer with the conversation list, each with how long ago its last message was at the end of its folder's
 line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width, grey; the time of the transcript's last message, not
-of the file, which Claude Code also writes to when its process ends; Settings → 外观 → 对话时间 hides it; 只显示当前目录 lists only the conversations of the folder new ones start in, not of its subfolders, and when that folder has none, 显示所有文件夹的对话 under it turns it off) (swipe right anywhere to open, left to close; long-press a
+of the file, which Claude Code also writes to when its process ends; Settings → 外观 → 对话时间 hides it; 只显示当前目录 lists only the conversations of the folder new ones start in, not of its subfolders) (swipe right anywhere to open, left to close; long-press a
 conversation to pin it on top or delete it), a one-line composer (+, the text, and a plain Enter icon to send, a ringed square to stop) where the keyboard's Enter (a Send key) or the button sends and the
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go as they are, up to 10 MB, Claude Code scaling them for the model and keeping the originals, whose paths it gives the model; HEIC, HEIF and AVIF, which it cannot read, and larger ones as JPEG of up to 4096 px; the thread shows a copy of each at the size the model sees it (2000 px on the long edge, as Claude Code scales them, and at most 4784 visual tokens); other
 files are saved into the working folder, never overwriting, and their paths added to the
