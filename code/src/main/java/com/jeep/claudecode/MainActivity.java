@@ -799,8 +799,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
             // From far up, most of the way at once (as to the top): a smooth scroll through it all takes too long.
             if (lm.findLastVisibleItemPosition() < count - 7) lm.scrollToPosition(count - 7);
             list.post(() -> {
+                int last = adapter.getItemCount() - 1;
+                if (last < 0) return;
                 toEnd = true;
-                list.smoothScrollToPosition(adapter.getItemCount() - 1);
+                list.smoothScrollToPosition(last);
+                // Nothing to go (the end in sight already, or stopped before its first frame): no jump under way.
+                list.postOnAnimation(() -> { if (list.getScrollState() == RecyclerView.SCROLL_STATE_IDLE) toEnd = false; });
             });
         });
     }

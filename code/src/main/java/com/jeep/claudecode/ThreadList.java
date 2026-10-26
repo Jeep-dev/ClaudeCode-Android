@@ -12,16 +12,17 @@ import androidx.recyclerview.widget.RecyclerView;
 
 /**
  * The conversation: an opened row's boxes that scroll (thinking, a command, a result) hand on to it
- * what they do not use, so a drag or a fling over them goes on through the list. A box with its
- * edge out of sight that way is brought in by the list first, then scrolls itself.
+ * what they do not use. A box with its edge out of sight is brought in by the list first, then
+ * scrolls itself; a drag that goes on past a box's end becomes the list's own drag, and a fling
+ * the box cannot use the list's own fling, so the list moves (and is stopped) as when dragged.
  */
 final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
     private final NestedScrollingParentHelper parent = new NestedScrollingParentHelper(this);
     private final int[] at = new int[2], listAt = new int[2];
     /** A finger drags a box: the list leaves the drag to it. */
     private boolean boxDragged;
-    /** A box's fling goes on into the list, until a finger is put down. */
-    private boolean boxFlung;
+    /** The box dragged is at its end: the list takes the drag at the finger's next move. */
+    private boolean take;
 
     ThreadList(Context c) {
         super(c);
@@ -33,32 +34,40 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
     }
 
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
-        if (e.getActionMasked() == MotionEvent.ACTION_DOWN) boxFlung = false;
-        return super.dispatchTouchEvent(e);
+        int action = e.getActionMasked();
+        if (action == MotionEvent.ACTION_MOVE && take) {
+            // The box asked to keep the list off; now the list looks at the move, and takes it
+            // (from where the finger is, the box getting a cancel).
+            take = false;
+            boxDragged = false;
+            requestDisallowInterceptTouchEvent(false);
+        }
+        boolean handled = super.dispatchTouchEvent(e);
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            // Whatever ended the touch (a selection's handle keeps the box from seeing it, say).
+            boxDragged = false;
+            take = false;
+        }
+        return handled;
     }
 
     @Override public boolean onInterceptTouchEvent(MotionEvent e) {
         return !boxDragged && super.onInterceptTouchEvent(e);
     }
 
+    /** Only a finger's scrolling: a box's fling stays in the box, what it cannot use the list flings itself. */
     @Override public boolean onStartNestedScroll(@NonNull View child, @NonNull View target, int axes, int type) {
-        return (axes & ViewCompat.SCROLL_AXIS_VERTICAL) != 0;
+        return type == ViewCompat.TYPE_TOUCH && (axes & ViewCompat.SCROLL_AXIS_VERTICAL) != 0;
     }
 
     @Override public void onNestedScrollAccepted(@NonNull View child, @NonNull View target, int axes, int type) {
         parent.onNestedScrollAccepted(child, target, axes, type);
-        if (type == ViewCompat.TYPE_TOUCH) {
-            boxDragged = true;
-            stopScroll();
-        } else {
-            boxFlung = true;
-        }
+        boxDragged = true;
     }
 
     @Override public void onStopNestedScroll(@NonNull View target, int type) {
         parent.onStopNestedScroll(target, type);
-        if (type == ViewCompat.TYPE_TOUCH) boxDragged = false;
-        else boxFlung = false;
+        boxDragged = false;
     }
 
     @Override public int getNestedScrollAxes() {
@@ -66,19 +75,17 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
     }
 
     @Override public void onNestedPreScroll(@NonNull View target, int dx, int dy, @NonNull int[] consumed, int type) {
-        if (dy == 0 || !moves(type)) return;
-        // How far the box's edge that way is out of sight.
-        target.getLocationInWindow(at);
-        getLocationInWindow(listAt);
-        int top = at[1] - listAt[1];
-        int out = dy > 0 ? top + target.getHeight() - (getHeight() - getPaddingBottom()) : getPaddingTop() - top;
-        if (out <= 0) return;
-        consumed[1] += scroll(target, dy > 0 ? Math.min(dy, out) : Math.max(dy, -out));
+        if (dy == 0 || take) return;
+        // Brought in only as far as its edge: the box stays on screen, its row with it.
+        int out = out(target, dy);
+        if (out > 0) consumed[1] += scroll(target, dy > 0 ? Math.min(dy, out) : Math.max(dy, -out));
     }
 
     @Override public void onNestedScroll(@NonNull View target, int dxConsumed, int dyConsumed, int dxUnconsumed,
                                          int dyUnconsumed, int type, @NonNull int[] consumed) {
-        if (dyUnconsumed != 0 && moves(type)) consumed[1] += scroll(target, dyUnconsumed);
+        if (dyUnconsumed == 0 || !canScrollVertically(dyUnconsumed > 0 ? 1 : -1)) return;
+        take = true;
+        consumed[1] += dyUnconsumed; // no glow on the box: the list goes on
     }
 
     @Override public void onNestedScroll(@NonNull View target, int dxConsumed, int dyConsumed, int dxUnconsumed,
@@ -86,9 +93,12 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
         onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, type, new int[2]);
     }
 
-    /** A box's fling stops at its end once a finger is down again. */
-    private boolean moves(int type) {
-        return type == ViewCompat.TYPE_TOUCH || boxFlung;
+    /** How far the box's edge that way (dy) is out of the list's sight. */
+    private int out(View target, int dy) {
+        target.getLocationInWindow(at);
+        getLocationInWindow(listAt);
+        int top = at[1] - listAt[1];
+        return dy > 0 ? top + target.getHeight() - (getHeight() - getPaddingBottom()) : getPaddingTop() - top;
     }
 
     /** Scrolls the list by dy, as far as it goes: how far the box moved with it. */
@@ -122,8 +132,11 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
         onNestedScroll(target, dxConsumed, dyConsumed, dxUnconsumed, dyUnconsumed, ViewCompat.TYPE_TOUCH);
     }
 
+    /** A fling the box cannot use that way (at its end, or its edge out of sight) is the list's. */
     @Override public boolean onNestedPreFling(@NonNull View target, float velocityX, float velocityY) {
-        return false;
+        int way = velocityY > 0 ? 1 : -1;
+        if (target.canScrollVertically(way) && out(target, way) <= 0) return false;
+        return fling(0, (int) velocityY);
     }
 
     @Override public boolean onNestedFling(@NonNull View target, float velocityX, float velocityY, boolean consumed) {

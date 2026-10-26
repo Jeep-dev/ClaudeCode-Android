@@ -400,9 +400,12 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     /** A row moving open or closed: taps on it meanwhile wait. */
     private final java.util.Set<Chat.Block> moving = new java.util.HashSet<>();
 
-    /** Whether a row is growing open or shrinking shut just now (its height is not its own). */
+    /** Whether a row is growing open or shrinking shut just now (its height is not its own); for a status row, the thinking it opens. */
     boolean moving(RecyclerView.ViewHolder h) {
-        return h instanceof Holder && ((Holder) h).item != null && moving.contains(((Holder) h).item.block);
+        if (!(h instanceof Holder)) return false;
+        Holder r = (Holder) h;
+        Chat.Block b = statusRows.contains(r) ? streamingThinking() : r.item != null ? r.item.block : null;
+        return b != null && moving.contains(b);
     }
 
     /** Opens or closes a row: its height moves between the head alone and the whole, the chevron turns. */
@@ -1080,7 +1083,11 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             int action = e.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) touching = true;
             else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) touching = false;
-            return super.dispatchTouchEvent(e);
+            boolean handled = super.dispatchTouchEvent(e);
+            // A text's selection keeps the end of the touch from this box's own handling: its
+            // scrolling with the list ends here all the same.
+            if (!touching) stopNestedScroll(androidx.core.view.ViewCompat.TYPE_TOUCH);
+            return handled;
         }
     }
 }
