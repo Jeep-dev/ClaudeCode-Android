@@ -49,6 +49,14 @@ final class Themes {
                     R.color.surface, 0xFFFFFFFF, R.color.surface2, 0xFFF1F3F5, R.color.user, 0xFFE9ECF0,
                     R.color.codeBg, 0xFFF2F4F6, R.color.text, 0xFF1C1E21, R.color.text2, 0xFF575C63,
                     R.color.text3, 0xFF8A9098),
+            // Material 3's blue, as RikkaHub's: a grey-blue page, pale tiles, deep blue for what is on or chosen.
+            new Theme("blue", "晴蓝", false,
+                    R.color.cream, 0xFFF8F9FC, R.color.bg, 0xFFF8F9FC, R.color.sidebar, 0xFFECEFF4,
+                    R.color.surface, 0xFFF8FAFD, R.color.surface2, 0xFFE1E5EB, R.color.user, 0xFFDDE8F3,
+                    R.color.codeBg, 0xFFEEF1F5, R.color.text, 0xFF191C20, R.color.text2, 0xFF42474E,
+                    R.color.text3, 0xFF72777F, R.color.border, 0xFFDDE2E8, R.color.borderStrong, 0xFFC2C7CF,
+                    R.color.hover, 0xFFE6EAF0, R.color.active, 0x1F2B6290,
+                    R.color.accent, 0xFF2B6290, R.color.accentPress, 0xFF1F4E77, R.color.accentSoft, 0xFFCFE5F8),
             new Theme("slate", "石板", true,
                     R.color.cream, 0xFF1E2125, R.color.bg, 0xFF1E2125, R.color.sidebar, 0xFF181A1E,
                     R.color.surface, 0xFF2A2E33, R.color.surface2, 0xFF24272C, R.color.user, 0xFF32373D,
@@ -124,7 +132,7 @@ final class Themes {
 
     private static Context lightRes, darkRes;
 
-    /** A theme's background and text colours; one following the system as light or as dark. */
+    /** A theme's background and the colour of its "Aa" (its accent, if it has one, else its text); one following the system as light or as dark. */
     static int[] preview(Context c, Theme t, boolean darkIfSystem) {
         boolean dark = t.dark != null ? t.dark : darkIfSystem;
         if (lightRes == null) {
@@ -133,9 +141,12 @@ final class Themes {
         }
         Context from = dark ? darkRes : lightRes;
         int[] out = {from.getColor(R.color.bg), from.getColor(R.color.text)};
+        boolean ownAccent = false;
         for (int i = 0; i + 1 < t.colors.length; i += 2) {
             if (t.colors[i] == R.color.bg) out[0] = t.colors[i + 1];
-            if (t.colors[i] == R.color.text) out[1] = t.colors[i + 1];
+            if (t.colors[i] == R.color.text && !ownAccent) out[1] = t.colors[i + 1];
+            // A theme of its own accent shows it in its "Aa", or it looks like the plain ones.
+            if (t.colors[i] == R.color.accent) { out[1] = t.colors[i + 1]; ownAccent = true; }
         }
         return out;
     }
