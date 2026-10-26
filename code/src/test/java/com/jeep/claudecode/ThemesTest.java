@@ -89,6 +89,7 @@ public class ThemesTest {
         evs.add(ev(k, se("{\"type\":\"content_block_stop\",\"index\":0}")));
         evs.add(ev(k, se("{\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"t1\",\"name\":\"Bash\",\"input\":{}}}")));
         evs.add(ev(k, se("{\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"command\\\":\\\"exiftool -T -DateTimeOriginal *.jpg | cut -c1-7 | sort | uniq -c\\\",\\\"description\\\":\\\"按月份数照片\\\"}\"}}")));
+        evs.add(ev(k, se("{\"type\":\"content_block_stop\",\"index\":1}")));
         evs.add(ev(k, "{\"type\":\"user\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"t1\",\"content\":\"  41 2026:07\\n 128 2026:08\\n  63 2026:09\\n  17 2026:10\"}]}}"));
         evs.add(ev(k, se("{\"type\":\"message_start\",\"message\":{\"id\":\"m2\",\"usage\":{\"input_tokens\":600,\"cache_read_input_tokens\":12800}}}")));
         evs.add(ev(k, se("{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}")));
