@@ -255,32 +255,23 @@ public final class MainActivity extends Activity implements Bridge.Events {
         list.setPadding(dp(22), dp(2), dp(22), dp(24));
         list.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         list.setItemAnimator(null); // rows change in place; animated moves overlap neighbours
-        list.atEnd = () -> stick;
         adapter = new ThreadAdapter(talkContext(), md, row -> {
-            // A row opened or closed. At the bottom the list keeps following the end; elsewhere it
-            // stays where the reader is, and an opened row hidden below is scrolled into view
-            // (its head staying on screen) once it has grown: scrolled by its whole height while it
-            // is still short, the list would hit its end and take that for the reader going there.
-            if (!list.canScrollVertically(1)) stick = true; // at the end, however it got there
+            // A row opened or closed. One opened is followed as it grows (ThreadList): its bottom
+            // brought up from its first frame, its head kept on screen. From here the list follows
+            // the end if it is there, which a row grown open may have taken out of reach.
+            stick = !list.canScrollVertically(1);
             renderNow();
-            if (stick) return;
-            list.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
-                @Override public boolean onPreDraw() {
-                    list.getViewTreeObserver().removeOnPreDrawListener(this);
-                    if (row.getParent() == list && !adapter.moving(list.getChildViewHolder(row))) {
-                        int below = row.getBottom() - (list.getHeight() - list.getPaddingBottom());
-                        int dy = Math.min(below, row.getTop() - list.getPaddingTop());
-                        if (dy > 0) list.smoothScrollBy(0, dy);
-                    }
-                    return true;
-                }
-            });
         });
         adapter.queue = queueActions;
         adapter.asks = this::answer;
         adapter.marker = this::mark;
         adapter.menu = this::messageMenu;
         list.setAdapter(adapter);
+        list.follow = new ThreadList.Follow() {
+            @Override public boolean atEnd() { return stick; }
+            @Override public View opened() { return adapter.opened; }
+            @Override public boolean moving(View row) { return adapter.moving(list.getChildViewHolder(row)); }
+        };
         list.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
             @Override public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent e) {
                 if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { touchX = e.getRawX(); touchY = e.getRawY(); }
@@ -293,6 +284,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 if (toEnd) return; // on its way down: still at the end, as the reader asked
                 // Scrolling up by hand lets go of the bottom; a layout change at the bottom does not.
                 boolean byHand = list.byHand();
+                if (byHand) adapter.opened = null; // the reader moves it: the row opened last stays where it is
                 stick = !(byHand && dy < 0) && !rv.canScrollVertically(1);
                 if (byHand) showJump();
             }
@@ -777,6 +769,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void scrollToTop() {
         stick = false;
+        adapter.opened = null;
         list.stopScroll();
         LinearLayoutManager lm = (LinearLayoutManager) list.getLayoutManager();
         // From far down, most of the way at once: a smooth scroll through it all takes too long.
@@ -2218,6 +2211,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         findAt = Math.max(0, Math.min(findHits.size() - 1, i));
         int[] at = findHits.get(findAt);
         stick = false;
+        adapter.opened = null;
         list.stopScroll();
         LinearLayoutManager lm = (LinearLayoutManager) list.getLayoutManager();
         lm.scrollToPositionWithOffset(at[0], list.getHeight() / 4);

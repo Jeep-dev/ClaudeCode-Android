@@ -24,9 +24,14 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
     /** The box dragged is at its end: the list takes the drag at the finger's next move. */
     private boolean take;
 
-    /** Whether the reader is at the end: the list then keeps it in sight as rows change. */
-    interface AtEnd { boolean at(); }
-    AtEnd atEnd;
+    /** What the list follows by itself: the end, when the reader is there, and the row opened last. */
+    interface Follow {
+        boolean atEnd();
+        View opened();
+        /** Whether a row is growing open or shrinking shut just now. */
+        boolean moving(View row);
+    }
+    Follow follow;
 
     ThreadList(Context c) {
         super(c);
@@ -34,31 +39,41 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
 
     @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
         super.onLayout(changed, l, t, r, b);
-        // Rows are laid out from the top: one growing at the end (opened, its text coming) pushes
-        // the end down out of sight. At the end, the list goes after it before the frame is drawn,
-        // so the row grows upwards, frame by frame, instead of below the box and back up after.
-        if (atEnd != null && atEnd.at() && !byHand()) keepEnd();
+        if (follow != null && !byHand()) follow();
     }
 
-    /** Scrolls until the last row's bottom is at the list's end, if it is below it. */
-    private void keepEnd() {
+    /**
+     * After each layout, before the frame is drawn. Rows are laid out from the top, so a row
+     * growing (opened, a picture or its text coming) pushes what is below it down out of sight.
+     * At the end, the end is kept in sight; elsewhere, the row opened last, its head never taken
+     * above the top, nor while it grows open at the end. So an opened row grows upwards as far as
+     * it must from its first frame, not below the screen and back up after.
+     */
+    private void follow() {
+        View row = follow.opened();
+        if (row != null && row.getParent() != this) row = null;
+        for (int i = 0; i < 20; i++) {
+            boolean end = follow.atEnd();
+            int dy = end ? below(last()) : row != null ? below(row) : 0;
+            if (row != null && (!end || follow.moving(row))) dy = Math.min(dy, row.getTop() - getPaddingTop());
+            if (dy <= 0 || !canScrollVertically(1)) return;
+            scrollBy(0, dy);
+        }
+    }
+
+    /** The last row, if it is laid out. */
+    private View last() {
         Adapter<?> a = getAdapter();
         LayoutManager lm = getLayoutManager();
-        if (a == null || lm == null) return;
-        int last = a.getItemCount() - 1;
-        for (int i = 0; i < 20 && last >= 0; i++) {
-            View v = lm.findViewByPosition(last);
-            int below;
-            if (v != null) {
-                below = lm.getDecoratedBottom(v) + ((LayoutParams) v.getLayoutParams()).bottomMargin
-                        - (getHeight() - getPaddingBottom());
-                if (below <= 0) return;
-            } else {
-                if (!canScrollVertically(1)) return;
-                below = getHeight(); // not laid out: a screen at a time until it is
-            }
-            scrollBy(0, below);
-        }
+        if (a == null || lm == null || a.getItemCount() == 0) return null;
+        return lm.findViewByPosition(a.getItemCount() - 1);
+    }
+
+    /** How far a row's bottom is below the list's end (a screen, for a row not laid out). */
+    private int below(View v) {
+        if (v == null) return getHeight();
+        return getLayoutManager().getDecoratedBottom(v) + ((LayoutParams) v.getLayoutParams()).bottomMargin
+                - (getHeight() - getPaddingBottom());
     }
 
     /** Whether the list moved last by a finger, on it or on a box in it. */

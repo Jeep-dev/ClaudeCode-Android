@@ -87,6 +87,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         this.chat = chat;
         List<Item> next = flatten(chat, Themes.showThinking(c));
         if (reset) {
+            opened = null;
             items = next;
             notifyDataSetChanged();
             return;
@@ -191,6 +192,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     private void bind(Holder h, int position) {
         Item it = items.get(position);
         boolean same = h.item != null && h.item.id == it.id && h.item.type == it.type;
+        if (!same && opened == h.box) opened = null; // another row in its box now
         h.item = it;
         if (same && it.type == TEXT) { // the same reply text, grown: update its views in place
             h.box.setPadding(0, Ui.dp(c, it.gap), 0, 0);
@@ -231,7 +233,10 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         }
     }
 
-    @Override public void onViewRecycled(@NonNull Holder h) { statusRows.remove(h); }
+    @Override public void onViewRecycled(@NonNull Holder h) {
+        statusRows.remove(h);
+        if (opened == h.box) opened = null;
+    }
 
     /**
      * A reply's text, rendered again as it grows. A long one costs more each time: while it
@@ -397,6 +402,11 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
 
     /** The row being opened: its body grows out of its head once built (grow). */
     private Chat.Block growing;
+    /**
+     * The row opened last (its box): the list keeps it in sight as it grows (opening, a picture or
+     * a result coming in) until the list is moved otherwise (MainActivity lets go of it).
+     */
+    View opened;
     /** A row moving open or closed: taps on it meanwhile wait. */
     private final java.util.Set<Chat.Block> moving = new java.util.HashSet<>();
 
@@ -411,6 +421,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     /** Opens or closes a row: its height moves between the head alone and the whole, the chevron turns. */
     private void toggle(Chat.Block b, View row) {
         if (moving.contains(b)) return;
+        opened = null; // a row opened is followed from when it grows (grow), not one before it
         if (!b.open) {
             growing = b;
             b.open = true;
@@ -443,6 +454,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         box.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
             @Override public boolean onPreDraw() {
                 box.getViewTreeObserver().removeOnPreDrawListener(this);
+                opened = box;
                 int to = box.getHeight(), from = head.getBottom() + box.getPaddingBottom();
                 if (to <= from) { moving.remove(b); return true; }
                 for (int i = 1; i < box.getChildCount(); i++) {
