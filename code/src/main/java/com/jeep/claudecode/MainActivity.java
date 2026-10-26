@@ -255,11 +255,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
         list.setPadding(dp(22), dp(2), dp(22), dp(24));
         list.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
         list.setItemAnimator(null); // rows change in place; animated moves overlap neighbours
+        list.atEnd = () -> stick;
         adapter = new ThreadAdapter(talkContext(), md, row -> {
             // A row opened or closed. At the bottom the list keeps following the end; elsewhere it
             // stays where the reader is, and an opened row hidden below is scrolled into view
             // (its head staying on screen) once it has grown: scrolled by its whole height while it
             // is still short, the list would hit its end and take that for the reader going there.
+            if (!list.canScrollVertically(1)) stick = true; // at the end, however it got there
             renderNow();
             if (stick) return;
             list.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {

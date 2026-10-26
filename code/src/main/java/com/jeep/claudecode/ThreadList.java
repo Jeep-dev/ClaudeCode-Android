@@ -24,8 +24,41 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
     /** The box dragged is at its end: the list takes the drag at the finger's next move. */
     private boolean take;
 
+    /** Whether the reader is at the end: the list then keeps it in sight as rows change. */
+    interface AtEnd { boolean at(); }
+    AtEnd atEnd;
+
     ThreadList(Context c) {
         super(c);
+    }
+
+    @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        super.onLayout(changed, l, t, r, b);
+        // Rows are laid out from the top: one growing at the end (opened, its text coming) pushes
+        // the end down out of sight. At the end, the list goes after it before the frame is drawn,
+        // so the row grows upwards, frame by frame, instead of below the box and back up after.
+        if (atEnd != null && atEnd.at() && !byHand()) keepEnd();
+    }
+
+    /** Scrolls until the last row's bottom is at the list's end, if it is below it. */
+    private void keepEnd() {
+        Adapter<?> a = getAdapter();
+        LayoutManager lm = getLayoutManager();
+        if (a == null || lm == null) return;
+        int last = a.getItemCount() - 1;
+        for (int i = 0; i < 20 && last >= 0; i++) {
+            View v = lm.findViewByPosition(last);
+            int below;
+            if (v != null) {
+                below = lm.getDecoratedBottom(v) + ((LayoutParams) v.getLayoutParams()).bottomMargin
+                        - (getHeight() - getPaddingBottom());
+                if (below <= 0) return;
+            } else {
+                if (!canScrollVertically(1)) return;
+                below = getHeight(); // not laid out: a screen at a time until it is
+            }
+            scrollBy(0, below);
+        }
     }
 
     /** Whether the list moved last by a finger, on it or on a box in it. */
