@@ -573,50 +573,48 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private View buildDrawer() {
         LinearLayout d = Ui.column(this);
         drawerPanel = d;
-        // As Settings: the page a shade darker than its tiles; full screen, one colour with the status bar.
-        d.setBackgroundColor(col(R.color.sidebar));
+        d.setBackgroundColor(col(R.color.bg)); // full screen: one colour with the status bar
         d.setClickable(true);
 
         LinearLayout head = Ui.row(this);
-        head.setPadding(dp(22), dp(14), dp(14), dp(10));
+        head.setPadding(dp(18), dp(18), dp(18), dp(12));
         ImageView mark = new ImageView(this);
         mark.setImageResource(R.drawable.mascot);
-        head.addView(mark, new LinearLayout.LayoutParams(dp(34), dp(21)));
-        TextView brand = Ui.text(this, "Claude Code", 22, R.color.text);
-        brand.setTypeface(Ui.SERIF);
-        brand.setPadding(dp(12), 0, 0, 0);
-        head.addView(brand, Ui.weight());
-        ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 48, 22, R.color.text);
-        gear.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(24)), dp(24)));
-        gear.setOnClickListener(v -> settingsSheet());
-        head.addView(gear, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        head.addView(mark, new LinearLayout.LayoutParams(dp(30), dp(19)));
+        TextView brand = Ui.text(this, "Claude Code", 19, R.color.text);
+        brand.setTypeface(Typeface.create(Ui.SERIF, Typeface.BOLD));
+        brand.setPadding(dp(10), 0, 0, 0);
+        head.addView(brand);
         d.addView(head, Ui.fill());
 
         LinearLayout newChat = Ui.row(this);
-        newChat.setGravity(Gravity.CENTER_VERTICAL);
-        newChat.setPadding(dp(20), 0, dp(20), 0);
-        newChat.setBackground(Ui.press(this, Ui.round(blendOver(col(R.color.surface), col(R.color.accentSoft)), dp(28)), dp(28)));
-        newChat.addView(Ui.icon(this, R.drawable.ic_plus, 22, R.color.accent));
-        TextView nl = Ui.text(this, "新对话", 16, R.color.accent);
+        newChat.setPadding(dp(12), 0, dp(12), 0);
+        newChat.setMinimumHeight(dp(42));
+        newChat.setBackground(Ui.press(this, null, dp(12)));
+        FrameLayout plus = new FrameLayout(this);
+        plus.setBackground(Ui.round(col(R.color.accent), dp(13)));
+        plus.addView(Ui.icon(this, R.drawable.ic_plus, 16, android.R.color.white), new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+        newChat.addView(plus, new LinearLayout.LayoutParams(dp(26), dp(26)));
+        TextView nl = Ui.text(this, "新对话", 15.5f, R.color.text);
         nl.setTypeface(Ui.MEDIUM);
-        nl.setPadding(dp(12), 0, 0, 0);
+        nl.setPadding(dp(10), 0, 0, 0);
         newChat.addView(nl);
         newChat.setOnClickListener(v -> { frame.close(); switchTo(newChat()); });
-        d.addView(newChat, new LinearLayout.LayoutParams(-1, dp(56)));
-        Ui.margins(newChat, this, 16, 6, 16, 10);
+        d.addView(newChat, Ui.fill());
+        Ui.margins(newChat, this, 12, 4, 12, 8);
 
         LinearLayout searchBox = Ui.row(this);
-        searchBox.setPadding(dp(20), 0, dp(16), 0);
-        searchBox.setBackground(Ui.round(col(R.color.surface), dp(28)));
-        searchBox.addView(Ui.icon(this, R.drawable.ic_search, 20, R.color.text2));
+        searchBox.setPadding(dp(12), 0, dp(12), 0);
+        searchBox.setBackground(Ui.round(col(R.color.hover), dp(10)));
+        searchBox.addView(Ui.icon(this, R.drawable.ic_search, 17, R.color.text3));
         EditText searchInput = new EditText(this);
         searchInput.setBackground(null);
         searchInput.setHint("搜索对话");
         searchInput.setHintTextColor(col(R.color.text3));
         searchInput.setTextColor(col(R.color.text));
-        searchInput.setTextSize(16);
+        searchInput.setTextSize(15);
         searchInput.setSingleLine(true);
-        searchInput.setPadding(dp(12), 0, 0, 0);
+        searchInput.setPadding(dp(8), 0, 0, 0);
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -629,19 +627,20 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
         });
         searchBox.addView(searchInput, Ui.weight());
-        d.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(52)));
-        Ui.margins(searchBox, this, 16, 0, 16, 4);
+        d.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(38)));
+        Ui.margins(searchBox, this, 12, 0, 12, 8);
 
         ScrollView scroll = new ScrollView(this);
         sessionsBox = Ui.column(this);
-        sessionsBox.setPadding(dp(16), 0, dp(16), dp(20));
+        sessionsBox.setPadding(dp(8), dp(4), dp(8), dp(12));
         scroll.addView(sessionsBox);
         d.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // The link's state, or the footer text: shown only when there is one (updateLink).
+        View line = new View(this);
+        line.setBackgroundColor(col(R.color.border));
+        d.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
         LinearLayout foot = Ui.row(this);
-        drawerFoot = foot;
-        foot.setPadding(dp(12), dp(4), dp(12), dp(10));
+        foot.setPadding(dp(10), dp(10), dp(10), dp(10));
         LinearLayout link = Ui.row(this);
         link.setPadding(dp(10), 0, dp(10), 0);
         link.setMinimumHeight(dp(40));
@@ -653,15 +652,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
         link.addView(linkText);
         link.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
         foot.addView(link, Ui.weight());
+        ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 40, 20, R.color.text2);
+        gear.setOnClickListener(v -> settingsSheet());
+        foot.addView(gear, new LinearLayout.LayoutParams(dp(40), dp(40)));
         d.addView(foot, Ui.fill());
         return d;
-    }
-
-    private View drawerFoot;
-
-    /** A translucent colour laid over an opaque one: the colour seen. */
-    private static int blendOver(int under, int over) {
-        return blend(under, over | 0xFF000000, (over >>> 24) / 255f);
     }
 
     // ================= chats & rendering =================
@@ -1110,7 +1105,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         sessionsBox.removeAllViews();
         String q = search.trim().toLowerCase(Locale.ROOT);
         String group = "";
-        LinearLayout groupBox = null;
         int shown = 0;
         // Only the working folder's (Settings → 外观 → 只显示当前目录): new conversations' folder, not its subfolders.
         String here = onlyHere() ? workFolder().replaceAll("/+$", "") : "";
@@ -1129,25 +1123,19 @@ public final class MainActivity extends Activity implements Bridge.Events {
             boolean byName = titleText.toLowerCase(Locale.ROOT).contains(q) || folder.toLowerCase(Locale.ROOT).contains(q);
             if (!q.isEmpty() && !byName && !hits.containsKey(id)) continue;
             String g = pins.contains(id) ? "置顶" : group(s.optDouble("mtime"));
-            if (groupBox == null || !g.equals(group)) {
+            if (!g.equals(group)) {
                 group = g;
-                TextView label = Ui.text(this, g, 14, R.color.accent);
-                label.setTypeface(Ui.MEDIUM);
-                label.setPadding(dp(12), dp(18), dp(12), dp(10));
+                TextView label = Ui.text(this, g, 12, R.color.text3);
+                label.setTypeface(Typeface.DEFAULT_BOLD);
+                label.setPadding(dp(10), dp(14), dp(10), dp(6));
                 sessionsBox.addView(label);
-                // Its conversations: tiles of one group, as in Settings (tile).
-                groupBox = Ui.column(this);
-                groupBox.setTag(TILES);
-                sessionsBox.addView(groupBox, Ui.fill());
             }
             Chat chat = chats.get(bySession.containsKey(id) ? bySession.get(id) : id);
             boolean live = chat != null ? chat.running : s.optBoolean("running");
             LinearLayout item = Ui.column(this);
-            item.setPadding(dp(18), dp(13), dp(18), dp(13));
-            item.setMinimumHeight(dp(64));
-            item.setGravity(Gravity.CENTER_VERTICAL);
-            // The open one stands out (tile).
-            item.setSelected(id.equals(current.sessionId));
+            item.setPadding(dp(10), dp(9), dp(10), dp(9));
+            boolean active = id.equals(current.sessionId);
+            item.setBackground(Ui.press(this, active ? Ui.round(col(R.color.active), dp(10)) : null, dp(10)));
             LinearLayout line = Ui.row(this);
             if (live) {
                 View dot = new View(this);
@@ -1155,18 +1143,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 line.addView(dot, new LinearLayout.LayoutParams(dp(7), dp(7)));
                 Ui.margins(dot, this, 0, 0, 6, 0);
             }
-            TextView t = Ui.text(this, titleText, 16, R.color.text);
+            TextView t = Ui.text(this, titleText, 15, R.color.text);
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             line.addView(t, Ui.weight());
             item.addView(line, Ui.fill());
-            // The folder and how long ago, one line under the title (Settings → 外观 → 对话时间).
-            String where = Ui.base(folder);
-            if (prefs.getBoolean("drawerTimes", true)) where += (where.isEmpty() ? "" : " · ") + ago(s.optDouble("mtime"));
-            TextView meta = Ui.text(this, where, 13.5f, R.color.text2);
-            meta.setPadding(0, dp(5), 0, 0);
+            TextView meta = Ui.text(this, Ui.base(folder), 12.5f, R.color.text3);
+            meta.setPadding(0, dp(3), 0, 0);
             meta.setSingleLine(true);
-            meta.setEllipsize(TextUtils.TruncateAt.END);
             if (!q.isEmpty() && !byName) { // found in what was said: show where
                 String snip = hits.get(id);
                 SpannableStringBuilder sb = new SpannableStringBuilder(snip);
@@ -1175,13 +1159,26 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 meta.setText(sb);
                 meta.setEllipsize(TextUtils.TruncateAt.END);
             }
-            item.addView(meta, Ui.fill());
+            // How long ago, in a column of one width at the end of the folder's line, its text from the
+            // column's start: 55m, 1h and 3d begin at one place.
+            // Shown unless turned off (Settings → 外观 → 对话时间).
+            LinearLayout under = Ui.row(this);
+            under.addView(meta, Ui.weight());
+            if (prefs.getBoolean("drawerTimes", true)) {
+                TextView when = Ui.text(this, ago(s.optDouble("mtime")), 11.5f, R.color.text3);
+                when.setFontFeatureSettings("tnum");
+                when.setSingleLine(true);
+                when.setPadding(0, dp(3), 0, 0);
+                int column = (int) Math.ceil(when.getPaint().measureText("88mo"));
+                under.addView(when, new LinearLayout.LayoutParams(column + dp(2), -2));
+                Ui.margins(when, this, 10, 0, 0, 0);
+            }
+            item.addView(under, Ui.fill());
             item.setOnClickListener(v -> openSession(id, titleText, folder));
             item.setOnLongClickListener(v -> { sessionActions(id, titleText, folder); return true; });
-            groupBox.addView(item, Ui.fill());
+            sessionsBox.addView(item, Ui.fill());
             shown++;
         }
-        tile(sessionsBox);
         if (shown == 0) {
             String none = !q.isEmpty() ? "没有匹配的对话" : here.isEmpty() ? "还没有对话" : Ui.base(here) + " 里还没有对话";
             TextView empty = Ui.text(this, linked ? none : "连接后显示历史对话", 14, R.color.text3);
@@ -1509,7 +1506,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         linkDot.setVisibility(linked ? View.GONE : View.VISIBLE);
         linkText.setPadding(linked ? 0 : dp(9), 0, 0, 0);
         linkText.setText(label);
-        if (drawerFoot != null) drawerFoot.setVisibility(linked && label.isEmpty() ? View.GONE : View.VISIBLE);
     }
 
     private boolean hasStorage() { return checkSelfPermission(STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED; }
@@ -3080,7 +3076,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 float t = j == 0 ? big : small, b = j == n - 1 ? big : small;
                 float[] radii = {t, t, t, t, b, b, b, b};
                 GradientDrawable shape = new GradientDrawable();
-                shape.setColor(row.isSelected() ? blendOver(col(R.color.surface), col(R.color.accentSoft)) : col(R.color.surface));
+                shape.setColor(col(R.color.surface));
                 shape.setCornerRadii(radii);
                 if (row.isClickable()) {
                     GradientDrawable mask = new GradientDrawable();
