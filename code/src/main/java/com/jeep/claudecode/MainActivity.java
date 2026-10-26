@@ -802,65 +802,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
         emptyView.addView(box, new ViewGroup.LayoutParams(-1, -1));
     }
 
+    /** Blank once connected; only while starting does it say so. */
     private void buildHero(LinearLayout box) {
-        ImageView mark = new ImageView(this);
-        mark.setImageResource(R.drawable.mascot);
-        box.addView(mark, new LinearLayout.LayoutParams(dp(84), dp(52)));
-        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        String hello = h < 5 ? "夜深了" : h < 11 ? "早上好" : h < 13 ? "中午好" : h < 18 ? "下午好" : "晚上好";
-        TextView big = Ui.text(this, hello, 30, R.color.text);
-        big.setTypeface(Ui.SERIF);
-        big.setPadding(0, dp(18), 0, dp(10));
-        big.setGravity(Gravity.CENTER);
-        box.addView(big, Ui.fill());
-        String folder = Ui.base(current.cwd == null || current.cwd.isEmpty() ? defaultCwd : current.cwd);
-        SpannableStringBuilder sub = new SpannableStringBuilder();
-        if (linked) {
-            sub.append("在 ");
-            int s = sub.length();
-            sub.append(folder.isEmpty() ? "~" : folder);
-            sub.setSpan(new StyleSpan(Typeface.BOLD), s, sub.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            sub.append(" 里，想做点什么？");
-        } else {
-            sub.append("正在启动 Claude Code…");
-        }
-        TextView p = Ui.text(this, sub, 15, R.color.text2);
+        if (linked) return;
+        TextView p = Ui.text(this, "正在启动 Claude Code…", 15, R.color.text2);
         p.setGravity(Gravity.CENTER);
         box.addView(p, Ui.fill());
-        LinearLayout chips = Ui.column(this);
-        chips.setGravity(Gravity.CENTER_HORIZONTAL);
-        chips.setPadding(0, dp(24), 0, 0);
-        if (startersFor != current) { startersFor = current; starters = pickStarters(); }
-        for (String s : starters) {
-            TextView chip = Ui.text(this, s, 14, R.color.text2);
-            chip.setPadding(dp(14), dp(9), dp(14), dp(9));
-            chip.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(20), dp(1), col(R.color.border)), dp(20)));
-            chip.setOnClickListener(v -> { input.setText(s); input.setSelection(s.length()); input.requestFocus(); showKeyboard(); });
-            chips.addView(chip, Ui.wrap());
-            Ui.margins(chip, this, 0, 0, 0, 8);
-        }
-        box.addView(chips);
-    }
-
-    private static final String[] STARTERS = {
-            "看看这个文件夹里有什么", "帮我写一个 Python 脚本", "解释一下最近的报错",
-            "最近几次提交改了什么", "这个项目是怎么跑起来的", "找找代码里还有哪些 TODO",
-            "帮我把这段代码讲明白", "这个文件夹里哪些文件最占地方", "帮我整理一下下载目录",
-            "手机还剩多少存储空间", "看看手机上最近装了哪些应用", "哪些应用在后台耗电",
-            "帮我查一下今天的新闻", "帮我查一个问题，附上来源", "比较一下这两样东西哪个更值",
-            "帮我下载一个视频", "把这张图片压缩一下", "帮我画一张图",
-            "把这段话翻译成日语", "帮我改改这段文字，说得更顺", "帮我写一封邮件",
-            "帮我算一笔账", "给我讲讲这个概念，从最简单的说起", "帮我做一个今天的待办清单",
-            "上次聊到哪了", "帮我写个每天自动跑的小任务", "看看最近的运行日志有没有异常",
-    };
-    /** The conversation the starters were picked for: they stay while it is shown, new ones come with the next. */
-    private Chat startersFor;
-    private String[] starters;
-
-    private static String[] pickStarters() {
-        List<String> all = new ArrayList<>(java.util.Arrays.asList(STARTERS));
-        java.util.Collections.shuffle(all);
-        return all.subList(0, 3).toArray(new String[0]);
     }
 
     private void buildSetup(LinearLayout box) {
