@@ -262,6 +262,7 @@ public class ScreensTest {
         Method open = MainActivity.class.getDeclaredMethod("settingsOpen", String.class);
         open.setAccessible(true);
         for (String page : new String[]{"look", "talk", "model", "claude", "storage", "about"}) {
+            set(a, "settingsStill", 0L); // the clock stands still here: no move is ever over
             open.invoke(a, page);
             idle();
             shot(sheet, "09-settings-" + page);

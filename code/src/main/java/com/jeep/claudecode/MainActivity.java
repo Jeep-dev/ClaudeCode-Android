@@ -2567,7 +2567,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         row.setOnClickListener(v -> {
             t.flip();
             // Redrawn by what it sets: after the thumb has moved.
-            ui.postDelayed(() -> set.accept(t.isOn()), 160);
+            ui.postDelayed(() -> set.accept(t.isOn()), 260);
         });
     }
 
@@ -2577,29 +2577,56 @@ public final class MainActivity extends Activity implements Bridge.Events {
         tile.setPadding(dp(16), dp(16), dp(16), dp(16));
         tile.addView(Ui.text(this, label, 16.5f, R.color.text));
         LinearLayout bar = Ui.row(this);
-        float big = dp(24), small = dp(10);
-        for (int i = 0; i < labels.length; i++) {
+        int n = labels.length;
+        TextView[] buttons = new TextView[n];
+        GradientDrawable[] shapes = new GradientDrawable[n];
+        boolean[] busy = {false};
+        for (int i = 0; i < n; i++) {
             int index = i;
-            boolean on = i == chosen;
             TextView b = Ui.text(this, labels[i], 15, R.color.text);
             b.setGravity(Gravity.CENTER);
-            if (on) {
-                b.setTypeface(Ui.MEDIUM);
-                b.setTextColor(0xFFFFFFFF);
-            }
-            float l = on || i == 0 ? big : small, r = on || i == labels.length - 1 ? big : small;
-            float[] radii = {l, l, r, r, r, r, l, l};
-            GradientDrawable shape = new GradientDrawable();
-            shape.setColor(col(on ? R.color.accent : R.color.surface2));
-            shape.setCornerRadii(radii);
-            b.setBackground(Ui.press(this, shape, small));
-            if (!on) b.setOnClickListener(v -> pick.accept(index));
+            shapes[i] = new GradientDrawable();
+            choiceLook(b, shapes[i], i, n, i == chosen ? 1 : 0);
+            b.setBackground(Ui.press(this, shapes[i], dp(10)));
+            b.setOnClickListener(v -> {
+                if (index == chosen || busy[0]) return;
+                busy[0] = true;
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
+                // The fill and the round ends move from the chosen one to this, then it is set.
+                android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(0f, 1f);
+                a.setDuration(250);
+                a.setInterpolator(Motion.EMPHASIZED);
+                a.addUpdateListener(x -> {
+                    float f = (float) x.getAnimatedValue();
+                    choiceLook(buttons[chosen], shapes[chosen], chosen, n, 1 - f);
+                    choiceLook(buttons[index], shapes[index], index, n, f);
+                });
+                a.addListener(new android.animation.AnimatorListenerAdapter() {
+                    @Override public void onAnimationEnd(android.animation.Animator x) { pick.accept(index); }
+                });
+                a.start();
+            });
+            buttons[i] = b;
             bar.addView(b, new LinearLayout.LayoutParams(0, dp(48), 1));
             if (i > 0) Ui.margins(b, this, 4, 0, 0, 0);
         }
         tile.addView(bar, Ui.fill());
         Ui.margins(bar, this, 0, 14, 0, 0);
         card.addView(tile, Ui.fill());
+    }
+
+    /** A choice's button {@code on} of the way to chosen: filled, white, round at both ends; else only the row's ends round. */
+    private void choiceLook(TextView b, GradientDrawable shape, int i, int n, float on) {
+        float big = dp(24), small = dp(10);
+        float l = i == 0 ? big : small + (big - small) * on, r = i == n - 1 ? big : small + (big - small) * on;
+        shape.setCornerRadii(new float[]{l, l, r, r, r, r, l, l});
+        shape.setColor(blend(col(R.color.surface2), col(R.color.accent), on));
+        b.setTextColor(blend(col(R.color.text), 0xFFFFFFFF, on));
+        b.setTypeface(on > 0.5f ? Ui.MEDIUM : Typeface.DEFAULT);
+    }
+
+    private static int blend(int a, int b, float t) {
+        return (int) new android.animation.ArgbEvaluator().evaluate(t, a, b);
     }
 
     private void check(LinearLayout card) {
@@ -2801,60 +2828,102 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void settingsSheet() {
         if (settingsPage == null) {
             Dialog d = new Dialog(this, R.style.Page);
-            LinearLayout root = Ui.column(this);
-            // Tiles a shade lighter than the page under them.
-            root.setBackgroundColor(col(R.color.sidebar));
-            LinearLayout top = Ui.row(this);
-            top.setPadding(dp(14), dp(8), dp(14), dp(4));
-            ImageView back = Ui.iconButton(this, R.drawable.ic_back, 48, 22, R.color.text);
-            back.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(24)), dp(24)));
-            back.setOnClickListener(v -> settingsBack());
-            top.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
-            settingsTitle = Ui.text(this, "设置", 26, R.color.text);
-            settingsTitle.setTypeface(Ui.SERIF);
-            settingsTitle.setPadding(dp(14), 0, 0, 0);
-            top.addView(settingsTitle);
-            root.addView(top, Ui.fill());
-            ScrollView scroll = new ScrollView(this);
-            settingsBox = Ui.column(this);
-            settingsBox.setPadding(dp(16), dp(4), dp(16), dp(32));
-            scroll.addView(settingsBox);
-            root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-            d.setContentView(root);
+            // Its pages, one over another while they move.
+            settingsStage = new FrameLayout(this);
+            settingsStage.addView(settingsView());
+            d.setContentView(settingsStage);
             Themes.window(d.getWindow(), this);
+            View under = findViewById(android.R.id.content);
             if (d.getWindow() != null) {
                 d.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
                 d.getWindow().setStatusBarColor(col(R.color.sidebar));
                 d.getWindow().setNavigationBarColor(col(R.color.sidebar));
+                // It moves itself in (Motion), over the conversation seen through it meanwhile.
+                d.getWindow().setWindowAnimations(0);
+                d.getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             }
             d.setOnKeyListener((x, code, e) -> {
                 if (code != android.view.KeyEvent.KEYCODE_BACK) return false;
                 if (e.getAction() == android.view.KeyEvent.ACTION_UP && !e.isCanceled()) settingsBack();
                 return true;
             });
-            d.setOnDismissListener(x -> { settingsPage = null; settingsAt = null; });
+            d.setOnDismissListener(x -> {
+                settingsPage = null;
+                settingsAt = null;
+                Motion.reset(under);
+            });
             settingsPage = d;
             fillSettings(linked ? launchCache : null);
             d.show();
+            if (!settingsInstant) {
+                settingsMoving();
+                Motion.push(settingsStage, under, null);
+            }
         }
         refreshSettings();
     }
 
+    /** A page of Settings: the round back button (with the name beside it on the list of pages), its contents scrolling under. */
+    private View settingsView() {
+        LinearLayout root = Ui.column(this);
+        // Tiles a shade lighter than the page under them.
+        root.setBackgroundColor(col(R.color.sidebar));
+        root.setClickable(true); // touches stay on the page in front while two are shown
+        LinearLayout top = Ui.row(this);
+        top.setPadding(dp(14), dp(8), dp(14), dp(4));
+        ImageView back = Ui.iconButton(this, R.drawable.ic_back, 48, 22, R.color.text);
+        back.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(24)), dp(24)));
+        back.setOnClickListener(v -> settingsBack());
+        top.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        settingsTitle = Ui.text(this, "设置", 26, R.color.text);
+        settingsTitle.setTypeface(Ui.SERIF);
+        settingsTitle.setPadding(dp(14), 0, 0, 0);
+        top.addView(settingsTitle);
+        root.addView(top, Ui.fill());
+        ScrollView scroll = new ScrollView(this);
+        settingsBox = Ui.column(this);
+        settingsBox.setPadding(dp(16), dp(4), dp(16), dp(32));
+        scroll.addView(settingsBox);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        return root;
+    }
+
+    private FrameLayout settingsStage;
+    /** Reopened at once (the colours or text size changed), not moved in. */
+    private boolean settingsInstant;
+    private long settingsStill;
+
+    /** A move has begun: taps meanwhile (a second back, a second page) wait for it to end. */
+    private boolean settingsMoving() {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now < settingsStill) return false;
+        settingsStill = now + Motion.PAGE;
+        return true;
+    }
+
     /** Back: from a page to the list of pages, from the list out of Settings. */
     private void settingsBack() {
-        if (settingsPage == null) return;
-        if (settingsAt == null) { settingsPage.dismiss(); return; }
-        settingsOpen(null);
+        if (settingsPage == null || !settingsMoving()) return;
+        if (settingsAt != null) { settingsGo(null); return; }
+        Dialog d = settingsPage;
+        Motion.pop(findViewById(android.R.id.content), settingsStage, d::dismiss);
     }
 
     private void settingsOpen(String page) {
+        if (settingsPage == null || !settingsMoving()) return;
+        settingsGo(page);
+    }
+
+    private void settingsGo(String page) {
+        View old = settingsStage.getChildAt(settingsStage.getChildCount() - 1);
         settingsAt = page;
+        View fresh = settingsView();
+        // A page comes in over the list; the list comes back from under the page.
+        if (page != null) settingsStage.addView(fresh);
+        else settingsStage.addView(fresh, 0);
         fillSettings(linked ? launchCache : null);
-        View scroll = (View) settingsBox.getParent();
-        scroll.scrollTo(0, 0);
-        settingsBox.setAlpha(0f);
-        settingsBox.setTranslationX(dp(page == null ? -24 : 24));
-        settingsBox.animate().alpha(1f).translationX(0).setDuration(160).start();
+        if (page != null) Motion.push(fresh, old, () -> settingsStage.removeView(old));
+        else Motion.pop(fresh, old, () -> settingsStage.removeView(old));
         if (page != null && page.equals("claude")) loadSchema(() -> { });
         if (page != null && page.equals("storage")) measureStorage();
     }
@@ -3865,7 +3934,9 @@ public final class MainActivity extends Activity implements Bridge.Events {
         updateLink();
         if (open) {
             settingsAt = at;
+            settingsInstant = true;
             settingsSheet();
+            settingsInstant = false;
         }
     }
 

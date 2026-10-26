@@ -14,11 +14,28 @@ final class Toggle extends View {
     private boolean on;
     /** 0 off, 1 on; between while it moves. */
     private float at;
+    /** 0 let go, 1 held: the thumb grows while its row is held. */
+    private float held;
+    private ValueAnimator holding;
 
     Toggle(Context c, boolean on) {
         super(c);
         this.on = on;
         at = on ? 1 : 0;
+        // Pressed with the row it is on.
+        setDuplicateParentStateEnabled(true);
+    }
+
+    @Override protected void drawableStateChanged() {
+        super.drawableStateChanged();
+        float to = isPressed() ? 1 : 0;
+        if (holding == null && to == held) return;
+        if (holding != null) holding.cancel();
+        holding = ValueAnimator.ofFloat(held, to);
+        holding.setDuration(120);
+        holding.setInterpolator(Motion.EMPHASIZED);
+        holding.addUpdateListener(x -> { held = (float) x.getAnimatedValue(); invalidate(); });
+        holding.start();
     }
 
     boolean isOn() { return on; }
@@ -26,8 +43,10 @@ final class Toggle extends View {
     /** Turns it to the other side, moving. */
     void flip() {
         on = !on;
+        performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
         ValueAnimator a = ValueAnimator.ofFloat(at, on ? 1 : 0);
-        a.setDuration(150);
+        a.setDuration(250);
+        a.setInterpolator(Motion.EMPHASIZED);
         a.addUpdateListener(x -> { at = (float) x.getAnimatedValue(); invalidate(); });
         a.start();
     }
@@ -51,7 +70,9 @@ final class Toggle extends View {
             rect.set(line / 2, line / 2, w - line / 2, h - line / 2);
             canvas.drawRoundRect(rect, r - line / 2, r - line / 2, paint);
         }
-        float thumb = Ui.dp(c, 8 + 4 * at); // radius: 16 dp across off, 24 on
+        // Radius: 16 dp across off, 24 on, 28 held either way.
+        float rest = 8 + 4 * at;
+        float thumb = Ui.dp(c, rest + (14 - rest) * held);
         float x = r + (w - 2 * r) * at;
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(blend(off, 0xFFFFFFFF, at));
