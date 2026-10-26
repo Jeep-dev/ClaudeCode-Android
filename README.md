@@ -4,6 +4,15 @@
 
 App 自带一个小型 Linux 环境（Alpine + proot），Claude Code 就跑在里面；界面是原生 Android 控件，不是 WebView，滚动和选字都是系统自己的。
 
+<p>
+  <img src="docs/screenshots/claude-chat.png" width="24%" alt="Claude 配色">
+  <img src="docs/screenshots/sakura-chat.png" width="24%" alt="樱花粉">
+  <img src="docs/screenshots/ocean-dark-drawer.png" width="24%" alt="海湾蓝 深色 对话列表">
+  <img src="docs/screenshots/black-dark-chat.png" width="24%" alt="中性黑 深色">
+</p>
+
+<sub>从左到右：Claude、樱花粉、海湾蓝（深色，对话列表）、中性黑（深色）。截图由 <code>ThemesTest</code> 生成，内容是演示用的。</sub>
+
 ## 功能
 
 - **对话**：流式回复、思考过程、工具步骤（命令、文件改动的 diff、待办列表）都按 Claude Code 终端里的样子折叠成行；回复中可以继续发消息（插入或排队）。
