@@ -337,12 +337,21 @@ public class ScreensTest {
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "11-model");
         ShadowDialog.getLatestDialog().dismiss();
 
-        for (String theme : new String[]{"black", "white", "paper", "mist", "slate", "dark"}) {
-            Themes.set(a, theme);
-            call(a, "restyle");
-            idle();
-            shot(a.getWindow().getDecorView(), "12-" + theme);
+        // Each palette, light then dark; Claude's dark on pure black too.
+        for (Themes.Theme t : Themes.ALL) {
+            Themes.set(a, t.id);
+            for (int mode = 1; mode <= 2; mode++) {
+                Themes.setMode(a, mode);
+                call(a, "restyle");
+                idle();
+                shot(a.getWindow().getDecorView(), "12-" + t.id + (mode == 2 ? "-dark" : ""));
+            }
         }
+        Themes.setPureBlack(a, true);
+        call(a, "restyle");
+        idle();
+        shot(a.getWindow().getDecorView(), "12-claude-black");
+        Themes.setPureBlack(a, false);
         Fonts.setSize(a, 2);
         call(a, "restyle");
         idle();
@@ -353,12 +362,12 @@ public class ScreensTest {
         ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
         shot(a.getWindow().getDecorView(), "14-jump");
         Fonts.setSize(a, 1);
-        Themes.set(a, "system");
+        Themes.setMode(a, 0);
         Themes.setImmersive(a, true);
         call(a, "restyle");
         idle();
         shot(a.getWindow().getDecorView(), "15-immersive");
-        Themes.set(a, "dark");
+        Themes.setMode(a, 2);
         call(a, "restyle");
         idle();
         shot(a.getWindow().getDecorView(), "15-immersive-dark");
@@ -367,7 +376,7 @@ public class ScreensTest {
         idle();
         shot(a.getWindow().getDecorView(), "15-immersive-title");
         Themes.setShowTitle(a, false);
-        Themes.set(a, "system");
+        Themes.setMode(a, 0);
         Themes.setImmersive(a, false);
     }
 

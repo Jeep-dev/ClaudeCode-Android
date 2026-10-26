@@ -40,7 +40,9 @@ interface is plain Android views (Java), so scrolling and text selection are the
   `~/.claude/settings.json` (or edits the file whole). A settings.json that does not read as
   JSON is never saved over; it and the MCP list are written aside and moved in. The `rish`
   command in Settings whitelists the app and turns off Android's limit on child processes.
-- Settings is a full-screen page of pages: 外观; 对话 (the working folder for new
+- Settings is a full-screen page of pages: 外观 (the colours: the app's own, Claude, or one of
+  RikkaHub's palettes, 樱花粉, 海湾蓝, 原野绿, 秋黄, 中性黑 and 极简白, each light, dark or as the
+  system, and dark on pure black if chosen); 对话 (the working folder for new
   conversations, Claude Code's launch options); 模型; Claude Code (its settings); 扩展: skills
   (`~/.claude/skills/<name>/SKILL.md`, made, edited and deleted here), tools (switched off
   with `--disallowedTools`; the list is the one Claude Code reported when a conversation last
@@ -109,7 +111,7 @@ most 300 dp) and tool steps collapsed into rows as in Claude Code's terminal
 press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet; 编辑重发 for the
 user's, as `/tree`; 删除, out of the transcript too: the bridge's `/delete-message` takes the message's entries out, a reply's tool results with it,
 and links what came after to what came before), code blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
-colours.
+colours in seven palettes.
 
 While Claude Code works, the status line shows elapsed time, API retries (attempt and error)
 and how long nothing has arrived once that passes 20 s. A send whose answer is lost is

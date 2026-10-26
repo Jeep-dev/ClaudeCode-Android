@@ -15,6 +15,7 @@
     <color name="accent">#D97757</color>
     <color name="accentPress">#C2613F</color>
     <color name="accentSoft">#1FD97757</color>
+    <color name="onAccent">#FFFFFF</color>
     <color name="user">#EFECE3</color>
     <color name="ok">#2F8A5B</color>
     <color name="danger">#C4483B</color>

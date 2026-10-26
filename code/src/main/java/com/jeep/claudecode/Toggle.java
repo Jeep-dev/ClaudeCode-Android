@@ -75,7 +75,7 @@ final class Toggle extends View {
         float thumb = Ui.dp(c, rest + (14 - rest) * held);
         float x = r + (w - 2 * r) * at;
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(blend(off, 0xFFFFFFFF, at));
+        paint.setColor(blend(off, Ui.color(c, R.color.onAccent), at));
         canvas.drawCircle(x, r, thumb, paint);
     }
 

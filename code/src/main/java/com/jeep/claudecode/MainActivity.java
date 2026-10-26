@@ -979,7 +979,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     private TextView button(String label, boolean accent, View.OnClickListener click) {
-        TextView b = Ui.text(this, label, 14.5f, accent ? android.R.color.white : R.color.text);
+        TextView b = Ui.text(this, label, 14.5f, accent ? R.color.onAccent : R.color.text);
         b.setTypeface(Ui.MEDIUM);
         b.setGravity(Gravity.CENTER);
         b.setPadding(dp(16), 0, dp(16), 0);
@@ -2725,13 +2725,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
         card.addView(tile, Ui.fill());
     }
 
-    /** A choice's button {@code on} of the way to chosen: filled, white, round at both ends; else only the row's ends round. */
+    /** A choice's button {@code on} of the way to chosen: filled, in the colour on the accent, round at both ends; else only the row's ends round. */
     private void choiceLook(TextView b, GradientDrawable shape, int i, int n, float on) {
         float big = dp(24), small = dp(10);
         float l = i == 0 ? big : small + (big - small) * on, r = i == n - 1 ? big : small + (big - small) * on;
         shape.setCornerRadii(new float[]{l, l, r, r, r, r, l, l});
         shape.setColor(blend(col(R.color.surface2), col(R.color.accent), on));
-        b.setTextColor(blend(col(R.color.text), 0xFFFFFFFF, on));
+        b.setTextColor(blend(col(R.color.text), col(R.color.onAccent), on));
         b.setTypeface(on > 0.5f ? Ui.MEDIUM : Typeface.DEFAULT);
     }
 
@@ -3170,14 +3170,36 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void fillLook(LinearLayout box) {
         section(box, "主题");
         LinearLayout themes = card(box);
-        HorizontalScrollView scroll = new HorizontalScrollView(this);
-        scroll.setHorizontalScrollBarEnabled(false);
-        LinearLayout row = Ui.row(this);
-        row.setPadding(dp(10), dp(16), dp(10), dp(14));
+        // As RikkaHub has them: four to a row, all as wide, the last row's gaps kept.
+        LinearLayout grid = Ui.column(this);
+        grid.setPadding(dp(8), dp(12), dp(8), dp(12));
         String now = Themes.current(this).id;
-        for (Themes.Theme t : Themes.ALL) row.addView(swatch(t, t.id.equals(now)), new LinearLayout.LayoutParams(dp(62), -2));
-        scroll.addView(row);
-        themes.addView(scroll, Ui.fill());
+        boolean dark = Themes.dark(this);
+        LinearLayout row = null;
+        for (int i = 0; i < Themes.ALL.length; i++) {
+            if (i % 4 == 0) {
+                row = Ui.row(this);
+                row.setGravity(Gravity.TOP);
+                grid.addView(row, Ui.fill());
+                if (i > 0) Ui.margins(row, this, 0, 8, 0, 0);
+            }
+            Themes.Theme t = Themes.ALL[i];
+            row.addView(swatch(t, t.id.equals(now), dark), new LinearLayout.LayoutParams(0, -2, 1));
+            if (i % 4 > 0) Ui.margins(row.getChildAt(row.getChildCount() - 1), this, 4, 0, 0, 0);
+        }
+        for (int i = Themes.ALL.length % 4; i > 0 && i < 4; i++) {
+            row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+            Ui.margins(row.getChildAt(row.getChildCount() - 1), this, 4, 0, 0, 0);
+        }
+        themes.addView(grid, Ui.fill());
+        choice(themes, "深色模式", Themes.MODES, Themes.mode(this), m -> {
+            Themes.setMode(this, m);
+            restyle();
+        });
+        toggle(themes, "纯黑背景", "深色时页面用纯黑", Themes.pureBlack(this), on -> {
+            Themes.setPureBlack(this, on);
+            if (Themes.dark(this)) restyle();
+        });
 
         section(box, "显示");
         LinearLayout show = card(box);
@@ -3222,43 +3244,46 @@ public final class MainActivity extends Activity implements Bridge.Events {
         option(text, 0, "英文字体", Fonts.name(Fonts.latin(this)), false, () -> fontSheet(false));
     }
 
-    /** A theme as a circle in its colours ("Aa" in its text on its background), its name below. */
-    private View swatch(Themes.Theme t, boolean chosen) {
+    /**
+     * A palette as RikkaHub draws it, in the light or dark in use: a round of its primary's
+     * container (left half), the secondary's (top right) and the tertiary's (bottom right), its
+     * primary in the middle, larger and ticked when chosen; its name below in its primary.
+     */
+    private View swatch(Themes.Theme t, boolean chosen, boolean dark) {
+        int[] c = t.swatch(dark); // primary, its container, the secondary's, the tertiary's, on primary
         LinearLayout cell = Ui.column(this);
         cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        int[] light = Themes.preview(this, t, false), dark = Themes.preview(this, t, true);
+        cell.setPadding(0, dp(8), 0, dp(8));
+        cell.setBackground(Ui.press(this, null, dp(16)));
+        FrameLayout disc = new FrameLayout(this);
         View circle = new View(this) {
             final android.graphics.Paint p = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            final android.graphics.RectF oval = new android.graphics.RectF();
 
             @Override protected void onDraw(Canvas canvas) {
-                float w = getWidth(), r = w / 2f, ring = dp(chosen ? 2.5f : 1);
-                android.graphics.RectF oval = new android.graphics.RectF(ring, ring, w - ring, w - ring);
-                p.setStyle(android.graphics.Paint.Style.FILL);
-                p.setColor(light[0]);
-                if (t.dark == null) {
-                    // Following the system: half light, half dark.
-                    canvas.drawArc(oval, 90, 180, true, p);
-                    p.setColor(dark[0]);
-                    canvas.drawArc(oval, 270, 180, true, p);
-                } else {
-                    canvas.drawOval(oval, p);
-                }
-                p.setStyle(android.graphics.Paint.Style.STROKE);
-                p.setStrokeWidth(ring);
-                p.setColor(chosen ? col(R.color.accent) : col(R.color.borderStrong));
-                canvas.drawCircle(r, r, r - ring / 2f, p);
-                if (t.dark != null) {
-                    p.setStyle(android.graphics.Paint.Style.FILL);
-                    p.setColor(light[1]);
-                    p.setTextSize(dp(13));
-                    p.setTypeface(Ui.SERIF);
-                    p.setTextAlign(android.graphics.Paint.Align.CENTER);
-                    canvas.drawText("Aa", r, r - (p.descent() + p.ascent()) / 2f, p);
-                }
+                float w = getWidth(), r = w / 2f;
+                oval.set(0, 0, w, w);
+                p.setColor(c[1]);
+                canvas.drawArc(oval, 90, 180, true, p);
+                p.setColor(c[2]);
+                canvas.drawArc(oval, 270, 90, true, p);
+                p.setColor(c[3]);
+                canvas.drawArc(oval, 0, 90, true, p);
+                p.setColor(c[0]);
+                canvas.drawCircle(r, r, dp(chosen ? 12 : 8), p);
             }
         };
-        cell.addView(circle, new LinearLayout.LayoutParams(dp(44), dp(44)));
-        TextView name = Ui.text(this, t.name, 12, chosen ? R.color.text : R.color.text2);
+        disc.addView(circle, new FrameLayout.LayoutParams(dp(48), dp(48)));
+        if (chosen) {
+            ImageView tick = new ImageView(this);
+            tick.setImageResource(R.drawable.ic_check);
+            tick.setImageTintList(android.content.res.ColorStateList.valueOf(c[4]));
+            disc.addView(tick, new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
+        }
+        cell.addView(disc, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        TextView name = Ui.text(this, t.name, 12.5f, R.color.text);
+        name.setTextColor(c[0]);
+        name.setTypeface(Ui.MEDIUM);
         name.setPadding(0, dp(6), 0, 0);
         name.setSingleLine(true);
         cell.addView(name);
@@ -4069,7 +4094,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         int now = config.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK;
         if (now == night) return;
         night = now;
-        if (Themes.current(this).dark == null) restyle();
+        if (Themes.mode(this) == 0) restyle();
     }
 
     // ---- fonts ----
