@@ -593,16 +593,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
         d.setBackgroundColor(col(R.color.bg)); // full screen: one colour with the status bar
         d.setClickable(true);
 
-        // One line down the side: icons centred in a column 28dp wide from 24dp, their words from
-        // 64dp; the conversations' words from 24dp. What can be tapped is round, as elsewhere.
+        // One line down the side: the title and the conversations' words from 24dp; icons centred
+        // in a column 28dp wide from 24dp, their words from 64dp. What can be tapped is round, as elsewhere.
         LinearLayout head = Ui.row(this);
         head.setPadding(dp(24), dp(14), dp(24), dp(14));
-        ImageView mark = new ImageView(this);
-        mark.setImageResource(R.drawable.mascot);
-        head.addView(drawerSlot(mark, 26, 16)); // 2dp to each of its 13×8 pixels
         TextView brand = Ui.text(this, "Claude Code", 26, R.color.text);
         brand.setTypeface(Ui.SERIF); // as Settings' titles
-        brand.setPadding(dp(12), 0, 0, 0);
         head.addView(brand);
         d.addView(head, Ui.fill());
 
