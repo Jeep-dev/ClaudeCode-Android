@@ -4057,12 +4057,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
             settingsPage.dismiss();
             settingsPage = null;
         }
+        // The drawer (Settings is opened from it) and a /find are as they were, in the new screen.
+        boolean drawerOpen = frame.isOpen();
+        String finding = finding() ? findQuery : null;
+        int foundAt = findAt;
         Chat chat = current;
         chat.draft = input.getText().toString();
         current = null;
         md = new Md(talkContext(), this::copy, this::openUrl, this::userFile);
         build();
+        if (drawerOpen) frame.openNow();
         switchTo(chat);
+        if (finding != null) list.post(() -> {
+            find(finding);
+            if (finding()) findGo(foundAt);
+        });
         renderSessions();
         updateLink();
         if (open) {

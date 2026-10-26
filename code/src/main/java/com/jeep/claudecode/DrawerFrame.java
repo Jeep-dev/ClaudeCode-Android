@@ -39,7 +39,7 @@ final class DrawerFrame extends FrameLayout {
         addView(scrim, new LayoutParams(-1, -1));
         addView(drawer, new LayoutParams(-2, -1));
         drawer.setElevation(Ui.dp(c, 12));
-        post(() -> apply(0));
+        post(() -> apply(offset));
     }
 
     void setListener(Listener l) { listener = l; }
@@ -49,6 +49,12 @@ final class DrawerFrame extends FrameLayout {
     void open() { animateTo(1); }
 
     void close() { animateTo(0); }
+
+    /** Open at once, without moving: a screen built again where it was open. */
+    void openNow() {
+        if (anim != null) anim.cancel();
+        apply(1);
+    }
 
     private int width() {
         int w = drawer.getWidth();
