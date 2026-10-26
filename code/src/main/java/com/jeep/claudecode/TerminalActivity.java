@@ -39,6 +39,12 @@ public final class TerminalActivity extends Activity implements TerminalSessionC
     private boolean ctrl, alt;
     private TextView ctrlKey, altKey;
 
+    /** Back as Settings' pages go back (Motion.pop): away to the right, the conversation coming up from under. */
+    @Override public void finish() {
+        super.finish();
+        overridePendingTransition(R.anim.page_under_in, R.anim.page_out);
+    }
+
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         Userland userland = new Userland(this);

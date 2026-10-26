@@ -225,6 +225,10 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             case QUEUED: queued(h.box, it.queued); break;
             default:
         }
+        if (it.block != null && it.block == growing) {
+            growing = null;
+            grow(h.box, it.block);
+        }
     }
 
     @Override public void onViewRecycled(@NonNull Holder h) { statusRows.remove(h); }
@@ -391,9 +395,91 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         return v;
     }
 
+    /** The row being opened: its body grows out of its head once built (grow). */
+    private Chat.Block growing;
+    /** A row moving open or closed: taps on it meanwhile wait. */
+    private final java.util.Set<Chat.Block> moving = new java.util.HashSet<>();
+
+    /** Opens or closes a row: its height moves between the head alone and the whole, the chevron turns. */
     private void toggle(Chat.Block b, View row) {
-        b.open = !b.open;
-        changed.accept(row);
+        if (moving.contains(b)) return;
+        if (!b.open) {
+            growing = b;
+            b.open = true;
+            changed.accept(row);
+            return;
+        }
+        ViewGroup box = (ViewGroup) row;
+        View head = box.getChildAt(0);
+        int from = box.getHeight(), to = head.getBottom() + box.getPaddingBottom();
+        turn(head, 90, 0);
+        if (from <= to) {
+            b.open = false;
+            changed.accept(row);
+            return;
+        }
+        moving.add(b);
+        resize(box, from, to, () -> {
+            moving.remove(b);
+            b.open = false;
+            changed.accept(row);
+        });
+    }
+
+    /** A row just opened: built whole, it is drawn from its head's height down to that. */
+    private void grow(LinearLayout box, Chat.Block b) {
+        if (box.getChildCount() == 0) return;
+        View head = box.getChildAt(0);
+        turn(head, 0, 90);
+        moving.add(b);
+        box.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                box.getViewTreeObserver().removeOnPreDrawListener(this);
+                int to = box.getHeight(), from = head.getBottom() + box.getPaddingBottom();
+                if (to <= from) { moving.remove(b); return true; }
+                for (int i = 1; i < box.getChildCount(); i++) {
+                    View v = box.getChildAt(i);
+                    v.setAlpha(0f);
+                    v.animate().alpha(1f).setDuration(Motion.PAGE).setInterpolator(Motion.EMPHASIZED).start();
+                }
+                resize(box, from, to, () -> {
+                    moving.remove(b);
+                    changed.accept(box); // where it ends: the list follows it as an opened row
+                });
+                return false; // this frame was whole: the next starts at the head's height
+            }
+        });
+    }
+
+    /** The chevron at the head's end, turned from one angle to another. */
+    private static void turn(View head, float from, float to) {
+        if (!(head instanceof ViewGroup) || ((ViewGroup) head).getChildCount() == 0) return;
+        View chevron = ((ViewGroup) head).getChildAt(((ViewGroup) head).getChildCount() - 1);
+        if (!(chevron instanceof ImageView)) return;
+        chevron.setRotation(from);
+        chevron.animate().rotation(to).setDuration(250).setInterpolator(Motion.EMPHASIZED).start();
+    }
+
+    /** A box's height moved from one to another, then back to its own (wrap_content). */
+    private static void resize(View box, int from, int to, Runnable end) {
+        ViewGroup.LayoutParams p = box.getLayoutParams();
+        p.height = from;
+        box.setLayoutParams(p);
+        android.animation.ValueAnimator a = android.animation.ValueAnimator.ofInt(from, to);
+        a.setDuration(Math.min(Motion.PAGE, 200 + Math.abs(to - from) / 4));
+        a.setInterpolator(Motion.EMPHASIZED);
+        a.addUpdateListener(x -> {
+            p.height = (int) x.getAnimatedValue();
+            box.setLayoutParams(p);
+        });
+        a.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator x) {
+                p.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+                box.setLayoutParams(p);
+                end.run();
+            }
+        });
+        a.start();
     }
 
     private static String thinkingLabel(Chat.Block b) {

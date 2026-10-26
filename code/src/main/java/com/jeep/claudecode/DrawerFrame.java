@@ -7,7 +7,6 @@ import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
-import android.view.animation.PathInterpolator;
 import android.widget.FrameLayout;
 
 /**
@@ -75,8 +74,8 @@ final class DrawerFrame extends FrameLayout {
         if (anim != null) anim.cancel();
         boolean opening = target > offset;
         anim = ValueAnimator.ofFloat(offset, target);
-        anim.setDuration((long) (260 * Math.max(0.35f, Math.abs(target - offset))));
-        anim.setInterpolator(new PathInterpolator(0.2f, 0.8f, 0.2f, 1f));
+        anim.setDuration((long) (Motion.PAGE * Math.max(0.35f, Math.abs(target - offset))));
+        anim.setInterpolator(Motion.EMPHASIZED);
         anim.addUpdateListener(a -> apply((float) a.getAnimatedValue()));
         anim.start();
         if (opening && listener != null) listener.opened();

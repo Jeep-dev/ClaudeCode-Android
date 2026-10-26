@@ -793,7 +793,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
         return m == null || m.isEmpty() ? "默认模型" : m.replaceAll("(?i)\\[1m\\]$", "");
     }
 
+    /** What the empty page last showed: rebuilt only when that changes, so what moves in it is not cut off. */
+    private String emptyShown;
+
     private void fillEmpty() {
+        String folder = current.cwd == null || current.cwd.isEmpty() ? defaultCwd : current.cwd;
+        String shown = setup + "|" + installStatus + "|" + installError + "|" + linked + "|" + folder + "|"
+                + System.identityHashCode(current) + "|" + System.identityHashCode(emptyView);
+        if (shown.equals(emptyShown) && emptyView.getChildCount() > 0) return;
+        emptyShown = shown;
         LinearLayout box = Ui.column(this);
         box.setGravity(Gravity.CENTER);
         box.setPadding(dp(22), dp(20), dp(22), dp(40));
@@ -831,7 +839,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         LinearLayout chips = Ui.column(this);
         chips.setGravity(Gravity.CENTER_HORIZONTAL);
         chips.setPadding(0, dp(24), 0, 0);
-        if (startersFor != current) { startersFor = current; starters = pickStarters(); }
+        boolean fresh = startersFor != current;
+        if (fresh) { startersFor = current; starters = pickStarters(); }
         for (String s : starters) {
             TextView chip = Ui.text(this, s, 14, R.color.text2);
             chip.setPadding(dp(14), dp(9), dp(14), dp(9));
@@ -841,6 +850,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
             Ui.margins(chip, this, 0, 0, 0, 8);
         }
         box.addView(chips);
+        // A new conversation's: one after another up into place. Built again on every render, it stays still then.
+        if (!fresh) return;
+        List<View> parts = new ArrayList<>();
+        for (int i = 0; i < box.getChildCount(); i++) {
+            View v = box.getChildAt(i);
+            if (v == chips) for (int j = 0; j < chips.getChildCount(); j++) parts.add(chips.getChildAt(j));
+            else parts.add(v);
+        }
+        for (int i = 0; i < parts.size(); i++) {
+            View v = parts.get(i);
+            v.setAlpha(0f);
+            v.setTranslationY(dp(18));
+            v.animate().alpha(1f).translationY(0).setStartDelay(40L * i).setDuration(Motion.PAGE)
+                    .setInterpolator(Motion.EMPHASIZED).start();
+        }
     }
 
     private static final String[] STARTERS = {
@@ -1242,6 +1266,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     private void sessionActions(String id, String titleText, String folder) {
+        sessionsBox.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
         Dialog sheet = sheet(titleText, null);
         LinearLayout card = card(sheet);
         boolean pin = pinned().contains(id);
@@ -1958,6 +1983,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     /** A message pressed long: a small card where the finger is, in place of selecting its text. */
     private void messageMenu(Chat.Msg m) {
+        list.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
         Chat chat = current;
         boolean user = m.kind == Chat.Msg.USER;
         int width = dp(196), shade = dp(14);
@@ -1991,11 +2017,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
         int x = Math.max(0, Math.min((int) touchX - w / 2, screenW - w));
         int y = (int) touchY + h > screenH - dp(24) ? (int) touchY - h : (int) touchY;
         pop.showAtLocation(list, Gravity.NO_GRAVITY, x, Math.max(0, y));
+        // It grows out of the finger.
+        card.setPivotX(Math.max(0, Math.min(width, touchX - x - shade)));
+        card.setPivotY(Math.max(0, Math.min(h - 2 * shade, touchY - Math.max(0, y) - shade)));
         card.setAlpha(0f);
-        card.setScaleX(0.9f);
-        card.setScaleY(0.9f);
-        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+        card.setScaleX(0.8f);
+        card.setScaleY(0.8f);
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(250)
+                .setInterpolator(Motion.EMPHASIZED).start();
     }
 
     /** A reply's text blocks: as shown (plain) or as written (Markdown). */
@@ -2437,9 +2466,34 @@ public final class MainActivity extends Activity implements Bridge.Events {
     // ================= sheets =================
 
     private Dialog sheet(String titleText, String sub) {
-        Dialog d = new Dialog(this, R.style.Sheet);
+        SheetBox box = new SheetBox(this);
+        Dialog d = new Dialog(this, R.style.Sheet) {
+            private boolean leaving;
+
+            /** Up from the bottom edge, the dim coming with it. */
+            @Override public void show() {
+                super.show();
+                Window w = getWindow();
+                box.setTranslationY(getResources().getDisplayMetrics().heightPixels);
+                box.post(() -> {
+                    box.setTranslationY(box.getHeight());
+                    box.animate().translationY(0).setDuration(Motion.PAGE).setInterpolator(Motion.EMPHASIZED).start();
+                    dim(w, 0f, SHEET_DIM);
+                });
+            }
+
+            /** Down out of sight, the dim going, and only then away: however it is closed. */
+            @Override public void dismiss() {
+                if (leaving) return;
+                if (!isShowing() || isFinishing() || isDestroyed() || box.getHeight() == 0) { super.dismiss(); return; }
+                leaving = true;
+                dim(getWindow(), SHEET_DIM, 0f);
+                box.animate().translationY(box.getHeight()).setDuration(250).setInterpolator(Motion.EMPHASIZED)
+                        .withEndAction(super::dismiss).start();
+            }
+        };
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout box = Ui.column(this);
+        box.close = d::cancel;
         android.graphics.drawable.GradientDrawable bg = Ui.round(col(R.color.bg), 0);
         float r = dp(22);
         bg.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
@@ -2477,9 +2531,24 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (w != null) {
             w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             w.setGravity(Gravity.BOTTOM);
+            // It moves itself (show, dismiss); the dim follows it.
+            w.setWindowAnimations(0);
+            w.setDimAmount(0f);
         }
         d.setCanceledOnTouchOutside(true);
         return d;
+    }
+
+    /** The dim behind a sheet (its style's backgroundDimAmount). */
+    private static final float SHEET_DIM = 0.34f;
+
+    private static void dim(Window w, float from, float to) {
+        if (w == null) return;
+        android.animation.ValueAnimator a = android.animation.ValueAnimator.ofFloat(from, to);
+        a.setDuration(to > from ? Motion.PAGE : 250);
+        a.setInterpolator(Motion.EMPHASIZED);
+        a.addUpdateListener(x -> w.setDimAmount((float) x.getAnimatedValue()));
+        a.start();
     }
 
     private LinearLayout content(Dialog d) {
@@ -4448,10 +4517,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
         card.setPivotX(width);
         card.setPivotY(0);
         card.setAlpha(0f);
-        card.setScaleX(0.9f);
-        card.setScaleY(0.9f);
-        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(150)
-                .setInterpolator(new android.view.animation.DecelerateInterpolator(1.6f)).start();
+        card.setScaleX(0.8f);
+        card.setScaleY(0.8f);
+        card.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(250)
+                .setInterpolator(Motion.EMPHASIZED).start();
     }
 
     private void menuItem(LinearLayout card, android.widget.PopupWindow pop, int icon, String label, String command, Runnable click) {
@@ -4478,6 +4547,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void openTerminal() {
         if (!userland.ready()) { toast("运行环境还没准备好"); return; }
         startActivity(new Intent(this, TerminalActivity.class));
+        overridePendingTransition(R.anim.page_in, R.anim.page_under_out);
     }
 
     private java.io.File settingsFile() { return userland.file(Userland.HOME + "/.claude/settings.json"); }

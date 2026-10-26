@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A page coming in over another: from the right edge (Motion.push). -->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="400" android:interpolator="@interpolator/emphasized"
+    android:fromXDelta="100%" android:toXDelta="0" />
