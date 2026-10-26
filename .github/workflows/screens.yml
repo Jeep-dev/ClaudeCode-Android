@@ -1,0 +1,27 @@
+name: Screens
+# Renders the screenshot tests to PNG files (by hand: gh workflow run screens.yml -f tests=ThemesTest).
+on:
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: Test class
+        default: ThemesTest
+jobs:
+  shots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.5'
+      - name: Render
+        run: gradle --no-daemon :code:testDebugUnitTest --tests "com.jeep.claudecode.${{ inputs.tests }}" -Dshots="$PWD/shots"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shots
+          path: shots
