@@ -631,6 +631,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
         searchInput.setTextSize(15.5f);
         searchInput.setSingleLine(true);
         searchInput.setPadding(dp(12), 0, 0, 0);
+        // Built again after a restyle: what was being looked for is still in the box.
+        searchInput.setText(search);
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -1212,19 +1214,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             TextView words = Ui.text(this, linked ? none : "连接后显示历史对话", 14, R.color.text3);
             words.setGravity(Gravity.CENTER);
             empty.addView(words);
-            // Only the working folder's are listed: one tap lists them all (the setting goes off).
-            if (linked && !here.isEmpty()) {
-                TextView all = Ui.text(this, "显示所有目录的对话", 14, R.color.accent);
-                all.setTypeface(Ui.MEDIUM);
-                all.setPadding(dp(16), dp(10), dp(16), dp(10));
-                all.setBackground(Ui.press(this, null, dp(20)));
-                all.setOnClickListener(v -> {
-                    prefs.edit().putBoolean("drawerOnlyHere", false).apply();
-                    renderSessions();
-                });
-                empty.addView(all);
-                Ui.margins(all, this, 0, 8, 0, 0);
-            }
             sessionsBox.addView(empty, Ui.fill());
         }
     }
