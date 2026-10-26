@@ -328,20 +328,29 @@ public final class MainActivity extends Activity implements Bridge.Events {
         main.setBackgroundColor(col(R.color.bg));
         LinearLayout top = Ui.row(this);
         top.setPadding(dp(6), 0, dp(6), 0);
-        ImageView menu = Ui.iconButton(this, R.drawable.ic_sidebar, 34, 20, R.color.text2);
+        ImageView menu = Ui.iconButton(this, R.drawable.ic_sidebar, 44, 20, R.color.text2);
         menu.setOnClickListener(v -> frame.open());
-        top.addView(menu, new LinearLayout.LayoutParams(dp(34), dp(34)));
+        top.addView(menu, new LinearLayout.LayoutParams(dp(44), dp(44)));
         top.addView(title, Ui.weight());
         if (!Themes.showTitle(this)) title.setVisibility(View.INVISIBLE);
-        ImageView more = Ui.iconButton(this, R.drawable.ic_more, 34, 20, R.color.text2);
+        ImageView more = Ui.iconButton(this, R.drawable.ic_more, 44, 20, R.color.text2);
         more.setOnClickListener(this::moreMenu);
-        top.addView(more, new LinearLayout.LayoutParams(dp(34), dp(34)));
-        main.addView(top, new LinearLayout.LayoutParams(-1, dp(34)));
+        top.addView(more, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        main.addView(top, new LinearLayout.LayoutParams(-1, dp(52)));
         main.addView(banner, Ui.fill());
         Ui.margins(banner, this, 12, 4, 12, 0);
         FrameLayout content = new FrameLayout(this);
         content.addView(list, new FrameLayout.LayoutParams(-1, -1));
         content.addView(emptyView, new FrameLayout.LayoutParams(-1, -1));
+        // The conversation fades out under the bar instead of being cut at its edge; at its top
+        // it starts below the fade.
+        list.setPadding(dp(22), dp(24), dp(22), dp(24));
+        list.setClipToPadding(false);
+        int bg = col(R.color.bg);
+        View fade = new View(this);
+        fade.setBackground(new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{bg, Glass.alpha(bg, 0.6f), Glass.alpha(bg, 0f)}));
+        content.addView(fade, new FrameLayout.LayoutParams(-1, dp(28), Gravity.TOP));
         content.addView(jump, jumpAt);
         main.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
         composer = buildComposer();
