@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -2496,6 +2497,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     /** A row: icon, label, and its value on the right. */
     private void option(LinearLayout card, int iconRes, String label, String value, boolean danger, Runnable click) {
+        if (tiled) { tileOption(card, iconRes, label, value, danger, click); return; }
         LinearLayout row = Ui.row(this);
         row.setPadding(dp(14), 0, dp(14), 0);
         row.setMinimumHeight(dp(50));
@@ -2518,6 +2520,86 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         if (click != null) row.setOnClickListener(v -> click.run());
         card.addView(row, Ui.fill());
+    }
+
+    /** A row of Settings: its icon in a tinted circle, the label with the value under it. */
+    private void tileOption(LinearLayout card, int iconRes, String label, String value, boolean danger, Runnable click) {
+        LinearLayout row = tileRow(card, iconRes, label, value, danger);
+        if (click != null) row.setOnClickListener(v -> click.run());
+    }
+
+    /** A tile's row: icon, label and what is under it; whatever goes on its right is added after. */
+    private LinearLayout tileRow(LinearLayout card, int iconRes, String label, String value, boolean danger) {
+        LinearLayout row = Ui.row(this);
+        row.setPadding(dp(16), dp(12), dp(16), dp(12));
+        row.setMinimumHeight(dp(64));
+        if (iconRes != 0) {
+            ImageView icon = Ui.icon(this, iconRes, 44, danger ? R.color.danger : R.color.accent);
+            icon.setPadding(dp(11), dp(11), dp(11), dp(11));
+            icon.setBackground(Ui.round(col(danger ? R.color.dangerSoft : R.color.accentSoft), dp(22)));
+            row.addView(icon);
+            Ui.margins(icon, this, 0, 0, 16, 0);
+        }
+        LinearLayout words = Ui.column(this);
+        TextView l = Ui.text(this, label, 16.5f, danger ? R.color.danger : R.color.text);
+        l.setSingleLine(true);
+        l.setEllipsize(TextUtils.TruncateAt.END);
+        words.addView(l);
+        if (value != null && !value.isEmpty()) {
+            TextView v = Ui.text(this, value, 13.5f, R.color.text2);
+            v.setMaxLines(2);
+            v.setEllipsize(TextUtils.TruncateAt.END);
+            v.setLineSpacing(0, 1.15f);
+            v.setPadding(0, dp(5), 0, 0);
+            words.addView(v);
+        }
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(row, Ui.fill());
+        return row;
+    }
+
+    /** A setting that is on or off: the whole row flips it. */
+    private void toggle(LinearLayout card, String label, String about, boolean on, java.util.function.Consumer<Boolean> set) {
+        LinearLayout row = tileRow(card, 0, label, about, false);
+        Toggle t = new Toggle(this, on);
+        row.addView(t);
+        Ui.margins(t, this, 16, 0, 0, 0);
+        row.setOnClickListener(v -> {
+            t.flip();
+            // Redrawn by what it sets: after the thumb has moved.
+            ui.postDelayed(() -> set.accept(t.isOn()), 160);
+        });
+    }
+
+    /** A choice of a few: its label, the buttons across the tile under it, the chosen one filled. */
+    private void choice(LinearLayout card, String label, String[] labels, int chosen, java.util.function.IntConsumer pick) {
+        LinearLayout tile = Ui.column(this);
+        tile.setPadding(dp(16), dp(16), dp(16), dp(16));
+        tile.addView(Ui.text(this, label, 16.5f, R.color.text));
+        LinearLayout bar = Ui.row(this);
+        float big = dp(24), small = dp(10);
+        for (int i = 0; i < labels.length; i++) {
+            int index = i;
+            boolean on = i == chosen;
+            TextView b = Ui.text(this, labels[i], 15, R.color.text);
+            b.setGravity(Gravity.CENTER);
+            if (on) {
+                b.setTypeface(Ui.MEDIUM);
+                b.setTextColor(0xFFFFFFFF);
+            }
+            float l = on || i == 0 ? big : small, r = on || i == labels.length - 1 ? big : small;
+            float[] radii = {l, l, r, r, r, r, l, l};
+            GradientDrawable shape = new GradientDrawable();
+            shape.setColor(col(on ? R.color.accent : R.color.surface2));
+            shape.setCornerRadii(radii);
+            b.setBackground(Ui.press(this, shape, small));
+            if (!on) b.setOnClickListener(v -> pick.accept(index));
+            bar.addView(b, new LinearLayout.LayoutParams(0, dp(48), 1));
+            if (i > 0) Ui.margins(b, this, 4, 0, 0, 0);
+        }
+        tile.addView(bar, Ui.fill());
+        Ui.margins(bar, this, 0, 14, 0, 0);
+        card.addView(tile, Ui.fill());
     }
 
     private void check(LinearLayout card) {
@@ -2708,9 +2790,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private JSONObject launchCache;
 
     private static final String[][] PAGES = {
-            {"look", "外观"}, {"talk", "对话"}, {"model", "模型"},
-            {"claude", "Claude Code"}, {"ext", "扩展"},
-            {"storage", "存储"}, {"keep", "后台"}, {"about", "关于"},
+            {"look", "外观", "主题、显示和字体"}, {"talk", "对话", "工作文件夹、权限、系统提示和 CLAUDE.md"},
+            {"model", "模型", "API Key"},
+            {"claude", "Claude Code", "settings.json 和环境变量"}, {"ext", "扩展", "技能、插件、MCP、子代理和 Hooks"},
+            {"storage", "存储", "占用的空间和清理"}, {"keep", "后台", "闲置重启、电池优化和保活"},
+            {"about", "关于", "版本、日志和终端"},
     };
 
     /** Opens Settings, a full-screen page (or refreshes it when open). */
@@ -2718,25 +2802,31 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (settingsPage == null) {
             Dialog d = new Dialog(this, R.style.Page);
             LinearLayout root = Ui.column(this);
-            root.setBackgroundColor(col(R.color.bg));
+            // Tiles a shade lighter than the page under them.
+            root.setBackgroundColor(col(R.color.sidebar));
             LinearLayout top = Ui.row(this);
-            top.setPadding(dp(6), 0, dp(6), 0);
-            ImageView back = Ui.iconButton(this, R.drawable.ic_back, 40, 22, R.color.text);
+            top.setPadding(dp(14), dp(8), dp(14), dp(4));
+            ImageView back = Ui.iconButton(this, R.drawable.ic_back, 48, 22, R.color.text);
+            back.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(24)), dp(24)));
             back.setOnClickListener(v -> settingsBack());
-            top.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
-            settingsTitle = Ui.text(this, "设置", 18, R.color.text);
+            top.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
+            settingsTitle = Ui.text(this, "设置", 26, R.color.text);
             settingsTitle.setTypeface(Ui.SERIF);
-            settingsTitle.setPadding(dp(6), 0, 0, 0);
+            settingsTitle.setPadding(dp(14), 0, 0, 0);
             top.addView(settingsTitle);
-            root.addView(top, new LinearLayout.LayoutParams(-1, dp(48)));
+            root.addView(top, Ui.fill());
             ScrollView scroll = new ScrollView(this);
             settingsBox = Ui.column(this);
-            settingsBox.setPadding(dp(16), dp(4), dp(16), dp(28));
+            settingsBox.setPadding(dp(16), dp(4), dp(16), dp(32));
             scroll.addView(settingsBox);
             root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
             d.setContentView(root);
             Themes.window(d.getWindow(), this);
-            if (d.getWindow() != null) d.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            if (d.getWindow() != null) {
+                d.getWindow().setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+                d.getWindow().setStatusBarColor(col(R.color.sidebar));
+                d.getWindow().setNavigationBarColor(col(R.color.sidebar));
+            }
             d.setOnKeyListener((x, code, e) -> {
                 if (code != android.view.KeyEvent.KEYCODE_BACK) return false;
                 if (e.getAction() == android.view.KeyEvent.ACTION_UP && !e.isCanceled()) settingsBack();
@@ -2785,6 +2875,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private LinearLayout card(LinearLayout box) {
         LinearLayout card = Ui.column(this);
+        if (tiled) {
+            // Its rows become tiles once Settings is filled (tile).
+            card.setTag(TILES);
+            box.addView(card, Ui.fill());
+            return card;
+        }
         card.setPadding(dp(4), dp(4), dp(4), dp(4));
         card.setBackground(Ui.round(col(R.color.surface), dp(14), dp(1), col(R.color.border)));
         box.addView(card, Ui.fill());
@@ -2798,45 +2894,88 @@ public final class MainActivity extends Activity implements Bridge.Events {
         box.removeAllViews();
         String name = "设置";
         for (String[] p : PAGES) if (p[0].equals(settingsAt)) name = p[1];
-        settingsTitle.setText(name);
-        if (settingsAt == null) { fillPages(box); return; }
-        switch (settingsAt) {
-            case "look": fillLook(box); break;
-            case "talk": fillTalk(box, launch); break;
-            case "model": fillModel(box); break;
-            case "claude": fillClaude(box); break;
-            case "ext": fillExt(box, launch); break;
-            case "storage": fillStorage(box); break;
-            case "keep": fillKeep(box); break;
-            default: fillAbout(box); break;
+        // The list of pages has its name beside the back button; a page, big above its contents.
+        settingsTitle.setText(settingsAt == null ? name : "");
+        if (settingsAt != null) {
+            TextView big = Ui.text(this, name, 34, R.color.text);
+            big.setTypeface(Ui.SERIF);
+            big.setPadding(dp(6), dp(10), 0, dp(14));
+            box.addView(big);
+        }
+        tiled = true;
+        try {
+            if (settingsAt == null) fillPages(box);
+            else switch (settingsAt) {
+                case "look": fillLook(box); break;
+                case "talk": fillTalk(box, launch); break;
+                case "model": fillModel(box); break;
+                case "claude": fillClaude(box); break;
+                case "ext": fillExt(box, launch); break;
+                case "storage": fillStorage(box); break;
+                case "keep": fillKeep(box); break;
+                default: fillAbout(box); break;
+            }
+        } finally {
+            tiled = false;
+        }
+        tile(box);
+    }
+
+    private static final String TILES = "tiles";
+    /** Settings is being filled: cards and options are made as its tiles, not as in a sheet. */
+    private boolean tiled;
+
+    /** Each card's rows as tiles one under another: the group's outer corners round, its inner ones nearly square. */
+    private void tile(LinearLayout box) {
+        float big = dp(24), small = dp(5);
+        for (int i = 0; i < box.getChildCount(); i++) {
+            View g = box.getChildAt(i);
+            if (!TILES.equals(g.getTag())) continue;
+            LinearLayout card = (LinearLayout) g;
+            int n = card.getChildCount();
+            for (int j = 0; j < n; j++) {
+                View row = card.getChildAt(j);
+                float t = j == 0 ? big : small, b = j == n - 1 ? big : small;
+                float[] radii = {t, t, t, t, b, b, b, b};
+                GradientDrawable shape = new GradientDrawable();
+                shape.setColor(col(R.color.surface));
+                shape.setCornerRadii(radii);
+                if (row.isClickable()) {
+                    GradientDrawable mask = new GradientDrawable();
+                    mask.setColor(0xFF000000);
+                    mask.setCornerRadii(radii);
+                    row.setBackground(new android.graphics.drawable.RippleDrawable(
+                            android.content.res.ColorStateList.valueOf(col(R.color.active)), shape, mask));
+                } else {
+                    row.setBackground(shape);
+                }
+                if (j > 0) Ui.margins(row, this, 0, 2, 0, 0);
+            }
         }
     }
 
     /** The first level: a row for each page. */
     private void fillPages(LinearLayout box) {
+        section(box, "通用");
         LinearLayout a = card(box);
         page(a, R.drawable.ic_image, "look");
         page(a, R.drawable.ic_compose, "talk");
         page(a, R.drawable.ic_link, "model");
+        section(box, "Claude Code");
         LinearLayout b = card(box);
-        Ui.margins(b, this, 0, 12, 0, 0);
         page(b, R.drawable.ic_gear, "claude");
         page(b, R.drawable.ic_tool, "ext");
+        section(box, "应用");
         LinearLayout c = card(box);
-        Ui.margins(c, this, 0, 12, 0, 0);
         page(c, R.drawable.ic_folder, "storage");
         page(c, R.drawable.ic_refresh, "keep");
         page(c, R.drawable.ic_book, "about");
     }
 
     private void page(LinearLayout card, int icon, String id) {
-        String label = id;
-        for (String[] p : PAGES) if (p[0].equals(id)) label = p[1];
-        option(card, icon, label, null, false, () -> settingsOpen(id));
-        LinearLayout row = (LinearLayout) card.getChildAt(card.getChildCount() - 1);
-        View more = Ui.icon(this, R.drawable.ic_chevron_right, 16, R.color.text3);
-        row.addView(more);
-        Ui.margins(more, this, 8, 0, 0, 0);
+        String label = id, what = null;
+        for (String[] p : PAGES) if (p[0].equals(id)) { label = p[1]; what = p[2]; }
+        option(card, icon, label, what, false, () -> settingsOpen(id));
     }
 
     private String appVersion() {
@@ -2855,78 +2994,51 @@ public final class MainActivity extends Activity implements Bridge.Events {
         HorizontalScrollView scroll = new HorizontalScrollView(this);
         scroll.setHorizontalScrollBarEnabled(false);
         LinearLayout row = Ui.row(this);
-        row.setPadding(dp(6), dp(10), dp(6), dp(8));
+        row.setPadding(dp(10), dp(16), dp(10), dp(14));
         String now = Themes.current(this).id;
         for (Themes.Theme t : Themes.ALL) row.addView(swatch(t, t.id.equals(now)), new LinearLayout.LayoutParams(dp(62), -2));
         scroll.addView(row);
         themes.addView(scroll, Ui.fill());
 
-        section(box, "文字");
-        LinearLayout text = card(box);
-        LinearLayout size = Ui.row(this);
-        size.setPadding(dp(14), dp(6), dp(8), dp(6));
-        size.setMinimumHeight(dp(50));
-        size.addView(Ui.text(this, "大小", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        size.addView(segmented(Fonts.SIZES, Fonts.size(this), i -> {
-            Fonts.setSize(this, i);
+        section(box, "显示");
+        LinearLayout show = card(box);
+        toggle(show, "沉浸式", "对话延伸到状态栏下，按钮和输入框是玻璃效果", Themes.immersive(this), on -> {
+            Themes.setImmersive(this, on);
             restyle();
-        }));
-        text.addView(size, Ui.fill());
-        LinearLayout look = Ui.row(this);
-        look.setPadding(dp(14), dp(6), dp(8), dp(6));
-        look.setMinimumHeight(dp(50));
-        look.addView(Ui.text(this, "沉浸式", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        look.addView(segmented(new String[]{"关", "开"}, Themes.immersive(this) ? 1 : 0, i -> {
-            Themes.setImmersive(this, i == 1);
+        });
+        toggle(show, "标题", "在对话上方显示它的标题", Themes.showTitle(this), on -> {
+            Themes.setShowTitle(this, on);
             restyle();
-        }));
-        themes.addView(look, Ui.fill());
-        LinearLayout titled = Ui.row(this);
-        titled.setPadding(dp(14), dp(6), dp(8), dp(6));
-        titled.setMinimumHeight(dp(50));
-        titled.addView(Ui.text(this, "标题", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        titled.addView(segmented(new String[]{"关", "开"}, Themes.showTitle(this) ? 1 : 0, i -> {
-            Themes.setShowTitle(this, i == 1);
-            restyle();
-        }));
-        themes.addView(titled, Ui.fill());
-        LinearLayout thought = Ui.row(this);
-        thought.setPadding(dp(14), dp(6), dp(8), dp(6));
-        thought.setMinimumHeight(dp(50));
-        thought.addView(Ui.text(this, "思考", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        thought.addView(segmented(new String[]{"关", "开"}, Themes.showThinking(this) ? 1 : 0, i -> {
-            Themes.setShowThinking(this, i == 1);
+        });
+        toggle(show, "思考", "显示模型的思考过程", Themes.showThinking(this), on -> {
+            Themes.setShowThinking(this, on);
             fillSettings(launchCache);
             renderNow();
-        }));
-        themes.addView(thought, Ui.fill());
-        LinearLayout times = Ui.row(this);
-        times.setPadding(dp(14), dp(6), dp(8), dp(6));
-        times.setMinimumHeight(dp(50));
-        times.addView(Ui.text(this, "对话时间", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        times.addView(segmented(new String[]{"关", "开"}, prefs.getBoolean("drawerTimes", true) ? 1 : 0, i -> {
-            prefs.edit().putBoolean("drawerTimes", i == 1).apply();
+        });
+        toggle(show, "对话时间", "侧栏里显示每个对话多久以前用过", prefs.getBoolean("drawerTimes", true), on -> {
+            prefs.edit().putBoolean("drawerTimes", on).apply();
             fillSettings(launchCache);
             renderSessions();
-        }));
-        themes.addView(times, Ui.fill());
-        LinearLayout here = Ui.row(this);
-        here.setPadding(dp(14), dp(6), dp(8), dp(6));
-        here.setMinimumHeight(dp(50));
-        here.addView(Ui.text(this, "只显示当前目录", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        here.addView(segmented(new String[]{"关", "开"}, onlyHere() ? 1 : 0, i -> {
-            prefs.edit().putBoolean("drawerOnlyHere", i == 1).apply();
+        });
+        toggle(show, "只显示当前目录", "侧栏只列出当前工作文件夹里的对话", onlyHere(), on -> {
+            prefs.edit().putBoolean("drawerOnlyHere", on).apply();
             fillSettings(launchCache);
             renderSessions();
-        }));
-        themes.addView(here, Ui.fill());
+        });
         String footer = prefs.getString("footer", "");
-        option(themes, 0, "底部文字", footer, false, () -> textSheet("底部文字", footer, "", false, (t, done) -> {
+        option(show, 0, "底部文字", footer.isEmpty() ? "不显示" : footer, false, () -> textSheet("底部文字", footer, "", false, (t, done) -> {
             prefs.edit().putString("footer", t.trim()).apply();
             shownLink = null;
             updateLink();
             done.run();
         }, this::refreshSettings));
+
+        section(box, "文字");
+        LinearLayout text = card(box);
+        choice(text, "大小", Fonts.SIZES, Fonts.size(this), i -> {
+            Fonts.setSize(this, i);
+            restyle();
+        });
         option(text, 0, "中文字体", Fonts.name(Fonts.cjk(this)), false, () -> fontSheet(true));
         option(text, 0, "英文字体", Fonts.name(Fonts.latin(this)), false, () -> fontSheet(false));
     }
@@ -2979,41 +3091,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
         return cell;
     }
 
-    /** Choices side by side, the chosen one raised. */
-    private View segmented(String[] labels, int chosen, java.util.function.IntConsumer pick) {
-        LinearLayout bar = Ui.row(this);
-        bar.setPadding(dp(3), dp(3), dp(3), dp(3));
-        bar.setBackground(Ui.round(col(R.color.surface2), dp(10)));
-        for (int i = 0; i < labels.length; i++) {
-            int index = i;
-            TextView t = Ui.text(this, labels[i], 14, i == chosen ? R.color.text : R.color.text2);
-            t.setGravity(Gravity.CENTER);
-            t.setPadding(dp(14), 0, dp(14), 0);
-            t.setMinHeight(dp(32));
-            if (i == chosen) {
-                t.setTypeface(Ui.MEDIUM);
-                t.setBackground(Ui.round(col(R.color.surface), dp(8), dp(1), col(R.color.border)));
-            } else {
-                t.setOnClickListener(v -> pick.accept(index));
-            }
-            bar.addView(t);
-        }
-        return bar;
-    }
-
     // ---- 对话 ----
 
     private void fillTalk(LinearLayout box, JSONObject launch) {
         LinearLayout talk = card(box);
-        LinearLayout meanwhile = Ui.row(this);
-        meanwhile.setPadding(dp(14), dp(6), dp(8), dp(6));
-        meanwhile.setMinimumHeight(dp(50));
-        meanwhile.addView(Ui.text(this, "回复中发消息", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        meanwhile.addView(segmented(new String[]{"排队", "插入"}, insertWhileRunning() ? 1 : 0, i -> {
+        choice(talk, "回复中发消息", new String[]{"排队", "插入"}, insertWhileRunning() ? 1 : 0, i -> {
             prefs.edit().putBoolean("insertWhileRunning", i == 1).apply();
             fillSettings(launchCache); // shown chosen
-        }));
-        talk.addView(meanwhile, Ui.fill());
+        });
         String folderNow = cwd.isEmpty() ? defaultCwd : cwd;
         option(talk, R.drawable.ic_folder, "工作文件夹", folderNow.isEmpty() ? "~/work" : tilde(folderNow), false, () -> {
             if (!linked) { toast("Claude Code 还没启动好"); return; }
@@ -3721,15 +3806,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void fillKeep(LinearLayout box) {
         LinearLayout idle = card(box);
-        LinearLayout restart = Ui.row(this);
-        restart.setPadding(dp(14), dp(6), dp(8), dp(6));
-        restart.setMinimumHeight(dp(50));
-        restart.addView(Ui.text(this, "闲置后重启 Claude Code", 15.5f, R.color.text), new LinearLayout.LayoutParams(0, -2, 1));
-        restart.addView(segmented(new String[]{"关", "开"}, restartIdle() ? 1 : 0, i -> {
-            prefs.edit().putBoolean("restartIdle", i == 1).apply();
-            fillSettings(launchCache); // shown chosen
-        }));
-        idle.addView(restart, Ui.fill());
+        toggle(idle, "闲置后重启 Claude Code", "闲着的 Claude Code 重新启动，不等在断掉的连接上", restartIdle(), on -> {
+            prefs.edit().putBoolean("restartIdle", on).apply();
+            fillSettings(launchCache);
+        });
         LinearLayout keep = card(box);
         Ui.margins(keep, this, 0, 12, 0, 0);
         if (!hasStorage()) option(keep, R.drawable.ic_folder, "允许访问存储", null, false, this::requestStorage);
@@ -4538,9 +4618,11 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     private void section(LinearLayout box, String label) {
-        TextView t = Ui.text(this, label, 12.5f, R.color.text3);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        t.setPadding(0, dp(14), 0, dp(6));
+        TextView t = Ui.text(this, label, 14, R.color.accent);
+        t.setTypeface(Ui.MEDIUM);
+        // Close under the page's title, apart from a group above.
+        boolean afterGroup = box.getChildCount() > 0 && TILES.equals(box.getChildAt(box.getChildCount() - 1).getTag());
+        t.setPadding(dp(12), dp(afterGroup ? 22 : 4), 0, dp(10));
         box.addView(t);
     }
 
