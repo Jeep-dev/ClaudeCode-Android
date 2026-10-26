@@ -102,6 +102,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private final Map<String, String> bySession = new HashMap<>();
     private Chat current;
     private boolean stick = true;
+    /** A jump to the end (its button, the title) is on its way: the list is still taken as at the end. */
+    private boolean toEnd;
     private String search = "";
     /** For the search in the drawer: sessions whose conversation has the words, with that text. */
     private final Map<String, String> hits = new HashMap<>();
@@ -111,7 +113,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private DrawerFrame frame;
     private TextView title, banner, linkText;
     private View linkDot;
-    private RecyclerView list;
+    private ThreadList list;
     private float touchX, touchY; // where the list was last touched, on the screen: a message's menu opens there
     private ThreadAdapter adapter;
     private ScrollView emptyView;
@@ -239,7 +241,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         banner.setBackground(Ui.round(col(R.color.dangerSoft), dp(10)));
         banner.setVisibility(View.GONE);
 
-        list = new RecyclerView(this);
+        list = new ThreadList(this);
         list.setLayoutManager(new LinearLayoutManager(this) {
             // A long press that starts selecting gives the message's text focus, and the list would
             // then scroll that whole text into view: to its top, when it is taller than the screen.
@@ -256,13 +258,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
         adapter = new ThreadAdapter(talkContext(), md, row -> {
             // A row opened or closed. At the bottom the list keeps following the end; elsewhere it
             // stays where the reader is, and an opened row hidden below is scrolled into view
-            // (its head staying on screen).
+            // (its head staying on screen) once it has grown: scrolled by its whole height while it
+            // is still short, the list would hit its end and take that for the reader going there.
             renderNow();
             if (stick) return;
             list.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
                 @Override public boolean onPreDraw() {
                     list.getViewTreeObserver().removeOnPreDrawListener(this);
-                    if (row.getParent() == list) {
+                    if (row.getParent() == list && !adapter.moving(list.getChildViewHolder(row))) {
                         int below = row.getBottom() - (list.getHeight() - list.getPaddingBottom());
                         int dy = Math.min(below, row.getTop() - list.getPaddingTop());
                         if (dy > 0) list.smoothScrollBy(0, dy);
@@ -285,10 +288,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
         list.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
                 if (rv.getScrollState() == RecyclerView.SCROLL_STATE_IDLE && dy == 0) return;
+                if (toEnd) return; // on its way down: still at the end, as the reader asked
                 // Scrolling up by hand lets go of the bottom; a layout change at the bottom does not.
-                boolean byHand = rv.getScrollState() != RecyclerView.SCROLL_STATE_IDLE;
+                boolean byHand = list.byHand();
                 stick = !(byHand && dy < 0) && !rv.canScrollVertically(1);
                 if (byHand) showJump();
+            }
+
+            @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
+                if (!toEnd) return;
+                if (state == RecyclerView.SCROLL_STATE_DRAGGING) toEnd = false; // the reader took the list
+                else if (state == RecyclerView.SCROLL_STATE_IDLE) {
+                    // While a reply runs, rows come below the one it was going to: the rest at once.
+                    toEnd = false;
+                    if (stick && rv.canScrollVertically(1)) scrollToEnd(false);
+                }
             }
         });
         list.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
@@ -776,10 +790,18 @@ public final class MainActivity extends Activity implements Bridge.Events {
             int count = adapter.getItemCount();
             if (count == 0) return;
             LinearLayoutManager lm = (LinearLayoutManager) list.getLayoutManager();
-            if (!smooth) { lm.scrollToPositionWithOffset(count - 1, -100000); return; }
+            if (!smooth) {
+                // A jump down under way, overtaken by new rows: there at once.
+                if (toEnd) { toEnd = false; list.stopScroll(); }
+                lm.scrollToPositionWithOffset(count - 1, -100000);
+                return;
+            }
             // From far up, most of the way at once (as to the top): a smooth scroll through it all takes too long.
             if (lm.findLastVisibleItemPosition() < count - 7) lm.scrollToPosition(count - 7);
-            list.post(() -> list.smoothScrollToPosition(count - 1));
+            list.post(() -> {
+                toEnd = true;
+                list.smoothScrollToPosition(adapter.getItemCount() - 1);
+            });
         });
     }
 
