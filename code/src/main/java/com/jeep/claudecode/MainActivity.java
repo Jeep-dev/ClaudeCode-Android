@@ -593,45 +593,48 @@ public final class MainActivity extends Activity implements Bridge.Events {
         d.setBackgroundColor(col(R.color.bg)); // full screen: one colour with the status bar
         d.setClickable(true);
 
+        // One line down the side: icons centred in a column 28dp wide from 24dp, their words from
+        // 64dp; the conversations' words from 24dp. What can be tapped is round, as elsewhere.
         LinearLayout head = Ui.row(this);
-        head.setPadding(dp(18), dp(18), dp(18), dp(12));
+        head.setPadding(dp(24), dp(14), dp(24), dp(14));
         ImageView mark = new ImageView(this);
         mark.setImageResource(R.drawable.mascot);
-        head.addView(mark, new LinearLayout.LayoutParams(dp(30), dp(19)));
-        TextView brand = Ui.text(this, "Claude Code", 19, R.color.text);
-        brand.setTypeface(Typeface.create(Ui.SERIF, Typeface.BOLD));
-        brand.setPadding(dp(10), 0, 0, 0);
+        head.addView(drawerSlot(mark, 26, 16)); // 2dp to each of its 13×8 pixels
+        TextView brand = Ui.text(this, "Claude Code", 26, R.color.text);
+        brand.setTypeface(Ui.SERIF); // as Settings' titles
+        brand.setPadding(dp(12), 0, 0, 0);
         head.addView(brand);
         d.addView(head, Ui.fill());
 
         LinearLayout newChat = Ui.row(this);
         newChat.setPadding(dp(12), 0, dp(12), 0);
-        newChat.setMinimumHeight(dp(42));
-        newChat.setBackground(Ui.press(this, null, dp(12)));
-        FrameLayout plus = new FrameLayout(this);
-        plus.setBackground(Ui.round(col(R.color.accent), dp(13)));
-        plus.addView(Ui.icon(this, R.drawable.ic_plus, 16, android.R.color.white), new FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER));
-        newChat.addView(plus, new LinearLayout.LayoutParams(dp(26), dp(26)));
-        TextView nl = Ui.text(this, "新对话", 15.5f, R.color.text);
+        newChat.setMinimumHeight(dp(48));
+        newChat.setBackground(Ui.press(this, null, dp(24)));
+        // As Settings' icons: the accent on a pale round of it.
+        FrameLayout plus = drawerSlot(Ui.icon(this, R.drawable.ic_plus, 18, R.color.accent), 18, 18);
+        plus.setBackground(Ui.round(col(R.color.accentSoft), dp(14)));
+        newChat.addView(plus);
+        TextView nl = Ui.text(this, "新对话", 16, R.color.text);
         nl.setTypeface(Ui.MEDIUM);
-        nl.setPadding(dp(10), 0, 0, 0);
+        nl.setPadding(dp(12), 0, 0, 0);
         newChat.addView(nl);
         newChat.setOnClickListener(v -> { frame.close(); switchTo(newChat()); });
         d.addView(newChat, Ui.fill());
-        Ui.margins(newChat, this, 12, 4, 12, 8);
+        Ui.margins(newChat, this, 12, 0, 12, 8);
 
         LinearLayout searchBox = Ui.row(this);
-        searchBox.setPadding(dp(12), 0, dp(12), 0);
-        searchBox.setBackground(Ui.round(col(R.color.hover), dp(10)));
-        searchBox.addView(Ui.icon(this, R.drawable.ic_search, 17, R.color.text3));
+        searchBox.setPadding(dp(12), 0, dp(16), 0);
+        // White with a hairline, round at its ends: as the message box.
+        searchBox.setBackground(Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)));
+        searchBox.addView(drawerSlot(Ui.icon(this, R.drawable.ic_search, 18, R.color.text3), 18, 18));
         EditText searchInput = new EditText(this);
         searchInput.setBackground(null);
         searchInput.setHint("搜索对话");
         searchInput.setHintTextColor(col(R.color.text3));
         searchInput.setTextColor(col(R.color.text));
-        searchInput.setTextSize(15);
+        searchInput.setTextSize(15.5f);
         searchInput.setSingleLine(true);
-        searchInput.setPadding(dp(8), 0, 0, 0);
+        searchInput.setPadding(dp(12), 0, 0, 0);
         searchInput.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -644,24 +647,32 @@ public final class MainActivity extends Activity implements Bridge.Events {
             }
         });
         searchBox.addView(searchInput, Ui.weight());
-        d.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(38)));
-        Ui.margins(searchBox, this, 12, 0, 12, 8);
+        d.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(44)));
+        Ui.margins(searchBox, this, 12, 0, 12, 4);
 
+        // The list fades out at its ends, as the conversation does under its bar, instead of
+        // being cut by a line.
+        FrameLayout listArea = new FrameLayout(this);
         ScrollView scroll = new ScrollView(this);
         sessionsBox = Ui.column(this);
-        sessionsBox.setPadding(dp(8), dp(4), dp(8), dp(12));
+        sessionsBox.setPadding(dp(12), dp(8), dp(12), dp(24));
         scroll.addView(sessionsBox);
-        d.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        listArea.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        int bg = col(R.color.bg);
+        View fadeIn = new View(this);
+        fadeIn.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, new int[]{bg, Glass.alpha(bg, 0f)}));
+        listArea.addView(fadeIn, new FrameLayout.LayoutParams(-1, dp(12), Gravity.TOP));
+        View fadeOut = new View(this);
+        fadeOut.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, new int[]{bg, Glass.alpha(bg, 0f)}));
+        listArea.addView(fadeOut, new FrameLayout.LayoutParams(-1, dp(24), Gravity.BOTTOM));
+        d.addView(listArea, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        View line = new View(this);
-        line.setBackgroundColor(col(R.color.border));
-        d.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
         LinearLayout foot = Ui.row(this);
-        foot.setPadding(dp(10), dp(10), dp(10), dp(10));
+        foot.setPadding(dp(12), dp(4), dp(12), dp(12));
         LinearLayout link = Ui.row(this);
-        link.setPadding(dp(10), 0, dp(10), 0);
-        link.setMinimumHeight(dp(40));
-        link.setBackground(Ui.press(this, null, dp(10)));
+        link.setPadding(dp(12), 0, dp(12), 0);
+        link.setMinimumHeight(dp(44));
+        link.setBackground(Ui.press(this, null, dp(22)));
         linkDot = new View(this);
         link.addView(linkDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
         linkText = Ui.text(this, "正在连接…", 14, R.color.text2);
@@ -669,11 +680,21 @@ public final class MainActivity extends Activity implements Bridge.Events {
         link.addView(linkText);
         link.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
         foot.addView(link, Ui.weight());
-        ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 40, 20, R.color.text2);
+        // Round, white with a hairline: as the conversation's own buttons.
+        ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 44, 20, R.color.text2);
+        gear.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
         gear.setOnClickListener(v -> settingsSheet());
-        foot.addView(gear, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        foot.addView(gear, new LinearLayout.LayoutParams(dp(44), dp(44)));
         d.addView(foot, Ui.fill());
         return d;
+    }
+
+    /** The drawer's column of icons: v (w×h dp) in the middle of a 28dp square. */
+    private FrameLayout drawerSlot(View v, int w, int h) {
+        FrameLayout slot = new FrameLayout(this);
+        slot.addView(v, new FrameLayout.LayoutParams(dp(w), dp(h), Gravity.CENTER));
+        slot.setLayoutParams(new LinearLayout.LayoutParams(dp(28), dp(28)));
+        return slot;
     }
 
     // ================= chats & rendering =================
@@ -1155,17 +1176,19 @@ public final class MainActivity extends Activity implements Bridge.Events {
             String g = pins.contains(id) ? "置顶" : group(s.optDouble("mtime"));
             if (!g.equals(group)) {
                 group = g;
-                TextView label = Ui.text(this, g, 12, R.color.text3);
-                label.setTypeface(Typeface.DEFAULT_BOLD);
-                label.setPadding(dp(10), dp(14), dp(10), dp(6));
+                // As Settings' headings: the accent, close under the search, apart from a group above.
+                TextView label = Ui.text(this, g, 14, R.color.accent);
+                label.setTypeface(Ui.MEDIUM);
+                label.setPadding(dp(12), dp(sessionsBox.getChildCount() == 0 ? 8 : 20), dp(12), dp(8));
                 sessionsBox.addView(label);
             }
             Chat chat = chats.get(bySession.containsKey(id) ? bySession.get(id) : id);
             boolean live = chat != null ? chat.running : s.optBoolean("running");
             LinearLayout item = Ui.column(this);
-            item.setPadding(dp(10), dp(9), dp(10), dp(9));
+            item.setPadding(dp(12), dp(10), dp(12), dp(10));
             boolean active = id.equals(current.sessionId);
-            item.setBackground(Ui.press(this, active ? Ui.round(col(R.color.active), dp(10)) : null, dp(10)));
+            // The open one on a pale round of the accent, as what is chosen in Settings.
+            item.setBackground(Ui.press(this, active ? Ui.round(col(R.color.accentSoft), dp(20)) : null, dp(20)));
             LinearLayout line = Ui.row(this);
             if (live) {
                 View dot = new View(this);
@@ -1211,9 +1234,25 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         if (shown == 0) {
             String none = !q.isEmpty() ? "没有匹配的对话" : here.isEmpty() ? "还没有对话" : Ui.base(here) + " 里还没有对话";
-            TextView empty = Ui.text(this, linked ? none : "连接后显示历史对话", 14, R.color.text3);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(16), dp(28), dp(16), dp(28));
+            LinearLayout empty = Ui.column(this);
+            empty.setGravity(Gravity.CENTER_HORIZONTAL);
+            empty.setPadding(dp(16), dp(48), dp(16), dp(28));
+            TextView words = Ui.text(this, linked ? none : "连接后显示历史对话", 14, R.color.text3);
+            words.setGravity(Gravity.CENTER);
+            empty.addView(words);
+            // Only the working folder's are listed: one tap lists them all (the setting goes off).
+            if (linked && !here.isEmpty()) {
+                TextView all = Ui.text(this, "显示所有文件夹的对话", 14, R.color.accent);
+                all.setTypeface(Ui.MEDIUM);
+                all.setPadding(dp(16), dp(10), dp(16), dp(10));
+                all.setBackground(Ui.press(this, null, dp(20)));
+                all.setOnClickListener(v -> {
+                    prefs.edit().putBoolean("drawerOnlyHere", false).apply();
+                    renderSessions();
+                });
+                empty.addView(all);
+                Ui.margins(all, this, 0, 8, 0, 0);
+            }
             sessionsBox.addView(empty, Ui.fill());
         }
     }
