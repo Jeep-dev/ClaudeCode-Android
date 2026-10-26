@@ -1076,17 +1076,33 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
             int action = e.getActionMasked();
             if (action == MotionEvent.ACTION_DOWN) touching = true;
             else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) touching = false;
-            // Keep the list from taking the drag while this box can still scroll that way.
+            // Keep the list from taking the drag while this box can still scroll that way, unless
+            // the box goes on past the screen's edge that way: then the list brings it in first.
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN) {
                 lastY = e.getY();
                 if (canScrollVertically(1) || canScrollVertically(-1)) getParent().requestDisallowInterceptTouchEvent(true);
             } else if (e.getActionMasked() == MotionEvent.ACTION_MOVE) {
                 float dy = e.getY() - lastY;
                 lastY = e.getY();
-                boolean can = dy < 0 ? canScrollVertically(1) : canScrollVertically(-1);
-                getParent().requestDisallowInterceptTouchEvent(can);
+                int way = dy < 0 ? 1 : -1;
+                if (dy != 0) getParent().requestDisallowInterceptTouchEvent(canScrollVertically(way) && !listFirst(way));
             }
             return super.dispatchTouchEvent(e);
+        }
+
+        /** Whether the list can scroll that way and this box's edge that way is out of its sight. */
+        private boolean listFirst(int way) {
+            android.view.ViewParent p = getParent();
+            while (p != null && !(p instanceof RecyclerView)) p = p.getParent();
+            if (p == null) return false;
+            RecyclerView list = (RecyclerView) p;
+            if (!list.canScrollVertically(way)) return false;
+            int[] at = new int[2], listAt = new int[2];
+            getLocationInWindow(at);
+            list.getLocationInWindow(listAt);
+            int top = at[1] - listAt[1];
+            return way > 0 ? top + getHeight() > list.getHeight() - list.getPaddingBottom() + 1
+                    : top < list.getPaddingTop() - 1;
         }
     }
 }
