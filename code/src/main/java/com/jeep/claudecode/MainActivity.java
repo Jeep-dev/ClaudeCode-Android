@@ -663,33 +663,30 @@ public final class MainActivity extends Activity implements Bridge.Events {
         listArea.addView(fadeOut, new FrameLayout.LayoutParams(-1, dp(24), Gravity.BOTTOM));
         d.addView(listArea, new LinearLayout.LayoutParams(-1, 0, 1));
 
+        // The whole line is Settings' button: the words (from the conversations' line) and the gear.
         LinearLayout foot = Ui.row(this);
-        foot.setPadding(dp(12), dp(4), dp(12), dp(12));
-        // A pill as the gear beside it is: white with a hairline, as wide as its words.
+        foot.setPadding(dp(12), 0, 0, 0);
+        foot.setMinimumHeight(dp(44));
+        foot.setBackground(Ui.press(this, null, dp(22)));
+        foot.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
         LinearLayout link = Ui.row(this);
-        link.setPadding(dp(18), 0, dp(18), 0);
-        link.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
         linkDot = new View(this);
         link.addView(linkDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
         linkText = Ui.text(this, "正在连接…", 15, R.color.text);
         linkText.setTypeface(Ui.MEDIUM);
         linkText.setSingleLine(true);
-        linkText.setMaxWidth(dp(240));
         linkText.setEllipsize(android.text.TextUtils.TruncateAt.END);
         linkText.setPadding(dp(9), 0, 0, 0);
         link.addView(linkText);
-        link.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
-        LinearLayout.LayoutParams pill = new LinearLayout.LayoutParams(-2, dp(44));
-        pill.weight = 0;
-        foot.addView(link, pill);
-        // No height of its own: a bare View as tall as it may be would take the list's place.
-        foot.addView(new View(this), new LinearLayout.LayoutParams(0, 0, 1));
-        // Round, white with a hairline: as the conversation's own buttons.
+        foot.addView(link, Ui.weight());
+        // Round, white with a hairline: as the conversation's own buttons; a tap on it is the line's.
         ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 44, 20, R.color.text2);
-        gear.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
-        gear.setOnClickListener(v -> settingsSheet());
+        gear.setBackground(Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)));
+        gear.setClickable(false);
+        gear.setFocusable(false);
         foot.addView(gear, new LinearLayout.LayoutParams(dp(44), dp(44)));
         d.addView(foot, Ui.fill());
+        Ui.margins(foot, this, 12, 4, 12, 12);
         return d;
     }
 
