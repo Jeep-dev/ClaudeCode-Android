@@ -121,9 +121,17 @@ final class Images {
         });
     }
 
+    /**
+     * Asked as an image opens on its screen; what it gives runs once the image is closed. The
+     * conversation keeps its place with it: the status bar hidden and shown again moved it.
+     */
+    static java.util.function.Supplier<Runnable> opening;
+
     /** The image on a black screen, to zoom with two fingers or a double tap; a tap or back closes it. */
     static void show(Context c, String src, File file) {
         Dialog d = new Dialog(c, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        Runnable closed = opening != null ? opening.get() : null;
+        if (closed != null) d.setOnDismissListener(x -> closed.run());
         Zoom view = new Zoom(c, d::dismiss);
         view.setBackgroundColor(Color.BLACK);
         d.setContentView(view, new ViewGroup.LayoutParams(-1, -1));
