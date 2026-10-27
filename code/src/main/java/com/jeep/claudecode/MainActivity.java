@@ -2559,6 +2559,15 @@ public final class MainActivity extends Activity implements Bridge.Events {
             @Override protected void onMeasure(int w, int h) {
                 super.onMeasure(w, MeasureSpec.makeMeasureSpec((int) (getResources().getDisplayMetrics().heightPixels * 0.62f), MeasureSpec.AT_MOST));
             }
+
+            // A long press that starts selecting gives the text focus, and the scroll would then bring
+            // the whole text into view: by its top, past the padding, when it is taller than the sheet.
+            // It stays put; dragging a handle to the edge still scrolls (another path).
+            @Override public void requestChildFocus(View child, View focused) {
+                int y = getScrollY();
+                super.requestChildFocus(child, focused);
+                scrollTo(getScrollX(), y);
+            }
         };
         LinearLayout content = Ui.column(this);
         content.setPadding(0, dp(12), 0, 0);
