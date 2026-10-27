@@ -2028,13 +2028,14 @@ public final class MainActivity extends Activity implements Bridge.Events {
         android.widget.PopupWindow pop = new android.widget.PopupWindow(room, width + 2 * shade, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
+        // Selecting is what is done most; it shows the Markdown, so a table's cells can be selected too.
+        menuItem(card, pop, R.drawable.ic_edit_lines, "选择文字", null, () -> selectSheet(user ? m.text : replyText(m, false)));
         if (user) {
             menuItem(card, pop, R.drawable.ic_copy, "复制", null, () -> copy(m.text));
         } else {
-            menuItem(card, pop, R.drawable.ic_copy, "复制文字", null, () -> copy(replyText(m, true)));
             menuItem(card, pop, R.drawable.ic_file, "复制 Markdown", null, () -> copy(replyText(m, false)));
+            menuItem(card, pop, R.drawable.ic_copy, "复制文字", null, () -> copy(replyText(m, true)));
         }
-        menuItem(card, pop, R.drawable.ic_edit_lines, "选择文字", null, () -> selectSheet(user ? m.text : replyText(m, true)));
         if (user) menuItem(card, pop, R.drawable.ic_pencil, "编辑重发", null, () -> {
             if (canChange(chat, "回退")) withUuid(chat, m, found -> rewindAsk(chat, found));
         });
