@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 56  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 57  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -701,13 +701,16 @@ def reaper():
 def is_prompt_text(text):
     t = text.lstrip()
     return bool(t) and not t.startswith(('<system-reminder>', '<command-', '<local-command', '<bash-',
-                                         '<user-memory', 'Caveat:', '[Request interrupted'))
+                                         '<user-memory', '<task-notification>', 'Caveat:',
+                                         '[Request interrupted'))
 
 
 def unsaid(e):
     """A transcript entry no one said in the conversation: a sub-agent's, Claude Code's own (a
-    reminder), or a compaction's summary of what came before it."""
-    return e.get('isSidechain') or e.get('isMeta') or e.get('isCompactSummary')
+    reminder, a background task's end), or a compaction's summary of what came before it."""
+    origin = e.get('origin')
+    return (e.get('isSidechain') or e.get('isMeta') or e.get('isCompactSummary')
+            or (isinstance(origin, dict) and origin.get('kind') == 'task-notification'))
 
 
 def entry_text(content):
