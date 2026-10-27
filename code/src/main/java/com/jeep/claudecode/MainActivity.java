@@ -821,7 +821,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 int last = adapter.getItemCount() - 1;
                 if (last < 0) return;
                 toEnd = true;
-                list.smoothScrollToPosition(last);
+                // The last row on screen already: down by what is left of it. Brought into view, a row
+                // taller than the screen would be aligned by its top, up first and then down at once.
+                View lastRow = lm.findViewByPosition(last);
+                if (lastRow != null) list.smoothScrollBy(0, Math.max(0,
+                        lm.getDecoratedBottom(lastRow) + ((RecyclerView.LayoutParams) lastRow.getLayoutParams()).bottomMargin
+                        - (list.getHeight() - list.getPaddingBottom())));
+                else list.smoothScrollToPosition(last);
                 // Nothing to go (the end in sight already, or stopped before its first frame): no jump under way.
                 list.postOnAnimation(() -> { if (list.getScrollState() == RecyclerView.SCROLL_STATE_IDLE) toEnd = false; });
             });
