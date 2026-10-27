@@ -52,13 +52,28 @@ final class ThreadList extends RecyclerView implements NestedScrollingParent3 {
     private void follow() {
         View row = follow.opened();
         if (row != null && row.getParent() != this) row = null;
-        for (int i = 0; i < 20; i++) {
-            boolean end = follow.atEnd();
-            int dy = end ? below(last()) : row != null ? below(row) : 0;
-            if (row != null && (!end || follow.moving(row))) dy = Math.min(dy, row.getTop() - getPaddingTop());
-            if (dy <= 0 || !canScrollVertically(1)) return;
-            scrollBy(0, dy);
+        following = true;
+        try {
+            for (int i = 0; i < 20; i++) {
+                boolean end = follow.atEnd();
+                int dy = end ? below(last()) : row != null ? below(row) : 0;
+                if (row != null && (!end || follow.moving(row))) dy = Math.min(dy, row.getTop() - getPaddingTop());
+                if (dy <= 0 || !canScrollVertically(1)) return;
+                scrollBy(0, dy);
+            }
+        } finally {
+            following = false;
         }
+    }
+
+    /**
+     * The list moves by itself, following (above): on its way to the end, not away from it. A
+     * conversation just opened is laid out from its top, the end a screen at a time.
+     */
+    private boolean following;
+
+    boolean following() {
+        return following;
     }
 
     /** The last row, if it is laid out. */

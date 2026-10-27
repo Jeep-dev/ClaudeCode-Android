@@ -285,6 +285,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
                 if (rv.getScrollState() == RecyclerView.SCROLL_STATE_IDLE && dy == 0) return;
                 if (toEnd) return; // on its way down: still at the end, as the reader asked
+                if (list.following()) return; // the list on its way down to what it follows
                 // Scrolling up by hand lets go of the bottom; a layout change at the bottom does not.
                 boolean byHand = list.byHand();
                 if (byHand) adapter.opened = null; // the reader moves it: the row opened last stays where it is
