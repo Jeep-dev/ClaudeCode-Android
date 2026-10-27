@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 55  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 56  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -704,6 +704,12 @@ def is_prompt_text(text):
                                          '<user-memory', 'Caveat:', '[Request interrupted'))
 
 
+def unsaid(e):
+    """A transcript entry no one said in the conversation: a sub-agent's, Claude Code's own (a
+    reminder), or a compaction's summary of what came before it."""
+    return e.get('isSidechain') or e.get('isMeta') or e.get('isCompactSummary')
+
+
 def entry_text(content):
     if isinstance(content, str):
         return content
@@ -786,7 +792,7 @@ def first_prompt(path, limit=2000):
                 e = json.loads(line)
             except ValueError:
                 continue
-            if isinstance(e, dict) and e.get('type') == 'user' and not e.get('isMeta') and not e.get('isSidechain'):
+            if isinstance(e, dict) and e.get('type') == 'user' and not unsaid(e):
                 text = entry_text((e.get('message') or {}).get('content'))
                 if is_prompt_text(text):
                     return text[:limit]
@@ -862,7 +868,7 @@ def rewind_session(session_id, message_uuid):
 def prompt_of(e):
     """What a transcript entry gives /history as one of the user's messages: its text, or None when
     it is not one (a tool's result, a reminder, a reply). A picture alone is one, with no text."""
-    if e.get('isSidechain') or e.get('isMeta'):
+    if unsaid(e):
         return None
     if e.get('type') == 'attachment':
         return inserted_text(e) or None
@@ -1071,7 +1077,7 @@ def session_summary(path):
             except ValueError:
                 continue
             cwd = cwd or e.get('cwd')
-            if not title and e.get('type') == 'user' and not e.get('isMeta') and not e.get('isSidechain'):
+            if not title and e.get('type') == 'user' and not unsaid(e):
                 text = entry_text((e.get('message') or {}).get('content'))
                 if is_prompt_text(text):
                     title = ' '.join(text.split())[:80]
@@ -1160,7 +1166,7 @@ def session_text(path):
                 e = json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(e, dict) or e.get('isSidechain') or e.get('isMeta'):
+            if not isinstance(e, dict) or unsaid(e):
                 continue
             content = (e.get('message') or {}).get('content')
             if e.get('type') == 'attachment':
@@ -1288,7 +1294,7 @@ def load_history(session_id):
                 kind = e.get('type')
                 if kind == 'custom-title' or e.get('customTitle'):
                     custom = e.get('customTitle') or custom
-                if e.get('isSidechain') or e.get('isMeta'):
+                if unsaid(e):
                     continue
                 if kind == 'attachment':
                     text = inserted_text(e)
