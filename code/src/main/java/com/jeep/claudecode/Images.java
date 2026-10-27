@@ -139,6 +139,13 @@ final class Images {
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.BLACK));
             w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+            // Up to the top edge, beside the camera's cutout too: kept clear of it, the window left a
+            // strip where the conversation behind showed, above the black.
+            if (android.os.Build.VERSION.SDK_INT >= 28) {
+                WindowManager.LayoutParams a = w.getAttributes();
+                a.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                w.setAttributes(a);
+            }
         }
         d.show();
         int px = Math.max(c.getResources().getDisplayMetrics().widthPixels, c.getResources().getDisplayMetrics().heightPixels);
