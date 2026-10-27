@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 57  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 58  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -1047,7 +1047,7 @@ def last_said(path, tail=262_144):
             e = json.loads(raw.decode('utf-8', 'replace'))
         except ValueError:
             continue
-        if not isinstance(e, dict) or e.get('type') not in ('user', 'assistant') or e.get('isMeta') or e.get('isSidechain'):
+        if not isinstance(e, dict) or e.get('type') not in ('user', 'assistant') or unsaid(e):
             continue
         try:
             return datetime.datetime.fromisoformat(str(e.get('timestamp')).replace('Z', '+00:00')).timestamp()

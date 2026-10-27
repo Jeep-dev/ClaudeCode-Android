@@ -33,7 +33,6 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
@@ -150,7 +149,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         bridge = new Bridge(this, this);
         Images.saved = bridge::image;
-        Images.opening = this::holdList;
         userland = new Userland(this);
         md = new Md(talkContext(), this::copy, this::openUrl, this::userFile);
         // The keyboard opens when the box is tapped, never by itself (coming back from the background).
@@ -199,7 +197,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     @Override protected void onDestroy() {
         ui.removeCallbacks(ticker);
-        Images.opening = null;
         bridge.close();
         work.shutdownNow();
         super.onDestroy();
@@ -285,12 +282,17 @@ public final class MainActivity extends Activity implements Bridge.Events {
             @Override public void onScrolled(RecyclerView rv, int dx, int dy) {
                 if (rv.getScrollState() == RecyclerView.SCROLL_STATE_IDLE && dy == 0) return;
                 if (toEnd) return; // on its way down: still at the end, as the reader asked
-                if (list.following()) return; // the list on its way down to what it follows
-                // Scrolling up by hand lets go of the bottom; a layout change at the bottom does not.
-                boolean byHand = list.byHand();
-                if (byHand) adapter.opened = null; // the reader moves it: the row opened last stays where it is
-                stick = !(byHand && dy < 0) && !rv.canScrollVertically(1);
-                if (byHand) showJump();
+                // Only scrolling up by hand lets go of the bottom. The list moving by itself (following
+                // the end or a row opened, a layout change) never does: a conversation just opened is
+                // laid out from its top, and goes to its end a screen at a time. Reaching the end, by
+                // hand or not, holds on to it. A jump away (to the top, to a place found) lets go itself.
+                if (!list.byHand()) {
+                    if (!rv.canScrollVertically(1)) stick = true;
+                    return;
+                }
+                adapter.opened = null; // the reader moves it: the row opened last stays where it is
+                stick = dy >= 0 && !rv.canScrollVertically(1);
+                showJump();
             }
 
             @Override public void onScrollStateChanged(@NonNull RecyclerView rv, int state) {
@@ -803,37 +805,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         // From far down, most of the way at once: a smooth scroll through it all takes too long.
         if (lm.findFirstVisibleItemPosition() > 6) lm.scrollToPosition(6);
         list.post(() -> list.smoothScrollToPosition(0));
-    }
-
-    /**
-     * The conversation's place as a picture opens full screen, kept until a moment after it is
-     * closed: the status bar it hides, and shows again, changes the list's padding, which took the
-     * list up to an earlier message. At the end, it stays at the end. Returns what the closing runs.
-     */
-    private Runnable holdList() {
-        LinearLayoutManager lm = (LinearLayoutManager) list.getLayoutManager();
-        boolean end = stick;
-        int pos = lm.findFirstVisibleItemPosition();
-        View first = pos == RecyclerView.NO_POSITION ? null : lm.findViewByPosition(pos);
-        if (!end && first == null) return null;
-        int top = first == null ? 0 : lm.getDecoratedTop(first) - ((RecyclerView.LayoutParams) first.getLayoutParams()).topMargin;
-        Runnable back = () -> {
-            if (list.byHand()) return;
-            if (end) {
-                if (list.canScrollVertically(1)) scrollToEnd(false);
-                return;
-            }
-            View now = lm.findViewByPosition(pos);
-            if (now != null && lm.getDecoratedTop(now) - ((RecyclerView.LayoutParams) now.getLayoutParams()).topMargin == top) return;
-            lm.scrollToPositionWithOffset(pos, top - list.getPaddingTop());
-        };
-        ViewTreeObserver.OnGlobalLayoutListener keep = back::run;
-        list.getViewTreeObserver().addOnGlobalLayoutListener(keep);
-        return () -> {
-            back.run();
-            // The bars come back after the viewer is gone: a few frames' layouts.
-            ui.postDelayed(() -> list.getViewTreeObserver().removeOnGlobalLayoutListener(keep), 600);
-        };
     }
 
     private void scrollToEnd(boolean smooth) {

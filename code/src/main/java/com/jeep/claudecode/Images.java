@@ -8,6 +8,7 @@ import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
@@ -15,6 +16,7 @@ import android.util.LruCache;
 import android.view.GestureDetector;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
@@ -95,10 +97,18 @@ final class Images {
         BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
         if (o.outWidth <= 0 || o.outHeight <= 0) return null;
         int sample = 1;
-        while (Math.max(o.outWidth, o.outHeight) / (sample * 2) >= maxPx) sample *= 2;
-        o.inSampleSize = sample;
+        while (Math.max(o.outWidth, o.outHeight) / sample > maxPx) sample *= 2;
         o.inJustDecodeBounds = false;
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+        // Too large for the memory left: at half the size, then a quarter.
+        for (int i = 0; i < 3; i++, sample *= 2) {
+            o.inSampleSize = sample;
+            try {
+                return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            } catch (OutOfMemoryError e) {
+                // smaller next
+            }
+        }
+        return null;
     }
 
     /** Forgets the images read: a transcript changed (a message deleted) names its pictures anew. */
@@ -113,7 +123,8 @@ final class Images {
         pool.execute(() -> {
             Bitmap b = decode(bytes(src, file), maxPx);
             main.post(() -> {
-                if (b != null) cache.put(key, b);
+                // One that would empty the cache (a picture opened full screen) is not kept in it.
+                if (b != null && b.getByteCount() <= cache.maxSize() / 4) cache.put(key, b);
                 if (!key.equals(into.getTag(R.id.image))) return;
                 if (b != null) into.setImageBitmap(b);
                 else if (failed != null) failed.run();
@@ -121,35 +132,43 @@ final class Images {
         });
     }
 
-    /**
-     * Asked as an image opens on its screen; what it gives runs once the image is closed. The
-     * conversation keeps its place with it: the status bar hidden and shown again moved it.
-     */
-    static java.util.function.Supplier<Runnable> opening;
-
     /** The image on a black screen, to zoom with two fingers or a double tap; a tap or back closes it. */
     static void show(Context c, String src, File file) {
-        Dialog d = new Dialog(c, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
-        Runnable closed = opening != null ? opening.get() : null;
-        if (closed != null) d.setOnDismissListener(x -> closed.run());
+        // The status bar stays, over the black. Hidden, it changed the insets of the conversation
+        // behind, whose list then moved; and the window, kept clear of the camera's cutout, left a
+        // strip where the conversation showed. Drawn behind the bars and the cutout instead.
+        Dialog d = new Dialog(c, android.R.style.Theme_Black_NoTitleBar);
         Zoom view = new Zoom(c, d::dismiss);
         view.setBackgroundColor(Color.BLACK);
+        // The picture fitted between the bars; zoomed, it goes under them.
+        view.setOnApplyWindowInsetsListener((v, insets) -> {
+            view.bars.set(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            view.fit();
+            return insets;
+        });
         d.setContentView(view, new ViewGroup.LayoutParams(-1, -1));
         Window w = d.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new ColorDrawable(Color.BLACK));
             w.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-            // Up to the top edge, beside the camera's cutout too: kept clear of it, the window left a
-            // strip where the conversation behind showed, above the black.
-            if (android.os.Build.VERSION.SDK_INT >= 28) {
+            w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            w.setStatusBarColor(Color.TRANSPARENT);
+            w.setNavigationBarColor(Color.TRANSPARENT);
+            w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            if (Build.VERSION.SDK_INT >= 28) {
                 WindowManager.LayoutParams a = w.getAttributes();
-                a.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                a.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= 30
+                        ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                        : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
                 w.setAttributes(a);
             }
         }
         d.show();
         int px = Math.max(c.getResources().getDisplayMetrics().widthPixels, c.getResources().getDisplayMetrics().heightPixels);
         load(view, src, file, px * 2, () -> {
+            if (!d.isShowing()) return; // closed before it was read
             android.widget.Toast.makeText(c, "打不开这张图片", android.widget.Toast.LENGTH_SHORT).show();
             d.dismiss();
         });
@@ -198,10 +217,18 @@ final class Images {
             fit();
         }
 
-        private void fit() {
+        /** How far the bars come in from each edge (not padding: an ImageView draws inside its padding). */
+        final RectF bars = new RectF();
+
+        /** Where the picture is fitted and centred: the screen less the bars. */
+        private RectF area() {
+            return new RectF(bars.left, bars.top, getWidth() - bars.right, getHeight() - bars.bottom);
+        }
+
+        void fit() {
             if (getDrawable() == null || getWidth() == 0) return;
             m.setRectToRect(new RectF(0, 0, getDrawable().getIntrinsicWidth(), getDrawable().getIntrinsicHeight()),
-                    new RectF(0, 0, getWidth(), getHeight()), Matrix.ScaleToFit.CENTER);
+                    area(), Matrix.ScaleToFit.CENTER);
             scale = 1f;
             setImageMatrix(m);
         }
@@ -219,8 +246,9 @@ final class Images {
             if (getDrawable() == null) return;
             RectF r = new RectF(0, 0, getDrawable().getIntrinsicWidth(), getDrawable().getIntrinsicHeight());
             m.mapRect(r);
-            float dx = r.width() <= getWidth() ? getWidth() / 2f - r.centerX() : r.left > 0 ? -r.left : r.right < getWidth() ? getWidth() - r.right : 0;
-            float dy = r.height() <= getHeight() ? getHeight() / 2f - r.centerY() : r.top > 0 ? -r.top : r.bottom < getHeight() ? getHeight() - r.bottom : 0;
+            RectF a = area();
+            float dx = r.width() <= getWidth() ? a.centerX() - r.centerX() : r.left > 0 ? -r.left : r.right < getWidth() ? getWidth() - r.right : 0;
+            float dy = r.height() <= getHeight() ? a.centerY() - r.centerY() : r.top > 0 ? -r.top : r.bottom < getHeight() ? getHeight() - r.bottom : 0;
             m.postTranslate(dx, dy);
             setImageMatrix(m);
         }
