@@ -59,8 +59,8 @@ interface is plain Android views (Java), so scrolling and text selection are the
   --permission-prompt-tool stdio` process (bypass-permissions mode unless changed in Settings →
   对话, which also sets text for `--append-system-prompt` and extra arguments, kept in
   `~/.ccapp/launch.json`, and edits the global `~/.claude/CLAUDE.md` and the working folder's
-  `CLAUDE.md`; all apply from the next message), kept alive between turns (stopped after 15
-  idle minutes) and resumed from its saved session (`--resume`) when needed. A saved
+  `CLAUDE.md`; all apply from the next message), kept alive between turns, however long idle
+  (no wait for one to start again), and resumed from its saved session (`--resume`) when needed. A saved
   conversation's process starts only when a message is sent (opening one starts nothing); only a
   new conversation's is made ready ahead (the spare, kept fresh when the app comes to the front, a
   new conversation is opened or something is typed in it). One idle three minutes or more is

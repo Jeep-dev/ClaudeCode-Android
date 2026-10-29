@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 58  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 59  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -52,7 +52,6 @@ STALE_SECONDS = 3 * 60
 # then. The API's headers came within 20 s for every request in the logs, cache expired or not.
 FIRST_BYTE_MS = '30000'
 SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
-IDLE_SECONDS = 15 * 60  # an idle conversation's process is stopped; it resumes on the next message
 
 
 class Hub:
@@ -671,7 +670,7 @@ def chat_for(key, session_id=None, create=True):
 
 
 def reaper():
-    """Stops idle conversations, and logs a running turn with no output for a minute and the
+    """Logs a running turn with no output for a minute and the
     bridge itself having been paused (frozen by the system: it did not run for a while)."""
     tick = time.monotonic()
     while True:
@@ -683,11 +682,6 @@ def reaper():
         with chats_lock:
             live = list(chats.values())
         for chat in live:
-            if chat.alive() and not chat.running and time.time() - chat.used > IDLE_SECONDS:
-                with chat.lock:  # a message being sent meanwhile keeps it
-                    if chat.alive() and not chat.running and time.time() - chat.used > IDLE_SECONDS:
-                        log('chat %s: idle, stopping its claude' % chat.key[:8])
-                        chat.close()
             if chat.running and not chat.quiet_logged and time.time() - chat.last_out > 60:
                 chat.quiet_logged = True
                 log('chat %s: no output from claude for 60s (alive: %s)' % (chat.key[:8], chat.alive()))
