@@ -26,7 +26,6 @@ import io.noties.markwon.ext.strikethrough.StrikethroughPlugin;
 import io.noties.markwon.ext.tables.TablePlugin;
 import io.noties.markwon.movement.MovementMethodPlugin;
 import io.noties.markwon.ext.tables.TableTheme;
-import io.noties.markwon.linkify.LinkifyPlugin;
 
 /** Markdown in native views: prose through Markwon, fenced code as cards with a copy button. */
 final class Md {
@@ -71,7 +70,7 @@ final class Md {
         return Markwon.builder(c)
                 .usePlugin(StrikethroughPlugin.create())
                 .usePlugin(TablePlugin.create(table))
-                .usePlugin(LinkifyPlugin.create())
+                .usePlugin(new Links())
                 .usePlugin(MovementMethodPlugin.none()) // links: links(); no tap on one after a long press
                 .usePlugin(new AbstractMarkwonPlugin() {
                     @Override public void configureTheme(MarkwonTheme.Builder b) {
