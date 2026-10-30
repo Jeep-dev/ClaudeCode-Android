@@ -15,9 +15,13 @@ import mmap
 import os
 import re
 import shlex
+import secrets
 import shutil
 import signal
+import socket
 import socketserver
+import ssl
+import struct
 import subprocess
 import sys
 import threading
@@ -26,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 60  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 61  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -41,13 +45,16 @@ MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's
 SPARE_FILE = os.path.join(STATE_DIR, 'spare.json')  # how the last new conversation was started
 TZ_FILE = os.path.join(STATE_DIR, 'timezone')  # the phone's time zone, kept by the app (BridgeService)
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
-# A claude idle a long while may have lost its connections to the API (dropped by the phone's
-# network, or all was frozen) with nothing telling it; it is kept, not started again. A request on a
-# dead connection has no response headers: Claude Code gives up on it after
+# A claude idle a long while is kept, not started again: its requests go each on a new connection
+# (claude_env), none left over from before. A request whose connection dies on the way (the line to
+# the proxy's server down) has no response headers: Claude Code gives up on it after
 # CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS (its own default three minutes, more with a large body) and
 # retries once on a new connection, waiting long then. The API's headers came within 20 s for every
 # request in the logs, cache expired or not.
 FIRST_BYTE_MS = '30000'
+# Through the proxy the server's first answer on a new connection comes within a second; one not
+# come in this long is looked at (Tunnels).
+TUNNEL_ANSWER_S = 3
 SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
 
 
@@ -145,17 +152,183 @@ def memory_path(scope, cwd=None):
     raise ValueError('unknown scope')
 
 
+class Tunnels:
+    """Claude Code's way out (its HTTPS_PROXY): each connection it opens is a CONNECT here, carried on
+    as it came. A new connection whose server has not answered within TUNNEL_ANSWER_S is looked at:
+    when another new connection to that server gets its answer, the line is fine and this one is
+    stuck (it would hang until something on the way gave up, 30 to 50 s), so it is cut and Claude
+    Code retries at once. When the other gets none either, the line is down: a new connection would
+    hang the same, and this one is left to wait for it.
+    Listens on 127.0.0.1 at a random port, with a random password: another app on the phone can
+    reach the port, not use it."""
+
+    def __init__(self):
+        self.url = None
+        self.password = secrets.token_hex(16)
+
+    def start(self):
+        try:
+            server = socket.create_server(('127.0.0.1', 0))
+        except OSError as e:
+            log('no tunnels, claude goes out directly: %s' % e)
+            return
+        self.url = 'http://claude:%s@127.0.0.1:%d' % (self.password, server.getsockname()[1])
+        threading.Thread(target=self.serve, args=(server,), daemon=True).start()
+
+    def serve(self, server):
+        while True:
+            try:
+                client, _ = server.accept()
+            except OSError:  # out of descriptors, say: not a busy loop meanwhile
+                time.sleep(1)
+                continue
+            threading.Thread(target=self.carry, args=(client,), daemon=True).start()
+
+    def carry(self, client):
+        upstream = None
+        try:
+            client.settimeout(10)
+            head = b''
+            while b'\r\n\r\n' not in head:
+                data = client.recv(4096)
+                if not data or len(head) > 16384:
+                    return
+                head += data
+            head, rest = head.split(b'\r\n\r\n', 1)
+            lines = head.decode('latin-1').split('\r\n')
+            method, target = (lines[0].split(' ') + ['', ''])[:2]
+            if not any(self.authorized(line) for line in lines[1:]):
+                client.sendall(b'HTTP/1.1 407 Proxy Authentication Required\r\n'
+                               b'Proxy-Authenticate: Basic\r\nContent-Length: 0\r\n\r\n')
+                return
+            host, _, port = target.rpartition(':')
+            host = host.strip('[]')
+            if method != 'CONNECT' or not host or not port.isdigit():
+                client.sendall(b'HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n')
+                return
+            try:
+                upstream = socket.create_connection((host, int(port)), timeout=10)
+            except OSError:
+                client.sendall(b'HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
+                return
+            client.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
+            for s in (client, upstream):
+                s.settimeout(None)
+                s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            asked, answered = threading.Event(), threading.Event()
+            if rest:
+                upstream.sendall(rest)
+                asked.set()
+            pipes = [threading.Thread(target=self.pipe, args=(client, upstream, asked), daemon=True),
+                     threading.Thread(target=self.pipe, args=(upstream, client, answered), daemon=True)]
+            for p in pipes:
+                p.start()
+            self.watch(host, int(port), client, upstream, asked, answered, pipes)
+            for p in pipes:
+                p.join()
+        except OSError:
+            pass
+        finally:
+            for s in (client, upstream):
+                if s is not None:
+                    s.close()
+
+    def authorized(self, line):
+        name, _, value = line.partition(':')
+        scheme, _, given = value.strip().partition(' ')
+        wanted = base64.b64encode(('claude:' + self.password).encode()).decode()
+        return (name.strip().lower() == 'proxy-authorization' and scheme.lower() == 'basic'
+                and secrets.compare_digest(given.strip(), wanted))
+
+    @staticmethod
+    def pipe(src, dst, began):
+        try:
+            while True:
+                data = src.recv(65536)
+                if not data:
+                    break
+                began.set()
+                dst.sendall(data)
+        except OSError:
+            pass
+        # One side done or gone ends the tunnel: the HTTPS in it is over too.
+        for s in (src, dst):
+            try:
+                s.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+    def watch(self, host, port, client, upstream, asked, answered, pipes):
+        def carried():
+            return all(p.is_alive() for p in pipes)
+        while not asked.wait(1):
+            if not carried():
+                return
+        since = time.time()
+        told = False
+        while not answered.wait(TUNNEL_ANSWER_S):
+            if not carried():
+                return
+            line = self.answers(host, port)
+            if answered.is_set() or not carried():
+                return
+            if line:
+                log('tunnel to %s:%d: no answer in %.1fs, a new connection gets one: cut, for claude to '
+                    'retry' % (host, port, time.time() - since))
+                # Reset, not ended: Claude Code takes it for a dead connection and retries at once.
+                client.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+                for s in (client, upstream):
+                    try:
+                        s.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                return
+            if not told:
+                told = True
+                log('tunnel to %s:%d: no answer in %.1fs, nor for a new connection: the line is down, '
+                    'left to wait' % (host, port, time.time() - since))
+
+    @staticmethod
+    def answers(host, port):
+        """Whether a new connection to host:port gets its TLS answer within TUNNEL_ANSWER_S."""
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE  # only whether it answers
+        try:
+            with socket.create_connection((host, port), timeout=TUNNEL_ANSWER_S) as s:
+                with context.wrap_socket(s, server_hostname=host):
+                    return True
+        except (OSError, ValueError):
+            return False
+
+
+tunnels = Tunnels()
+
+
 def claude_path():
     return shutil.which('claude') or os.path.join(os.environ.get('PREFIX', '/usr'), 'bin', 'claude')
 
 
 def claude_env():
     """A claude's environment: the bridge's, with the wait for the API's first byte (FIRST_BYTE_MS,
-    unless set) and the phone's time zone in TZ. The userland has no /etc/localtime, and with
-    neither Claude Code reads every file under /usr/share/zoneinfo as it starts, its main thread
-    held 0.5 to 2.5 s by proot. No TZ when the app has told no zone the userland has."""
+    unless set), its way out through tunnels (unless a proxy is set), each request to the API on a
+    new connection, and the phone's time zone in TZ.
+    A connection kept for the next request may be dead by then, with nothing telling Claude Code: the
+    request on it waits until something on the way gives up, 30 to 50 s. Claude Code stops keeping
+    them only after one such wait; Connection: close (ANTHROPIC_CUSTOM_HEADERS, unless it names one)
+    stops it from the start, for about 0.2 s more a request.
+    The userland has no /etc/localtime, and with neither Claude Code reads every file under
+    /usr/share/zoneinfo as it starts, its main thread held 0.5 to 2.5 s by proot. No TZ when the app
+    has told no zone the userland has."""
     env = dict(os.environ)
     env.setdefault('CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS', FIRST_BYTE_MS)
+    if tunnels.url and not (env.get('HTTPS_PROXY') or env.get('https_proxy')):
+        env['HTTPS_PROXY'] = tunnels.url
+        env['NO_PROXY'] = ','.join(filter(None, [env.get('NO_PROXY') or env.get('no_proxy'),
+                                                 'localhost,127.0.0.1,::1']))
+    headers = env.get('ANTHROPIC_CUSTOM_HEADERS', '')
+    if not re.search(r'(?im)^\s*connection\s*:', headers):
+        env['ANTHROPIC_CUSTOM_HEADERS'] = headers + ('\n' if headers else '') + 'Connection: close'
     try:
         with open(TZ_FILE, encoding='utf-8') as f:
             tz = f.read().strip()
@@ -2167,6 +2340,7 @@ def main():
         log('exit pid %d: cannot listen on %s: %s' % (os.getpid(), args.socket, e))
         sys.exit('cannot listen on %s: %s' % (args.socket, e))
     threading.Thread(target=reaper, daemon=True).start()
+    tunnels.start()  # before any claude: its environment names them
     threading.Thread(target=spare.fill, daemon=True).start()  # ready for the first new conversation
     threading.Thread(target=lambda: (find_claude_info(), find_models()), daemon=True).start()
     server.serve_forever()
