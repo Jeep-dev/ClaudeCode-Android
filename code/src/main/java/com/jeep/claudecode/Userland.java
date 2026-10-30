@@ -297,7 +297,7 @@ final class Userland {
             while (name.endsWith("/")) name = name.substring(0, name.length() - 1);
             File target = new File(into, name);
             // Only inside the userland: no "..", and no folder that a symbolic link leads elsewhere.
-            if (!relative(name) || !within(target.getParentFile(), root, inside)) { skip(in, size); continue; }
+            if (!relative(name) || !within(target.getParentFile(), root, inside)) { skip(in, (size + 511) / 512 * 512); continue; }
             switch (type) {
                 case '5':
                     if (!target.isDirectory() || java.nio.file.Files.isSymbolicLink(target.toPath())) { remove(target); mkdirs(target); }

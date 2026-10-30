@@ -38,8 +38,11 @@ interface is plain Android views (Java), so scrolling and text selection are the
 - Settings → 模型 → API Key writes `ANTHROPIC_BASE_URL`, the key (`ANTHROPIC_API_KEY` for
   Anthropic's own API, `ANTHROPIC_AUTH_TOKEN` for another provider) and `ANTHROPIC_MODEL` into
   `~/.claude/settings.json` (or edits the file whole). A settings.json that does not read as
-  JSON is never saved over; it and the MCP list are written aside and moved in. The `rish`
-  command in Settings whitelists the app and turns off Android's limit on child processes.
+  JSON is never saved over; it and the MCP list are written aside and moved in. Through
+  Shizuku's `rish` in the userland, the app checks once a run (when it links to the bridge) that
+  it is on the battery whitelist, may run in the background and that Android's limit on child
+  processes is off, and sets what is not (`KeepAlive`); Settings → 后台 → 后台保活 shows how it
+  is and checks again.
 - Settings is a full-screen page of pages: 外观 (the colours: the app's own, Claude, or one of
   RikkaHub's palettes, 樱花粉, 海湾蓝, 原野绿, 秋黄, 中性黑 and 极简白, each light, dark or as the
   system, and dark on pure black if chosen; Claude, as the system, until another is chosen); 对话 (the working folder for new
@@ -48,7 +51,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   with `--disallowedTools`; the list is the one Claude Code reported when a conversation last
   started) and MCP servers (kept in `~/.ccapp/mcp.json` and passed with `--mcp-config`; pasting
   a README's JSON adds them; servers added with `claude mcp add` are listed with their state);
-  storage; keeping it running (and whether an idle Claude Code is started again); and 关于.
+  storage; keeping it running; and 关于.
 - The top bar's right button (three dots) opens a small menu for what the app adds, kept off the screen otherwise: 终端 and 搜索对话 (which puts `/find ` in the box). 终端 opens a terminal in the userland (`bash -l` as root in `/root`), built on
   Termux's terminal emulator and view (Apache 2.0): for commands, `apk add`, and interactive
   programs such as vim or `claude` itself (its `/login` for a Claude subscription). A row of
@@ -59,14 +62,13 @@ interface is plain Android views (Java), so scrolling and text selection are the
   --permission-prompt-tool stdio` process (bypass-permissions mode unless changed in Settings →
   对话, which also sets text for `--append-system-prompt` and extra arguments, kept in
   `~/.ccapp/launch.json`, and edits the global `~/.claude/CLAUDE.md` and the working folder's
-  `CLAUDE.md`; all apply from the next message), kept alive between turns, however long idle
+  `CLAUDE.md`; all apply to new conversations, one running keeping how it was started), kept alive between turns, however long idle
   (no wait for one to start again), and resumed from its saved session (`--resume`) when needed. A saved
   conversation's process starts only when a message is sent (opening one starts nothing); only a
-  new conversation's is made ready ahead (the spare, kept fresh when the app comes to the front, a
-  new conversation is opened or something is typed in it). One idle three minutes or more is
-  started again before its next message, so it has no API connection the network dropped
-  meanwhile (Settings → 后台 → 闲置后重启 Claude Code turns it off). A request that still gets
-  no response headers is given up after 30 s (`CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`, Claude
+  new conversation's is made ready ahead (the spare, made ready when the app comes to the front, a
+  new conversation is opened or something is typed in it, and kept however long it waits). A
+  request on a connection the network dropped while it was idle gets no response headers: it
+  is given up after 30 s (`CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS`, Claude
   Code's own default three minutes) and retried once on a new connection. Each is started with the
   phone's time zone in `TZ` (the app keeps it in `~/.ccapp/timezone`, also when it changes): the
   userland has no `/etc/localtime`, and with neither Claude Code reads every file under
@@ -108,7 +110,7 @@ files are saved into the working folder, never overwriting, and their paths adde
 message), under the input box the model and thinking level (tap to change both) and the context in use against the model's window as Claude Code reports it (250k/1m), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (asked for summarized, as the API sends it empty otherwise; opened, it scrolls inside a box of at
 most 300 dp) and tool steps collapsed into rows as in Claude Code's terminal
 (the tool's name in a box, then the step's summary or file, whole when opened; opened, the full command; file edits with a diff, to-do lists), a long
-press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet; 编辑重发 for the
+press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet; 翻译, in Google Translate; 编辑重发 for the
 user's, as `/tree`; 删除, out of the transcript too: the bridge's `/delete-message` takes the message's entries out, a reply's tool results with it,
 and links what came after to what came before), code blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
 colours in seven palettes.
@@ -122,17 +124,18 @@ it); queued messages go one by one as replies end, and wait after a reply stoppe
 ## Slash commands
 
 Typing `/` lists commands. Handled by the app: `/help`, `/new` and `/clear` (new
-conversation), `/effort low|medium|high|xhigh|max|default`, `/model [name]`, `/folder`,
+conversation), `/effort low|medium|high|xhigh|max`, `/model [name]`, `/folder`,
 `/find <words>` (marks the words in this conversation's messages and replies and goes to the
 last place, ↑↓ then going between the places; the `/find` line stays in the box meanwhile,
 and changing or clearing it, `/find` alone or another conversation ends it),
 `/tree` or `/rewind` (lists the user's messages, the last first; the one picked and all after it
 are cut from the transcript by the bridge's `/rewind`, its text goes back into the box, and the
 next message resumes from the reply before it: a request the API's safeguards refused is gone
-with it, instead of every message after being refused too), `/stop`. Effort and model apply from the next message: the bridge restarts the idle process
-with `--model` and `--settings '{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}'` and resumes the
-session (a `CLAUDE_CODE_EFFORT_LEVEL` in the user's settings would override `--effort` and
-Claude Code's own `/effort`). Everything else, such as `/compact`, `/context`, `/cost`,
+with it, instead of every message after being refused too), `/stop`. Effort and model apply from the next message, changed in the running Claude Code, never
+started again for them (`set_model`, and `apply_flag_settings` with
+`{"env":{"CLAUDE_CODE_EFFORT_LEVEL":…}}`; one started gets `--model` and `--settings` with the
+same: a `CLAUDE_CODE_EFFORT_LEVEL` in the user's settings would override `--effort` and Claude
+Code's own `/effort`); a change it refuses is logged, and it stays as it was. Everything else, such as `/compact`, `/context`, `/cost`,
 `/init` and skills, goes to Claude Code as typed.
 
 ## Setup on the phone

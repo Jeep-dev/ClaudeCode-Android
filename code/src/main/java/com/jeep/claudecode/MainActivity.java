@@ -1254,8 +1254,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (chat == null || chat.sessionId != null) return;
         warmedAt = android.os.SystemClock.uptimeMillis();
         bridge.post("/open", obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
-                "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
-                "restart", restartIdle()), null);
+                "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort), null);
     }
 
     /** When a new conversation was last opened (or written in): see warm. */
@@ -1277,11 +1276,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
     /** The folder new conversations start in (Settings → 对话), Claude Code's default until one is picked. */
     private String workFolder() {
         return cwd.isEmpty() ? defaultCwd : cwd;
-    }
-
-    /** An idle Claude Code is started again before its next message (on by default; Settings → 后台). */
-    private boolean restartIdle() {
-        return prefs.getBoolean("restartIdle", true);
     }
 
     /** Reads a saved conversation once; a failed read is tried again on the next link or tap. */
@@ -1530,6 +1524,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         renderNow();
         loadSessions();
         loadHistory(current);
+        if (keepAlive == UNKNOWN) keepAlive(false); // once a run: the userland is there now
     }
 
     private String shownLink;
@@ -1760,7 +1755,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         long sentAt = System.currentTimeMillis();
         JSONObject body = obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort,
-                "content", content, "mid", chat.key + ":" + sentAt, "restart", restartIdle(),
+                "content", content, "mid", chat.key + ":" + sentAt,
                 "uuid", inserted != null ? inserted.uuid : null);
         sendWithRetry(chat, body, sentAt, 0, inserted);
     }
@@ -2048,6 +2043,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             menuItem(card, pop, R.drawable.ic_file, "复制 Markdown", null, () -> copy(replyText(m, false)));
             menuItem(card, pop, R.drawable.ic_copy, "复制文字", null, () -> copy(replyText(m, true)));
         }
+        menuItem(card, pop, R.drawable.ic_globe, "翻译", null, () -> translate(user ? m.text : replyText(m, true)));
         if (user) menuItem(card, pop, R.drawable.ic_pencil, "编辑重发", null, () -> {
             if (canChange(chat, "回退")) withUuid(chat, m, found -> rewindAsk(chat, found));
         });
@@ -2089,7 +2085,31 @@ public final class MainActivity extends Activity implements Bridge.Events {
         t.setLineSpacing(0, 1.1f);
         t.setTextIsSelectable(true);
         content(sheet).addView(t, Ui.fill());
+        // Room under the text, kept as it scrolls: its last line is not down on the sheet's edge.
+        ((View) content(sheet).getParent()).setPadding(0, 0, 0, dp(24));
         sheet.show();
+    }
+
+    /**
+     * The text in Google Translate, as its 翻译 for selected text does (shown over the app, nothing
+     * replaced); without it, the apps that take selected text, to pick one.
+     */
+    private void translate(String text) {
+        String s = text.trim();
+        if (s.isEmpty()) return;
+        // Far more than it translates at once, and within what an intent may carry.
+        if (s.length() > 100_000) s = s.substring(0, 100_000);
+        Intent i = new Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain")
+                .putExtra(Intent.EXTRA_PROCESS_TEXT, s).putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true);
+        try {
+            startActivity(new Intent(i).setPackage("com.google.android.apps.translate"));
+        } catch (android.content.ActivityNotFoundException e) {
+            try {
+                startActivity(Intent.createChooser(i, "翻译"));
+            } catch (RuntimeException e2) {
+                toast("没有可以翻译的应用");
+            }
+        }
     }
 
     /** Whether the conversation's transcript may be changed now; says why not. */
@@ -2943,7 +2963,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             {"look", "外观", "主题、显示和字体"}, {"talk", "对话", "工作目录、权限、系统提示和 CLAUDE.md"},
             {"model", "模型", "API Key"},
             {"claude", "Claude Code", "settings.json 和环境变量"}, {"ext", "扩展", "技能、插件、MCP、子代理和 Hooks"},
-            {"storage", "存储", "占用的空间和清理"}, {"keep", "后台", "闲置重启、电池优化和保活"},
+            {"storage", "存储", "占用的空间和清理"}, {"keep", "后台", "电池优化和保活"},
             {"about", "关于", "版本、日志和终端"},
     };
 
@@ -4023,14 +4043,33 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     // ---- 后台 ----
 
+    /** How keeping alive was found (KeepAlive's states), UNKNOWN until checked in this run. */
+    private static final int UNKNOWN = -1;
+    private int keepAlive = UNKNOWN;
+    private boolean keepChecking;
+
+    /** Checks keeping alive and sets what is not set, through rish; asked: by a tap, which is told how it went. */
+    private void keepAlive(boolean asked) {
+        if (keepChecking) return;
+        keepChecking = true;
+        if ("keep".equals(settingsAt)) fillSettings(launchCache);
+        String pkg = getPackageName();
+        // A thread of its own: rish may take long, and work reads the files being attached.
+        new Thread(() -> {
+            int state = KeepAlive.ensure(userland, pkg);
+            ui.post(() -> {
+                keepChecking = false;
+                keepAlive = state;
+                if (state == KeepAlive.SET) toast("已开启后台保活");
+                else if (asked) toast(state == KeepAlive.ON ? "后台保活已经开着" : state == KeepAlive.OFF
+                        ? "没能开启后台保活" : "rish 没有运行：请确认 Shizuku 在运行并已授权本应用");
+                if ("keep".equals(settingsAt)) fillSettings(launchCache);
+            });
+        }, "keep-alive").start();
+    }
+
     private void fillKeep(LinearLayout box) {
-        LinearLayout idle = card(box);
-        toggle(idle, "闲置后重启 Claude Code", "闲着的 Claude Code 重新启动，不等在断掉的连接上", restartIdle(), on -> {
-            prefs.edit().putBoolean("restartIdle", on).apply();
-            fillSettings(launchCache);
-        });
         LinearLayout keep = card(box);
-        Ui.margins(keep, this, 0, 12, 0, 0);
         if (!hasStorage()) option(keep, R.drawable.ic_folder, "允许访问存储", null, false, this::requestStorage);
         android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
         if (!pm.isIgnoringBatteryOptimizations(getPackageName())) {
@@ -4049,12 +4088,12 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 toast("打不开应用信息");
             }
         });
-        // Android 12+ kills an app's child processes beyond a limit, or busy ones in the background.
-        String rish = "rish -c 'dumpsys deviceidle whitelist +" + getPackageName()
-                + "; cmd appops set " + getPackageName() + " RUN_ANY_IN_BACKGROUND allow"
-                + "; settings put global settings_enable_monitor_phantom_procs false"
-                + "; device_config put activity_manager max_phantom_processes 2147483647'";
-        option(keep, R.drawable.ic_copy, "复制保活命令", "rish", false, () -> copy(rish));
+        // Android 12+ kills an app's child processes beyond a limit, or busy ones in the background:
+        // the app checks and sets that itself (KeepAlive); a tap checks again.
+        String state = keepChecking ? "检查中…" : keepAlive == UNKNOWN ? "未检查"
+                : keepAlive == KeepAlive.ON || keepAlive == KeepAlive.SET ? "已开启"
+                : keepAlive == KeepAlive.OFF ? "没能开启，点此重试" : "需要 Shizuku，点此重试";
+        option(keep, R.drawable.ic_check, "后台保活", state, false, () -> keepAlive(true));
     }
 
     // ---- 关于 ----
@@ -4284,7 +4323,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
     }
 
-    /** A change Claude Code reads when it starts: idle conversations restart with it. */
+    /** A change Claude Code reads when it starts: new conversations start with it. */
     private void relaunch() {
         if (linked) bridge.post("/launch", new JSONObject(), null);
     }
@@ -4675,7 +4714,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         return env != null ? env : new JSONObject();
     }
 
-    /** Writes settings.json; running conversations pick it up on their next message. */
+    /** Writes settings.json; new conversations start with it. */
     private boolean saveSettings(JSONObject json) {
         if (settingsBroken) {
             toast("settings.json 格式有错，没有保存");
@@ -4688,7 +4727,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             return false;
         }
         if (linked) {
-            bridge.post("/launch", new JSONObject(), null); // restarts idle conversations with it
+            bridge.post("/launch", new JSONObject(), null); // the spare is started again with it
             bridge.get("/config", (status, data) -> {
                 if (status != 200) return;
                 applyConfig(data);
@@ -4714,11 +4753,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
             JSONObject json = settingsJson();
             JSONObject e = json.optJSONObject("env");
             if (e == null) e = new JSONObject();
-            put(e, "ANTHROPIC_BASE_URL", url.getText().toString().trim());
+            String address = url.getText().toString().trim();
+            put(e, "ANTHROPIC_BASE_URL", address);
             String k = token.getText().toString().trim();
-            // Anthropic's own API takes a key as an API key (x-api-key); other providers take theirs
-            // as a bearer token.
-            boolean anthropic = url.getText().toString().trim().isEmpty();
+            // Anthropic's own API (no address, or its own written out) takes a key as an API key
+            // (x-api-key); other providers take theirs as a bearer token.
+            String host = Uri.parse(address).getHost();
+            boolean anthropic = address.isEmpty() || "anthropic.com".equals(host) || (host != null && host.endsWith(".anthropic.com"));
             e.remove("ANTHROPIC_API_KEY");
             e.remove("ANTHROPIC_AUTH_TOKEN");
             put(e, anthropic ? "ANTHROPIC_API_KEY" : "ANTHROPIC_AUTH_TOKEN", k);

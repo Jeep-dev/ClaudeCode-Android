@@ -26,7 +26,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 59  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 60  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -41,15 +41,12 @@ MCP_FILE = os.path.join(STATE_DIR, 'mcp.json')  # MCP servers added in the app's
 SPARE_FILE = os.path.join(STATE_DIR, 'spare.json')  # how the last new conversation was started
 TZ_FILE = os.path.join(STATE_DIR, 'timezone')  # the phone's time zone, kept by the app (BridgeService)
 STARTED = time.time()  # tells the app a new bridge took over (turns of the old one are gone)
-# Idle this long, a claude's connections to the API may be gone (dropped by the phone's network, or
-# all was frozen) with nothing telling it: a request sent on one gets no answer until Claude Code's
-# timeout, and its retry may get another such one. It is started again first (Chat.refresh), unless
-# the app's setting turns that off (restart false in /open and /send).
-STALE_SECONDS = 3 * 60
-# Without that restart (or when a connection is dropped sooner), a request on a dead connection has
-# no response headers: Claude Code gives up on it after CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS (its own
-# default three minutes, more with a large body) and retries once on a new connection, waiting long
-# then. The API's headers came within 20 s for every request in the logs, cache expired or not.
+# A claude idle a long while may have lost its connections to the API (dropped by the phone's
+# network, or all was frozen) with nothing telling it; it is kept, not started again. A request on a
+# dead connection has no response headers: Claude Code gives up on it after
+# CLAUDE_STREAM_FIRST_BYTE_TIMEOUT_MS (its own default three minutes, more with a large body) and
+# retries once on a new connection, waiting long then. The API's headers came within 20 s for every
+# request in the logs, cache expired or not.
 FIRST_BYTE_MS = '30000'
 SHORT_TITLE = 16  # characters: a first message this short is its conversation's name until it has one
 
@@ -92,7 +89,8 @@ hub = Hub()
 class Launch:
     """How Claude Code is started, set in the app: permission mode, text appended to the system
     prompt, extra arguments, tools left out, and the MCP servers in MCP_FILE. A change (posting
-    to /launch, even nothing) restarts idle conversations on their next message."""
+    to /launch, even nothing) is for new conversations: the spare is started again with it, and a
+    conversation's claude running already keeps how it was started."""
 
     def __init__(self):
         self.gen = 0
@@ -221,7 +219,6 @@ class Spare:
             pass
         self.retry_at = 0.0
         self.failures = 0
-        self.started = 0.0
 
     def wish(self, cwd, model, effort):
         """The next spare is started for a new conversation like this one."""
@@ -250,15 +247,13 @@ class Spare:
         threading.Thread(target=end, args=(proc,), daemon=True).start()
         return None
 
-    def fill(self, fresh=False):
-        """Starts the spare unless one fits; fresh: also when it was started STALE_SECONDS ago
-        (with a subscription, Claude Code talks to Anthropic when it starts)."""
+    def fill(self):
+        """Starts the spare unless one fits, however long ago it was started."""
         cwd, model, effort = self.want
         key = (cwd, model, effort, launch.gen)
         with self.lock:
             if self.proc is not None:
-                if self.proc.poll() is None and self.key == key and \
-                        not (fresh and time.time() - self.started > STALE_SECONDS):
+                if self.proc.poll() is None and self.key == key:
                     return
                 old, self.proc = self.proc, None
                 if old.poll() is not None:  # it ended by itself: wait longer each time
@@ -277,7 +272,6 @@ class Spare:
                 log('spare claude not started: %s' % e)
                 return
             self.key = key
-            self.started = time.time()
             pid = self.proc.pid
         log('spare claude pid %d started for a new conversation in %s' % (pid, cwd))
 
@@ -305,7 +299,6 @@ class Chat:
         self.stderr = []
         self.lock = threading.Lock()
         self.stopping = None
-        self.launch_gen = None
         self.last_out = time.time()
         self.quiet_logged = False
         self.turn = 0  # counts messages sent: a forced stop is for the turn it was asked in
@@ -327,7 +320,6 @@ class Chat:
         return self.proc is not None and self.proc.poll() is None
 
     def start(self):
-        self.launch_gen = launch.gen
         self.stderr = []
         taken = None if self.session_id else spare.take(self.cwd, self.model, self.effort)
         proc = taken[0] if taken else spawn(claude_args(self.session_id, self.model, self.effort), self.cwd)
@@ -379,8 +371,7 @@ class Chat:
                     slot['event'].set()
             elif kind == 'control_response' and (msg.get('response') or {}).get('subtype') == 'error' \
                     and str((msg.get('response') or {}).get('request_id')).startswith('set-'):
-                log('chat %s: change refused: %s' % (self.key[:8], msg['response'].get('error')))
-                self.launch_gen = None  # started again with it on the next message
+                log('chat %s: change refused (it stays as it was): %s' % (self.key[:8], msg['response'].get('error')))
             if kind == 'system' and sub == 'api_retry':
                 gone = msg.get('no_response') or {}  # no headers in time: a dead connection, mostly
                 log('chat %s: API retry %s/%s in %sms: %s %s%s' % (
@@ -422,7 +413,7 @@ class Chat:
             self.stderr.append(line.rstrip())
             del self.stderr[:-50]
 
-    def send(self, content, cwd=None, model=None, session_id=None, effort=None, restart=True, message_uuid=None):
+    def send(self, content, cwd=None, model=None, session_id=None, effort=None, message_uuid=None):
         came = time.time()
         with self.lock:
             before = self.proc if self.alive() else None
@@ -433,21 +424,13 @@ class Chat:
                 self.session_id = session_id
             if cwd and not self.alive():
                 self.cwd = cwd
-            if self.launch_gen != launch.gen or (effort is None and self.effort is not None):
-                # Read only when it starts (an effort set can not be taken back but by starting again)
-                self.model, self.effort = model, effort
-                if self.alive() and not self.running:
-                    self.close()  # restarts with the new settings, resuming the session
-            else:
-                old_model, old_effort = self.model, self.effort
-                self.model, self.effort = model, effort
-                if self.alive():  # changed in the running claude: no wait for one to start again
-                    self.switch(old_model, old_effort)
+            old_model, old_effort = self.model, self.effort
+            self.model, self.effort = model, effort
+            if self.alive():  # changed in the running claude, never started again for it
+                self.switch(old_model, old_effort)
             new = not self.session_id and not self.alive()
             if new:  # the next spare is started like this one
                 spare.wish(self.cwd, model, effort)
-            if restart:
-                self.refresh()
             if not self.alive():
                 self.start()
             if not inserting:
@@ -505,14 +488,6 @@ class Chat:
         # Each env sent replaces the last one's: everything set this way goes in every time.
         env = {'CLAUDE_CODE_EFFORT_LEVEL': self.effort} if self.effort else {}
         self.control({'subtype': 'apply_flag_settings', 'settings': {'env': env}})
-
-    def refresh(self):
-        """Starts an idle claude again when it was idle so long its connections may be gone
-        (STALE_SECONDS); resumed, with the session's history and cache. Called holding the lock."""
-        if self.alive() and not self.running and self.session_id and time.time() - self.last_out > STALE_SECONDS:
-            log('chat %s: idle %ds, starting its claude again' % (self.key[:8], time.time() - self.last_out))
-            self.close()
-            self.start()
 
     def write(self, proc, message):
         """One line to claude: the reading thread writes too (Chat.read_out)."""
@@ -1851,7 +1826,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 chat.send(data['content'], cwd=data.get('cwd'), model=data.get('model') or None,
                           session_id=data.get('sessionId'), effort=data.get('effort') or None,
-                          restart=data.get('restart') is not False, message_uuid=data.get('uuid') or None)
+                          message_uuid=data.get('uuid') or None)
             except Exception as e:
                 chat.running = False
                 with chats_lock:
@@ -1864,10 +1839,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path == '/open':
             # A new conversation was opened: the spare is made ready for it (a saved one's claude
             # starts only when a message is sent).
-            restart = data.get('restart') is not False
             if not data.get('sessionId'):
                 spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
-            threading.Thread(target=spare.fill, args=(restart,), daemon=True).start()
+            threading.Thread(target=spare.fill, daemon=True).start()
             self.reply(200, {'ok': True})
         elif path == '/launch':
             launch.set(data)
@@ -1877,7 +1851,7 @@ class Handler(BaseHTTPRequestHandler):
             os.makedirs(os.path.dirname(target), exist_ok=True)
             with open(target, 'w', encoding='utf-8') as f:
                 f.write(data.get('text') or '')
-            launch.gen += 1  # Claude Code reads CLAUDE.md when it starts
+            launch.gen += 1  # Claude Code reads CLAUDE.md when it starts: new conversations have it
             self.reply(200, {'ok': True, 'path': target})
         elif path == '/mcp':
             self.mcp(data)
@@ -1996,7 +1970,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(500, {'error': str(e)})
         if out.returncode != 0:
             return self.reply(400, {'error': (out.stderr or out.stdout).strip()[-1000:]})
-        launch.gen += 1  # conversations start again with it
+        launch.gen += 1  # new conversations start with it
         self.reply(200, {'ok': True})
 
     def plugin(self, data):
@@ -2015,7 +1989,7 @@ class Handler(BaseHTTPRequestHandler):
         text = re.sub(r'\x1b\[[0-9;]*m', '', (out.stdout + out.stderr)).strip()[-1500:]
         if out.returncode != 0:
             return self.reply(400, {'error': text})
-        launch.gen += 1  # conversations start again with it
+        launch.gen += 1  # new conversations start with it
         self.reply(200, {'ok': True, 'output': text})
 
     def events(self, since, bridge=None):
