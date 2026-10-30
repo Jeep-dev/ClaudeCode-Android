@@ -38,6 +38,8 @@ import org.json.JSONObject;
 final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     static final int USER = 0, NOTE = 1, DIVIDER = 2, TEXT = 3, THINKING = 4, TOOL = 5, ERROR = 6,
             STOPPED = 7, STATUS = 8, QUEUED = 10;
+    /** 翻译 in thinking's selection menu (the system's items have ids of android.R.id). */
+    private static final int TRANSLATE = 1;
 
     /** What the queued messages' buttons do. */
     interface Queue { void edit(Chat.Queued q); void cancel(Chat.Queued q); void sendNow(Chat.Queued q); }
@@ -71,6 +73,8 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     /** A message was pressed long: its menu (copy, select, delete…). */
     interface Menu { void open(Chat.Msg m); }
     Menu menu;
+    /** Translates text selected in thinking (the model's, in English): its 翻译 beside 复制. */
+    Consumer<String> translate;
     private List<Item> items = new ArrayList<>();
     private Chat chat;
     final List<Holder> statusRows = new ArrayList<>();
@@ -530,6 +534,24 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         body.setTypeface(Fonts.body(c));
         body.setLineSpacing(0, 1.2f);
         body.setTextIsSelectable(true);
+        body.setCustomSelectionActionModeCallback(new android.view.ActionMode.Callback() {
+            @Override public boolean onCreateActionMode(android.view.ActionMode mode, android.view.Menu m) {
+                if (translate != null) m.add(android.view.Menu.NONE, TRANSLATE, 100, "翻译");
+                return true;
+            }
+
+            @Override public boolean onPrepareActionMode(android.view.ActionMode mode, android.view.Menu m) { return false; }
+
+            @Override public boolean onActionItemClicked(android.view.ActionMode mode, android.view.MenuItem item) {
+                if (item.getItemId() != TRANSLATE) return false;
+                int a = Math.min(body.getSelectionStart(), body.getSelectionEnd()), z = Math.max(body.getSelectionStart(), body.getSelectionEnd());
+                if (a >= 0 && a < z) translate.accept(body.getText().subSequence(a, z).toString());
+                mode.finish();
+                return true;
+            }
+
+            @Override public void onDestroyActionMode(android.view.ActionMode mode) {}
+        });
         scroll.addView(body);
         h.thinkBody = body;
         h.thinkScroll = scroll;

@@ -266,6 +266,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         adapter.asks = this::answer;
         adapter.marker = this::mark;
         adapter.menu = this::messageMenu;
+        adapter.translate = this::translate;
         list.setAdapter(adapter);
         list.follow = new ThreadList.Follow() {
             @Override public boolean atEnd() { return stick; }
@@ -2043,7 +2044,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
             menuItem(card, pop, R.drawable.ic_file, "复制 Markdown", null, () -> copy(replyText(m, false)));
             menuItem(card, pop, R.drawable.ic_copy, "复制文字", null, () -> copy(replyText(m, true)));
         }
-        menuItem(card, pop, R.drawable.ic_globe, "翻译", null, () -> translate(user ? m.text : replyText(m, true)));
         if (user) menuItem(card, pop, R.drawable.ic_pencil, "编辑重发", null, () -> {
             if (canChange(chat, "回退")) withUuid(chat, m, found -> rewindAsk(chat, found));
         });
@@ -2085,8 +2085,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
         t.setLineSpacing(0, 1.1f);
         t.setTextIsSelectable(true);
         content(sheet).addView(t, Ui.fill());
-        // Room under the text, kept as it scrolls: its last line is not down on the sheet's edge.
-        ((View) content(sheet).getParent()).setPadding(0, 0, 0, dp(24));
+        // The sheet reaches the screen's bottom edge (no navigation bar): the text, and the scroll it
+        // is in, end above the system's gesture strip, or a swipe there is the system's (one-handed
+        // mode), and with room under them.
+        View box = ((ViewGroup) sheet.findViewById(android.R.id.content)).getChildAt(0);
+        android.view.WindowInsets in = getWindow().getDecorView().getRootWindowInsets();
+        int gestures = in != null && Build.VERSION.SDK_INT >= 29 ? in.getMandatorySystemGestureInsets().bottom : 0;
+        box.setPadding(box.getPaddingLeft(), box.getPaddingTop(), box.getPaddingRight(), box.getPaddingBottom() + gestures);
         sheet.show();
     }
 

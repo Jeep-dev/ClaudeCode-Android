@@ -108,9 +108,9 @@ conversation to pin it on top or delete it), a one-line composer (+, the text, a
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go as they are, up to 10 MB, Claude Code scaling them for the model and keeping the originals, whose paths it gives the model; HEIC, HEIF and AVIF, which it cannot read, and larger ones as JPEG of up to 4096 px; the thread shows a copy of each at the size the model sees it (2000 px on the long edge, as Claude Code scales them, and at most 4784 visual tokens); other
 files are saved into the working folder, never overwriting, and their paths added to the
 message), under the input box the model and thinking level (tap to change both) and the context in use against the model's window as Claude Code reports it (250k/1m), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (asked for summarized, as the API sends it empty otherwise; opened, it scrolls inside a box of at
-most 300 dp) and tool steps collapsed into rows as in Claude Code's terminal
+most 300 dp, and text selected in it has 翻译 beside 复制, in Google Translate) and tool steps collapsed into rows as in Claude Code's terminal
 (the tool's name in a box, then the step's summary or file, whole when opened; opened, the full command; file edits with a diff, to-do lists), a long
-press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet; 翻译, in Google Translate; 编辑重发 for the
+press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet, ending above the system's gesture strip; 编辑重发 for the
 user's, as `/tree`; 删除, out of the transcript too: the bridge's `/delete-message` takes the message's entries out, a reply's tool results with it,
 and links what came after to what came before), code blocks with copy, token usage per reply (↑ context, ↓ output, CH cache hits), light and dark
 colours in seven palettes.
