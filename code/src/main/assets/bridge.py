@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 63  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 62  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -671,19 +671,6 @@ class Chat:
             self.write(self.proc, message)
             self.ready_at = time.time() - came
             hub.emit(self.key, 'state', {'running': True})
-
-    def ready(self, session_id, cwd, model, effort):
-        """Resumes the saved session's claude ahead of its message (the app's warm), unless it runs."""
-        with self.lock:
-            if self.alive():
-                return
-            if not self.session_id:
-                self.session_id = session_id
-            if cwd:
-                self.cwd = cwd
-            self.model, self.effort = model, effort
-            self.start()
-            self.used = time.time()
 
     def reply_timing(self, msg, kind, sub):
         """Logs how long the turn's message waited for its reply to begin (its first block, thinking
@@ -2066,15 +2053,11 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             self.reply(200, {'ok': True})
         elif path == '/open':
-            # A new conversation was opened: the spare is made ready for it. A saved one is being
-            # written in: its claude is resumed now, not when the message is sent.
-            if data.get('sessionId'):
-                chat = chat_for(data['chat'], data['sessionId'])
-                threading.Thread(target=chat.ready, args=(data['sessionId'], data.get('cwd'),
-                                 data.get('model') or None, data.get('effort') or None), daemon=True).start()
-            else:
+            # A new conversation was opened: the spare is made ready for it (a saved one's claude
+            # starts only when a message is sent).
+            if not data.get('sessionId'):
                 spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
-                threading.Thread(target=spare.fill, daemon=True).start()
+            threading.Thread(target=spare.fill, daemon=True).start()
             self.reply(200, {'ok': True})
         elif path == '/launch':
             launch.set(data)
