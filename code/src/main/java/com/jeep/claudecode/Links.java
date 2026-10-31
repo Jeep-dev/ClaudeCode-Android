@@ -1,9 +1,5 @@
 package com.jeep.claudecode;
 
-import android.text.SpannableStringBuilder;
-import android.text.style.URLSpan;
-import android.text.util.Linkify;
-
 import androidx.annotation.NonNull;
 
 import java.util.ArrayList;
@@ -22,9 +18,9 @@ import io.noties.markwon.core.CoreProps;
 import io.noties.markwon.core.CorePlugin;
 
 /**
- * Web addresses and e-mails in prose become links (never phone numbers: digits here are versions, hashes, ports). Android's Linkify takes Chinese
- * as part of an address: in 「访问不了。gol.gg」 or 「（lol2llm.com）」 the link began at the Chinese,
- * and a copied one was not an address. Here a host is ASCII only, and an address stops at 。，（）.
+ * Web addresses and e-mails in prose become links, found here and not by Android's Linkify: it took
+ * Chinese as part of an address (「访问不了。gol.gg」 linked from 访) and any digits for a phone number
+ * (0.4.125, 776564b). Here a host is ASCII only, an address stops at 。，（）, and nothing is a phone.
  */
 final class Links extends AbstractMarkwonPlugin {
     /** What ends an address: spaces, quotes, and CJK punctuation and full-width forms. */
@@ -37,6 +33,9 @@ final class Links extends AbstractMarkwonPlugin {
                     + "(?![A-Za-z0-9-]))"
                     + "(?:[/?#]" + REST + ")?");
 
+    private static final Pattern EMAIL = Pattern.compile(
+            "(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)+[A-Za-z]{2,}(?![A-Za-z0-9-])");
+
     @Override public void configure(@NonNull Registry registry) {
         registry.require(CorePlugin.class, core -> core.addOnTextAddedListener(Links::added));
     }
@@ -47,7 +46,11 @@ final class Links extends AbstractMarkwonPlugin {
         if (factory == null) return;
         List<int[]> found = new ArrayList<>();
         List<String> urls = new ArrayList<>();
-        linkify(text, Linkify.EMAIL_ADDRESSES, found, urls);
+        Matcher e = EMAIL.matcher(text);
+        while (e.find()) {
+            found.add(new int[]{e.start(), e.end()});
+            urls.add("mailto:" + e.group());
+        }
         Matcher m = URL.matcher(text);
         while (m.find()) {
             int a = m.start(), b = trim(text, a, m.end());
@@ -78,18 +81,6 @@ final class Links extends AbstractMarkwonPlugin {
         int n = 0;
         for (int i = a; i < b; i++) if (text.charAt(i) == ch) n++;
         return n;
-    }
-
-    /** Linkify's links of these kinds, where none was found yet. */
-    private static void linkify(String text, int mask, List<int[]> found, List<String> urls) {
-        SpannableStringBuilder s = new SpannableStringBuilder(text);
-        Linkify.addLinks(s, mask);
-        for (URLSpan span : s.getSpans(0, s.length(), URLSpan.class)) {
-            int a = s.getSpanStart(span), b = s.getSpanEnd(span);
-            if (overlaps(found, a, b)) continue;
-            found.add(new int[]{a, b});
-            urls.add(span.getURL());
-        }
     }
 
     private static boolean overlaps(List<int[]> found, int a, int b) {
