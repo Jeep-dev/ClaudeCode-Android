@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 62  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 64  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -1402,6 +1402,77 @@ def search_sessions(query):
     return out
 
 
+_stats_cache = {}  # path -> (mtime, prompts [(when, text)], output tokens {hour: n})
+stats_lock = threading.Lock()
+STATS_DAYS = 30
+
+
+def session_stats(path):
+    """A transcript's prompts (when, their first words) and its replies' output tokens by the hour
+    (hours since the epoch): the app counts them by its own days."""
+    import datetime
+    st = os.stat(path)
+    with stats_lock:
+        cached = _stats_cache.get(path)
+    if cached and cached[0] == st.st_mtime:
+        return cached[1], cached[2]
+    prompts, tokens, seen = [], {}, set()
+    with open(path, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            if '"timestamp"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+                when = datetime.datetime.fromisoformat(str(e.get('timestamp')).replace('Z', '+00:00')).timestamp()
+            except (ValueError, AttributeError):
+                continue
+            if e.get('type') in ('user', 'attachment'):
+                text = prompt_of(e)
+                if text is not None:
+                    prompts.append((when, ' '.join(text.split())[:160]))
+            elif e.get('type') == 'assistant' and not unsaid(e):
+                message = e.get('message') or {}
+                # A reply's blocks are each an entry with the same usage: counted once.
+                if message.get('id') in seen:
+                    continue
+                seen.add(message.get('id'))
+                out = (message.get('usage') or {}).get('output_tokens') or 0
+                if out:
+                    hour = int(when // 3600)
+                    tokens[hour] = tokens.get(hour, 0) + out
+    with stats_lock:
+        _stats_cache[path] = (st.st_mtime, prompts, tokens)
+    return prompts, tokens
+
+
+def stats():
+    """The last STATS_DAYS days: each prompt (when, which conversation, its first words) and the
+    replies' output tokens by the hour."""
+    since = time.time() - (STATS_DAYS + 1) * 86400
+    names = {s['id']: s for s in list_sessions()}
+    prompts, tokens = [], {}
+    paths = session_files()
+    with stats_lock:
+        for gone in [p for p in _stats_cache if p not in set(paths)]:
+            del _stats_cache[gone]
+    for path in paths:
+        try:
+            if os.path.getmtime(path) < since:
+                continue
+            said, out = session_stats(path)
+        except OSError:
+            continue
+        sid = os.path.basename(path)[:-6]
+        prompts.extend({'t': when, 'id': sid, 'text': text} for when, text in said if when >= since)
+        for hour, n in out.items():
+            if hour * 3600 >= since:
+                tokens[str(hour)] = tokens.get(str(hour), 0) + n
+    prompts.sort(key=lambda p: p['t'])
+    sessions = {p['id']: {'title': (names.get(p['id']) or {}).get('title', ''),
+                          'cwd': (names.get(p['id']) or {}).get('cwd', '')} for p in prompts}
+    return {'days': STATS_DAYS, 'prompts': prompts, 'tokens': tokens, 'sessions': sessions}
+
+
 def tool_result_text(content):
     if isinstance(content, str):
         return content
@@ -1982,6 +2053,8 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(200, {'sessions': list_sessions()})
         elif url.path == '/search':
             self.reply(200, {'results': search_sessions(q.get('q', ''))})
+        elif url.path == '/stats':
+            self.reply(200, stats())
         elif url.path == '/history':
             data = load_history(q.get('id', ''))
             self.reply(200 if data else 404, data or {'error': 'not found'})
