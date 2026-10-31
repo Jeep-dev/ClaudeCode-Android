@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 61  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 62  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -152,6 +152,19 @@ def memory_path(scope, cwd=None):
     raise ValueError('unknown scope')
 
 
+class Mark(threading.Event):
+    """An event that keeps when it was first set."""
+
+    def __init__(self):
+        super().__init__()
+        self.at = None
+
+    def set(self):
+        if self.at is None:
+            self.at = time.time()
+        super().set()
+
+
 class Tunnels:
     """Claude Code's way out (its HTTPS_PROXY): each connection it opens is a CONNECT here, carried on
     as it came. A new connection whose server has not answered within TUNNEL_ANSWER_S is looked at:
@@ -206,16 +219,19 @@ class Tunnels:
             if method != 'CONNECT' or not host or not port.isdigit():
                 client.sendall(b'HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n')
                 return
+            began = time.time()
             try:
-                upstream = socket.create_connection((host, int(port)), timeout=10)
-            except OSError:
+                upstream, resolved = self.connect(host, int(port))
+            except OSError as e:
+                log('tunnel to %s:%s: not connected in %.2fs: %s' % (host, port, time.time() - began, e))
                 client.sendall(b'HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n')
                 return
+            connected = time.time()
             client.sendall(b'HTTP/1.1 200 Connection Established\r\n\r\n')
             for s in (client, upstream):
                 s.settimeout(None)
                 s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            asked, answered = threading.Event(), threading.Event()
+            asked, answered = Mark(), Mark()
             if rest:
                 upstream.sendall(rest)
                 asked.set()
@@ -226,6 +242,10 @@ class Tunnels:
             self.watch(host, int(port), client, upstream, asked, answered, pipes)
             for p in pipes:
                 p.join()
+            log('tunnel to %s:%s: dns %.2fs, connect %.2fs, first answer %s, open %.1fs'
+                % (host, port, resolved - began, connected - resolved,
+                   '%.2fs' % (answered.at - asked.at) if answered.at and asked.at else '-',
+                   time.time() - began))
         except OSError:
             pass
         finally:
@@ -239,6 +259,24 @@ class Tunnels:
         wanted = base64.b64encode(('claude:' + self.password).encode()).decode()
         return (name.strip().lower() == 'proxy-authorization' and scheme.lower() == 'basic'
                 and secrets.compare_digest(given.strip(), wanted))
+
+    @staticmethod
+    def connect(host, port):
+        """A connection to host:port, and when its address was known: the time to look the name up
+        apart from the time to connect."""
+        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        resolved = time.time()
+        error = None
+        for family, kind, proto, _, address in addresses:
+            s = socket.socket(family, kind, proto)
+            try:
+                s.settimeout(10)
+                s.connect(address)
+                return s, resolved
+            except OSError as e:
+                s.close()
+                error = e
+        raise error or OSError('no address for %s' % host)
 
     @staticmethod
     def pipe(src, dst, began):
