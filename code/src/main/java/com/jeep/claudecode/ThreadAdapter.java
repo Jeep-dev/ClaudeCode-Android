@@ -850,32 +850,44 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     private void toolBody(LinearLayout box, Chat.Block b) {
         LinearLayout body = Ui.column(c);
         JSONObject i = b.input;
+        // Its input still coming: each box keeps its end in view as it grows.
+        boolean streaming = b.partial.length() > 0;
         switch (b.name == null ? "" : b.name) {
-            case "Bash": body.addView(io(b.name, i.optString("command"), R.color.text)); break;
-            case "Read": body.addView(io(b.name, i.optString("file_path"), R.color.text)); break;
-            case "Edit":
-                body.addView(io(b.name, i.optString("file_path"), R.color.text));
-                body.addView(diff(i.optString("old_string"), i.optString("new_string")));
+            case "Bash": {
+                MaxScroll shown = io(b.name, i.optString("command"), R.color.text);
+                shown.follow = streaming;
+                body.addView(shown);
                 break;
+            }
+            case "Read": body.addView(io(b.name, i.optString("file_path"), R.color.text)); break;
+            case "Edit": {
+                body.addView(io(b.name, i.optString("file_path"), R.color.text));
+                MaxScroll shown = diff(i.optString("old_string"), i.optString("new_string"));
+                shown.follow = streaming;
+                body.addView(shown);
+                break;
+            }
             case "MultiEdit": {
                 body.addView(io(b.name, i.optString("file_path"), R.color.text));
                 JSONArray edits = i.optJSONArray("edits");
                 for (int k = 0; edits != null && k < edits.length(); k++) {
                     JSONObject e = edits.optJSONObject(k);
-                    if (e != null) body.addView(diff(e.optString("old_string"), e.optString("new_string")));
+                    if (e == null) continue;
+                    MaxScroll shown = diff(e.optString("old_string"), e.optString("new_string"));
+                    shown.follow = streaming && k == edits.length() - 1;
+                    body.addView(shown);
                 }
                 break;
             }
             case "Write": {
                 String text = i.optString("content");
-                // Still being written: its end, kept in view (a whole long file drawn every 300 ms is slow).
-                boolean writing = b.partial.length() > 0;
-                if (writing && text.length() > 4000) {
+                // Still being written: only its end (a whole long file drawn every 300 ms is slow).
+                if (streaming && text.length() > 4000) {
                     int cut = text.indexOf('\n', text.length() - 4000);
                     text = "…\n" + text.substring(cut < 0 ? text.length() - 4000 : cut + 1);
                 }
                 MaxScroll shown = io(b.name, i.optString("file_path") + "\n\n" + text, R.color.text);
-                shown.follow = writing;
+                shown.follow = streaming;
                 body.addView(shown);
                 break;
             }
@@ -946,7 +958,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         return scroll;
     }
 
-    private View diff(String before, String after) {
+    private MaxScroll diff(String before, String after) {
         SpannableStringBuilder s = new SpannableStringBuilder();
         int del = Ui.color(c, R.color.diffDel), delBg = Ui.color(c, R.color.diffDelBg);
         int add = Ui.color(c, R.color.diffAdd), addBg = Ui.color(c, R.color.diffAddBg);
