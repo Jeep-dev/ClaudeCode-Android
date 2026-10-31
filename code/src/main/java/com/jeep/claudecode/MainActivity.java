@@ -672,40 +672,31 @@ public final class MainActivity extends Activity implements Bridge.Events {
         listArea.addView(fadeOut, new FrameLayout.LayoutParams(-1, dp(24), Gravity.BOTTOM));
         d.addView(listArea, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        // Two halves, each a button as a whole: 统计, and Settings (or, not linked, how the bridge is).
+        // The whole line is Settings' button: the words (from the conversations' line) and the gear.
         LinearLayout foot = Ui.row(this);
-        LinearLayout stats = footHalf(R.drawable.ic_chart);
-        TextView statsText = Ui.text(this, "统计", 15, R.color.text);
-        statsText.setTypeface(Ui.MEDIUM);
-        statsText.setPadding(dp(8), 0, 0, 0);
-        stats.addView(statsText);
-        stats.setOnClickListener(v -> statsSheet());
-        foot.addView(stats, new LinearLayout.LayoutParams(0, dp(44), 1));
-        LinearLayout link = footHalf(R.drawable.ic_gear);
+        foot.setPadding(dp(12), 0, 0, 0);
+        foot.setMinimumHeight(dp(44));
+        foot.setBackground(Ui.press(this, null, dp(22)));
+        foot.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
+        LinearLayout link = Ui.row(this);
         linkDot = new View(this);
-        link.addView(linkDot, 0, new LinearLayout.LayoutParams(dp(8), dp(8)));
+        link.addView(linkDot, new LinearLayout.LayoutParams(dp(8), dp(8)));
         linkText = Ui.text(this, "正在连接…", 15, R.color.text);
         linkText.setTypeface(Ui.MEDIUM);
         linkText.setSingleLine(true);
         linkText.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        linkText.setPadding(dp(8), 0, 0, 0);
-        link.addView(linkText, new LinearLayout.LayoutParams(-2, -2));
-        link.setOnClickListener(v -> { if (linked) settingsSheet(); else connect(true); });
-        foot.addView(link, new LinearLayout.LayoutParams(0, dp(44), 1));
-        Ui.margins(link, this, 8, 0, 0, 0);
+        linkText.setPadding(dp(9), 0, 0, 0);
+        link.addView(linkText);
+        foot.addView(link, Ui.weight());
+        // Round, white with a hairline: as the conversation's own buttons; a tap on it is the line's.
+        ImageView gear = Ui.iconButton(this, R.drawable.ic_gear, 44, 20, R.color.text2);
+        gear.setBackground(Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)));
+        gear.setClickable(false);
+        gear.setFocusable(false);
+        foot.addView(gear, new LinearLayout.LayoutParams(dp(44), dp(44)));
         d.addView(foot, Ui.fill());
         Ui.margins(foot, this, 12, 4, 12, 12);
         return d;
-    }
-
-    /** Half of the drawer's foot: round, white with a hairline, as the conversation's own buttons; its icon then words in the middle. */
-    private LinearLayout footHalf(int icon) {
-        LinearLayout half = Ui.row(this);
-        half.setGravity(Gravity.CENTER);
-        half.setPadding(dp(12), 0, dp(12), 0);
-        half.setBackground(Ui.press(this, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
-        half.addView(Ui.icon(this, icon, 19, R.color.text2));
-        return half;
     }
 
     /** The drawer's column of icons: v (w×h dp) in the middle of a 28dp square. */
@@ -1541,7 +1532,8 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     private void updateLink() {
         if (linkDot == null) return;
-        String label = linked ? "设置" : installing ? "正在准备…"
+        // Linked: the user's own words (a setting), nothing when they wrote none.
+        String label = linked ? prefs.getString("footer", "") : installing ? "正在准备…"
                 : connecting ? "正在启动…" : "未运行 · 点此重试";
         int bannerShown = !linked && !connecting && setup == null && everLinked ? View.VISIBLE : View.GONE;
         if (banner.getVisibility() != bannerShown) banner.setVisibility(bannerShown);
@@ -1549,10 +1541,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
         shownLink = label;
         int dot = linked ? R.color.ok : connecting ? R.color.text3 : R.color.danger;
         linkDot.setBackground(Ui.round(col(dot), dp(4)));
-        // Linked, the gear; not, the dot of how the bridge is in its place.
         linkDot.setVisibility(linked ? View.GONE : View.VISIBLE);
-        ((ViewGroup) linkText.getParent()).getChildAt(1).setVisibility(linked ? View.VISIBLE : View.GONE);
+        linkText.setPadding(linked ? 0 : dp(9), 0, 0, 0);
         linkText.setText(label);
+        ((View) linkText.getParent()).setVisibility(label.isEmpty() ? View.INVISIBLE : View.VISIBLE);
     }
 
     private boolean hasStorage() { return checkSelfPermission(STORAGE) == android.content.pm.PackageManager.PERMISSION_GRANTED; }
@@ -2977,7 +2969,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             {"model", "模型", "API Key"},
             {"claude", "Claude Code", "settings.json 和环境变量"}, {"ext", "扩展", "技能、插件、MCP、子代理和 Hooks"},
             {"storage", "存储", "占用的空间和清理"}, {"keep", "后台", "电池优化和保活"},
-            {"about", "关于", "版本、日志和终端"}, {"stats", "统计", "近 30 天的提问"},
+            {"about", "关于", "版本、日志和终端"},
     };
 
     /** Opens Settings, a full-screen page (or refreshes it when open). */
@@ -3062,8 +3054,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     /** Back: from a page to the list of pages, from the list out of Settings. */
     private void settingsBack() {
         if (settingsPage == null || !settingsMoving()) return;
-        // 统计 is opened by itself, not from the list of pages: back closes it.
-        if (settingsAt != null && !settingsAt.equals("stats")) { settingsGo(null); return; }
+        if (settingsAt != null) { settingsGo(null); return; }
         Dialog d = settingsPage;
         Motion.pop(findViewById(android.R.id.content), settingsStage, d::dismiss);
     }
@@ -3141,7 +3132,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
                 case "ext": fillExt(box, launch); break;
                 case "storage": fillStorage(box); break;
                 case "keep": fillKeep(box); break;
-                case "stats": fillStats(box); break;
                 default: fillAbout(box); break;
             }
         } finally {
@@ -3205,225 +3195,6 @@ public final class MainActivity extends Activity implements Bridge.Events {
         String label = id, what = null;
         for (String[] p : PAGES) if (p[0].equals(id)) { label = p[1]; what = p[2]; }
         option(card, icon, label, what, false, () -> settingsOpen(id));
-    }
-
-    // ---- 统计 ----
-
-    /** What /stats last gave, null while it is read again. */
-    private JSONObject statsData;
-    private boolean statsLoading;
-    /** How many of the latest prompts are listed. */
-    private int statsShown;
-
-    /** Opens 统计: a page of Settings' kind, opened by itself from the drawer. */
-    private void statsSheet() {
-        if (settingsPage != null) return;
-        statsData = null;
-        statsShown = 30;
-        settingsAt = "stats";
-        settingsSheet();
-    }
-
-    private void fillStats(LinearLayout box) {
-        if (!linked || statsData == null) {
-            TextView note = Ui.text(this, linked ? "正在统计…" : "连接后显示统计", 14, R.color.text3);
-            note.setGravity(Gravity.CENTER);
-            note.setPadding(0, dp(48), 0, 0);
-            box.addView(note, Ui.fill());
-            if (linked && !statsLoading) {
-                statsLoading = true;
-                bridge.get("/stats", (status, data) -> {
-                    statsLoading = false;
-                    if (settingsPage == null || !"stats".equals(settingsAt)) return;
-                    if (status != 200) { note.setText("统计失败：" + data.optString("error", "后台没有回答")); return; }
-                    statsData = data;
-                    fillSettings(launchCache);
-                });
-            }
-            return;
-        }
-        JSONArray prompts = statsData.optJSONArray("prompts");
-        JSONObject sessions = statsData.optJSONObject("sessions"), tokens = statsData.optJSONObject("tokens");
-        if (prompts == null) prompts = new JSONArray();
-        if (sessions == null) sessions = new JSONObject();
-        int days = statsData.optInt("days", 30);
-        long today = dayStart(System.currentTimeMillis()), day = 86_400_000L;
-        int[] daily = new int[days], hours = new int[24];
-        java.util.Set<String> talks = new java.util.HashSet<>(), active = new java.util.HashSet<>();
-        Map<String, Integer> folders = new HashMap<>();
-        Calendar cal = Calendar.getInstance();
-        int counted = 0;
-        for (int i = 0; i < prompts.length(); i++) {
-            JSONObject p = prompts.optJSONObject(i);
-            long ms = (long) (p.optDouble("t") * 1000);
-            int back = (int) Math.round((today - dayStart(ms)) / (double) day);
-            if (back < 0 || back >= days) continue;
-            counted++;
-            daily[days - 1 - back]++;
-            cal.setTimeInMillis(ms);
-            hours[cal.get(Calendar.HOUR_OF_DAY)]++;
-            String id = p.optString("id");
-            talks.add(id);
-            active.add(String.valueOf(back));
-            JSONObject s = sessions.optJSONObject(id);
-            String folder = s == null ? "" : s.optString("cwd");
-            folders.put(folder, (folders.containsKey(folder) ? folders.get(folder) : 0) + 1);
-        }
-        long out = 0;
-        if (tokens != null) for (java.util.Iterator<String> it = tokens.keys(); it.hasNext(); ) {
-            String hour = it.next();
-            long ms = Long.parseLong(hour) * 3_600_000L;
-            if (today - dayStart(ms) < days * day) out += tokens.optLong(hour);
-        }
-
-        section(box, "近 " + days + " 天");
-        LinearLayout sums = card(box);
-        LinearLayout grid = Ui.row(this);
-        grid.setPadding(dp(8), dp(16), dp(8), dp(16));
-        statsNumber(grid, String.valueOf(counted), "提问");
-        statsNumber(grid, String.valueOf(talks.size()), "对话");
-        statsNumber(grid, String.valueOf(active.size()), "活跃天数");
-        statsNumber(grid, tokensText(out), "输出 tokens");
-        sums.addView(grid, Ui.fill());
-
-        // The last two weeks, today on the right; named every third day back from today.
-        int span = Math.min(14, days);
-        int[] recent = new int[span];
-        String[] names = new String[span];
-        System.arraycopy(daily, days - span, recent, 0, span);
-        for (int i = 0; i < span; i++) {
-            int back = span - 1 - i;
-            if (back % 3 != 0) continue;
-            cal.setTimeInMillis(today - back * day);
-            names[i] = back == 0 ? "今天" : (cal.get(Calendar.MONTH) + 1) + "/" + cal.get(Calendar.DAY_OF_MONTH);
-        }
-        section(box, "每天的提问");
-        statsChart(card(box), new Bars(this, recent, names, span - 1));
-
-        String[] clock = new String[24];
-        for (int h = 0; h < 24; h += 6) clock[h] = h + "时";
-        section(box, "一天里的时段");
-        statsChart(card(box), new Bars(this, hours, clock, -1));
-
-        if (!folders.isEmpty()) {
-            section(box, "目录");
-            LinearLayout where = card(box);
-            List<Map.Entry<String, Integer>> byCount = new ArrayList<>(folders.entrySet());
-            java.util.Collections.sort(byCount, (a, b) -> b.getValue() - a.getValue());
-            for (Map.Entry<String, Integer> e : byCount.subList(0, Math.min(6, byCount.size()))) {
-                String path = e.getKey();
-                LinearLayout row = tileRow(where, R.drawable.ic_folder, path.isEmpty() ? "未知" : Ui.base(path), path, false);
-                TextView n = Ui.text(this, e.getValue() + " 条", 14, R.color.text2);
-                n.setFontFeatureSettings("tnum");
-                row.addView(n);
-                Ui.margins(n, this, 12, 0, 0, 0);
-            }
-        }
-
-        // The latest prompts, newest first, under their day; each opens its conversation.
-        String group = null;
-        LinearLayout list = null;
-        int shown = 0;
-        for (int i = prompts.length() - 1; i >= 0 && shown < statsShown; i--, shown++) {
-            JSONObject p = prompts.optJSONObject(i);
-            double t = p.optDouble("t");
-            String g = statsDay((long) (t * 1000), today);
-            if (!g.equals(group)) {
-                group = g;
-                section(box, shown == 0 ? "最近的提问 · " + g : g);
-                list = card(box);
-            }
-            String id = p.optString("id");
-            JSONObject s = sessions.optJSONObject(id);
-            String title = s == null ? "" : s.optString("title");
-            LinearLayout row = Ui.column(this);
-            row.setPadding(dp(16), dp(12), dp(16), dp(12));
-            String said = p.optString("text");
-            TextView words = Ui.text(this, said.isEmpty() ? "[图片]" : said, 15, R.color.text);
-            words.setMaxLines(3);
-            words.setEllipsize(TextUtils.TruncateAt.END);
-            words.setLineSpacing(0, 1.15f);
-            row.addView(words, Ui.fill());
-            cal.setTimeInMillis((long) (t * 1000));
-            String at = String.format(Locale.ROOT, "%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE));
-            TextView meta = Ui.text(this, at + " · " + (title.isEmpty() ? "新对话" : title), 12.5f, R.color.text3);
-            meta.setSingleLine(true);
-            meta.setEllipsize(TextUtils.TruncateAt.END);
-            meta.setPadding(0, dp(5), 0, 0);
-            row.addView(meta, Ui.fill());
-            String folder = s == null ? "" : s.optString("cwd");
-            row.setOnClickListener(v -> statsOpen(id, title, folder));
-            list.addView(row, Ui.fill());
-        }
-        if (shown < prompts.length()) {
-            LinearLayout more = card(box);
-            Ui.margins(more, this, 0, 12, 0, 0);
-            option(more, R.drawable.ic_chevron_down, "再显示 30 条", null, false, () -> {
-                statsShown += 30;
-                fillSettings(launchCache);
-            });
-        }
-        if (prompts.length() == 0) {
-            TextView none = Ui.text(this, "近 " + days + " 天还没有提问", 14, R.color.text3);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(0, dp(24), 0, 0);
-            box.addView(none, Ui.fill());
-        }
-    }
-
-    /** A number big over what it counts, in a quarter of the row. */
-    private void statsNumber(LinearLayout grid, String number, String what) {
-        LinearLayout cell = Ui.column(this);
-        cell.setGravity(Gravity.CENTER_HORIZONTAL);
-        TextView n = Ui.text(this, number, 22, R.color.text);
-        n.setTypeface(Ui.SERIF);
-        n.setFontFeatureSettings("tnum");
-        n.setSingleLine(true);
-        cell.addView(n);
-        TextView w = Ui.text(this, what, 12.5f, R.color.text3);
-        w.setSingleLine(true);
-        w.setPadding(0, dp(6), 0, 0);
-        cell.addView(w);
-        grid.addView(cell, new LinearLayout.LayoutParams(0, -2, 1));
-    }
-
-    private void statsChart(LinearLayout card, Bars bars) {
-        bars.setPadding(dp(14), dp(14), dp(14), dp(10));
-        card.addView(bars, Ui.fill());
-    }
-
-    /** A prompt's day as its heading: 今天, 昨天, else month and day. */
-    private static String statsDay(long ms, long today) {
-        long back = Math.round((today - dayStart(ms)) / 86_400_000.0);
-        if (back == 0) return "今天";
-        if (back == 1) return "昨天";
-        Calendar c = Calendar.getInstance();
-        c.setTimeInMillis(ms);
-        return (c.get(Calendar.MONTH) + 1) + " 月 " + c.get(Calendar.DAY_OF_MONTH) + " 日";
-    }
-
-    private static long dayStart(long ms) {
-        Calendar c = Calendar.getInstance();
-        c.setTimeInMillis(ms);
-        c.set(Calendar.HOUR_OF_DAY, 0);
-        c.set(Calendar.MINUTE, 0);
-        c.set(Calendar.SECOND, 0);
-        c.set(Calendar.MILLISECOND, 0);
-        return c.getTimeInMillis();
-    }
-
-    private static String tokensText(long n) {
-        if (n >= 1_000_000) return String.format(Locale.ROOT, "%.2fM", n / 1e6);
-        if (n >= 10_000) return String.format(Locale.ROOT, "%.1fK", n / 1e3);
-        return String.valueOf(n);
-    }
-
-    /** A prompt tapped: 统计 goes, its conversation opens. */
-    private void statsOpen(String id, String title, String folder) {
-        Dialog d = settingsPage;
-        if (d == null || !settingsMoving()) return;
-        Motion.pop(findViewById(android.R.id.content), settingsStage, d::dismiss);
-        openSession(id, title.isEmpty() ? "新对话" : title, folder);
     }
 
     private String appVersion() {
@@ -3495,6 +3266,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
             fillSettings(launchCache);
             renderSessions();
         });
+        String footer = prefs.getString("footer", "");
+        option(show, 0, "底部文字", footer.isEmpty() ? "不显示" : footer, false, () -> textSheet("底部文字", footer, "", false, (t, done) -> {
+            prefs.edit().putString("footer", t.trim()).apply();
+            shownLink = null;
+            updateLink();
+            done.run();
+        }, this::refreshSettings));
 
         section(box, "文字");
         LinearLayout text = card(box);
