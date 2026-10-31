@@ -17,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -272,8 +273,12 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         box.setGravity(Gravity.END);
         int max = (int) (c.getResources().getDisplayMetrics().widthPixels * 0.78f);
         if (!m.images.isEmpty()) {
+            // More pictures than fit across scroll sideways, from the first.
+            HorizontalScrollView scroll = new HorizontalScrollView(c);
+            scroll.setHorizontalScrollBarEnabled(false);
             LinearLayout row = Ui.row(c);
             row.setGravity(Gravity.END);
+            scroll.addView(row);
             for (String src : m.images) {
                 ImageView img = new ImageView(c);
                 img.setScaleType(ImageView.ScaleType.CENTER_CROP);
@@ -287,8 +292,8 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
                 p.leftMargin = Ui.dp(c, 6);
                 row.addView(img, p);
             }
-            box.addView(row, Ui.wrap());
-            Ui.margins(row, c, 0, 0, 0, 6);
+            box.addView(scroll, Ui.wrap());
+            Ui.margins(scroll, c, 0, 0, 0, 6);
         }
         for (String f : m.files) {
             LinearLayout chip = Ui.row(c);
