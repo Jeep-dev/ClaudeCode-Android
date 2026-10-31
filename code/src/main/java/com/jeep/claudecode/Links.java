@@ -22,7 +22,7 @@ import io.noties.markwon.core.CoreProps;
 import io.noties.markwon.core.CorePlugin;
 
 /**
- * Web addresses, e-mails and phone numbers in prose become links. Android's Linkify takes Chinese
+ * Web addresses and e-mails in prose become links (never phone numbers: digits here are versions, hashes, ports). Android's Linkify takes Chinese
  * as part of an address: in 「访问不了。gol.gg」 or 「（lol2llm.com）」 the link began at the Chinese,
  * and a copied one was not an address. Here a host is ASCII only, and an address stops at 。，（）.
  */
@@ -48,7 +48,6 @@ final class Links extends AbstractMarkwonPlugin {
         List<int[]> found = new ArrayList<>();
         List<String> urls = new ArrayList<>();
         linkify(text, Linkify.EMAIL_ADDRESSES, found, urls);
-        // Addresses before phone numbers: 127.0.0.1 in http://127.0.0.1:8765/ is not a phone number.
         Matcher m = URL.matcher(text);
         while (m.find()) {
             int a = m.start(), b = trim(text, a, m.end());
@@ -57,7 +56,6 @@ final class Links extends AbstractMarkwonPlugin {
             found.add(new int[]{a, b});
             urls.add(url.contains("://") ? url : "http://" + url);
         }
-        linkify(text, Linkify.PHONE_NUMBERS, found, urls);
         for (int i = 0; i < found.size(); i++) {
             CoreProps.LINK_DESTINATION.set(visitor.renderProps(), urls.get(i));
             SpannableBuilder.setSpans(visitor.builder(), factory.getSpans(configuration, visitor.renderProps()),
@@ -88,29 +86,10 @@ final class Links extends AbstractMarkwonPlugin {
         Linkify.addLinks(s, mask);
         for (URLSpan span : s.getSpans(0, s.length(), URLSpan.class)) {
             int a = s.getSpanStart(span), b = s.getSpanEnd(span);
-            if (overlaps(found, a, b) || mask == Linkify.PHONE_NUMBERS && !phone(text, a, b)) continue;
+            if (overlaps(found, a, b)) continue;
             found.add(new int[]{a, b});
             urls.add(span.getURL());
         }
-    }
-
-    /**
-     * Linkify takes any run of digits for a phone number: 0.4.125 in v0.4.125, 776564 in a commit's
-     * 776564b. A number is one only with 7 digits or more, no dot, and not inside a word.
-     */
-    private static boolean phone(String text, int a, int b) {
-        if (a > 0 && word(text.charAt(a - 1)) || b < text.length() && word(text.charAt(b))) return false;
-        int digits = 0;
-        for (int i = a; i < b; i++) {
-            char ch = text.charAt(i);
-            if (ch == '.') return false;
-            if (ch >= '0' && ch <= '9') digits++;
-        }
-        return digits >= 7;
-    }
-
-    private static boolean word(char ch) {
-        return ch < 128 && (Character.isLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-' || ch == '/');
     }
 
     private static boolean overlaps(List<int[]> found, int a, int b) {
