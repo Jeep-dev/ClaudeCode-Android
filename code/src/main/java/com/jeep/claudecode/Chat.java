@@ -47,6 +47,8 @@ final class Chat {
         String toolId, name, result;
         /** The tool's input as it streams, read whole when its block ends. */
         final StringBuilder partial = new StringBuilder();
+        /** When the streaming input was last read into input. */
+        long shown;
         /** Images in the tool's result (a picture Read): data: URLs, or ccimg: references to a saved one. */
         final List<String> images = new ArrayList<>();
         JSONObject input = new JSONObject();
@@ -341,11 +343,17 @@ final class Chat {
                     case "thinking_delta":
                         b.text += dl.optString("thinking");
                         break;
-                    case "input_json_delta":
-                        // Kept until the block ends (a long file's input is thousands of pieces): nothing
-                        // shown changes meanwhile, so the row is not drawn again for each.
+                    case "input_json_delta": {
+                        // A long file's input is thousands of pieces: what came so far (its path, its
+                        // text) is read at most every 300 ms, so a Write shows as it is written and the
+                        // row is not drawn again for each piece.
                         b.partial.append(dl.optString("partial_json"));
-                        return false;
+                        long now = System.currentTimeMillis();
+                        if (now - b.shown < 300) return false;
+                        b.shown = now;
+                        b.input = partialInput(b.partial);
+                        break;
+                    }
                     default:
                 }
                 b.touch();
@@ -519,5 +527,88 @@ final class Chat {
             }
         }
         if (live != null) messages.add(live);
+    }
+
+    /**
+     * An object's JSON cut off anywhere: the keys whole so far, a string value cut off as far as it
+     * came. A nested value is kept only once it is whole.
+     */
+    static JSONObject partialInput(CharSequence s) {
+        JSONObject o = new JSONObject();
+        int n = s.length(), i = skip(s, 0);
+        if (i >= n || s.charAt(i) != '{') return o;
+        i++;
+        StringBuilder key = new StringBuilder(), val = new StringBuilder();
+        try {
+            while (true) {
+                i = skip(s, i);
+                while (i < n && s.charAt(i) == ',') i = skip(s, i + 1);
+                if (i >= n || s.charAt(i) != '"') return o;
+                key.setLength(0);
+                i = string(s, i + 1, key);
+                if (i < 0) return o;
+                i = skip(s, i);
+                if (i >= n || s.charAt(i) != ':') return o;
+                i = skip(s, i + 1);
+                if (i >= n) return o;
+                if (s.charAt(i) == '"') {
+                    val.setLength(0);
+                    i = string(s, i + 1, val);
+                    o.put(key.toString(), val.toString());
+                    if (i < 0) return o;
+                    continue;
+                }
+                // a number, true, an array, an object: up to the , or } that ends it outside a string
+                int depth = 0, j = i;
+                boolean in = false;
+                for (; j < n; j++) {
+                    char ch = s.charAt(j);
+                    if (in) {
+                        if (ch == '\\') j++;
+                        else if (ch == '"') in = false;
+                    } else if (ch == '"') in = true;
+                    else if (ch == '{' || ch == '[') depth++;
+                    else if (ch == '}' || ch == ']') { if (depth-- == 0) break; }
+                    else if (ch == ',' && depth == 0) break;
+                }
+                if (j >= n) return o;
+                o.put(key.toString(), new org.json.JSONTokener(s.subSequence(i, j).toString()).nextValue());
+                i = j;
+                if (s.charAt(i) == '}') return o;
+            }
+        } catch (Exception e) {
+            return o;
+        }
+    }
+
+    private static int skip(CharSequence s, int i) {
+        while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++;
+        return i;
+    }
+
+    /** Reads a JSON string's inside from i into out: the index after its closing ", or -1 if cut off. */
+    private static int string(CharSequence s, int i, StringBuilder out) {
+        int n = s.length();
+        while (i < n) {
+            char ch = s.charAt(i++);
+            if (ch == '"') return i;
+            if (ch != '\\') { out.append(ch); continue; }
+            if (i >= n) return -1;
+            char e = s.charAt(i++);
+            switch (e) {
+                case 'n': out.append('\n'); break;
+                case 't': out.append('\t'); break;
+                case 'r': out.append('\r'); break;
+                case 'b': out.append('\b'); break;
+                case 'f': out.append('\f'); break;
+                case 'u':
+                    if (i + 4 > n) return -1;
+                    out.append((char) Integer.parseInt(s.subSequence(i, i + 4).toString(), 16));
+                    i += 4;
+                    break;
+                default: out.append(e);
+            }
+        }
+        return -1;
     }
 }

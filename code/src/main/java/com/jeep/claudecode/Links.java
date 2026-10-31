@@ -45,23 +45,19 @@ final class Links extends AbstractMarkwonPlugin {
         MarkwonConfiguration configuration = visitor.configuration();
         SpanFactory factory = configuration.spansFactory().get(Link.class);
         if (factory == null) return;
-        SpannableStringBuilder s = new SpannableStringBuilder(text);
-        Linkify.addLinks(s, Linkify.EMAIL_ADDRESSES | Linkify.PHONE_NUMBERS);
         List<int[]> found = new ArrayList<>();
         List<String> urls = new ArrayList<>();
-        for (URLSpan span : s.getSpans(0, s.length(), URLSpan.class)) {
-            found.add(new int[]{s.getSpanStart(span), s.getSpanEnd(span)});
-            urls.add(span.getURL());
-        }
-        int taken = found.size();
+        linkify(text, Linkify.EMAIL_ADDRESSES, found, urls);
+        // Addresses before phone numbers: 127.0.0.1 in http://127.0.0.1:8765/ is not a phone number.
         Matcher m = URL.matcher(text);
         while (m.find()) {
             int a = m.start(), b = trim(text, a, m.end());
-            if (b <= a || overlaps(found, taken, a, b)) continue;
+            if (b <= a || overlaps(found, a, b)) continue;
             String url = text.substring(a, b);
             found.add(new int[]{a, b});
             urls.add(url.contains("://") ? url : "http://" + url);
         }
+        linkify(text, Linkify.PHONE_NUMBERS, found, urls);
         for (int i = 0; i < found.size(); i++) {
             CoreProps.LINK_DESTINATION.set(visitor.renderProps(), urls.get(i));
             SpannableBuilder.setSpans(visitor.builder(), factory.getSpans(configuration, visitor.renderProps()),
@@ -86,8 +82,20 @@ final class Links extends AbstractMarkwonPlugin {
         return n;
     }
 
-    private static boolean overlaps(List<int[]> found, int upTo, int a, int b) {
-        for (int i = 0; i < upTo; i++) if (a < found.get(i)[1] && found.get(i)[0] < b) return true;
+    /** Linkify's links of these kinds, where none was found yet. */
+    private static void linkify(String text, int mask, List<int[]> found, List<String> urls) {
+        SpannableStringBuilder s = new SpannableStringBuilder(text);
+        Linkify.addLinks(s, mask);
+        for (URLSpan span : s.getSpans(0, s.length(), URLSpan.class)) {
+            int a = s.getSpanStart(span), b = s.getSpanEnd(span);
+            if (overlaps(found, a, b)) continue;
+            found.add(new int[]{a, b});
+            urls.add(span.getURL());
+        }
+    }
+
+    private static boolean overlaps(List<int[]> found, int a, int b) {
+        for (int i = 0; i < found.size(); i++) if (a < found.get(i)[1] && found.get(i)[0] < b) return true;
         return false;
     }
 }

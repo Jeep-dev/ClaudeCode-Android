@@ -866,7 +866,19 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
                 }
                 break;
             }
-            case "Write": body.addView(io(b.name, i.optString("file_path") + "\n\n" + i.optString("content"), R.color.text)); break;
+            case "Write": {
+                String text = i.optString("content");
+                // Still being written: its end, kept in view (a whole long file drawn every 300 ms is slow).
+                boolean writing = b.partial.length() > 0;
+                if (writing && text.length() > 4000) {
+                    int cut = text.indexOf('\n', text.length() - 4000);
+                    text = "…\n" + text.substring(cut < 0 ? text.length() - 4000 : cut + 1);
+                }
+                MaxScroll shown = io(b.name, i.optString("file_path") + "\n\n" + text, R.color.text);
+                shown.follow = writing;
+                body.addView(shown);
+                break;
+            }
             case "TodoWrite": break;
             case "AskUserQuestion": {
                 // Each question with what was answered (read from the result).
@@ -912,7 +924,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     }
 
     /** A box of monospace text, headed by the tool's name when given. */
-    private View io(String label, String text, int colorRes) {
+    private MaxScroll io(String label, String text, int colorRes) {
         String body = text == null ? "" : text;
         SpannableStringBuilder s = new SpannableStringBuilder();
         if (label != null) {
