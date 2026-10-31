@@ -201,18 +201,23 @@ class Tunnels:
         upstream = None
         try:
             client.settimeout(10)
-            head = b''
-            while b'\r\n\r\n' not in head:
-                data = client.recv(4096)
-                if not data or len(head) > 16384:
-                    return
-                head += data
-            head, rest = head.split(b'\r\n\r\n', 1)
-            lines = head.decode('latin-1').split('\r\n')
-            method, target = (lines[0].split(' ') + ['', ''])[:2]
-            if not any(self.authorized(line) for line in lines[1:]):
+            rest = b''
+            # git asks first without the password and, told 407, again on the same connection.
+            for tries in range(3):
+                head = rest
+                while b'\r\n\r\n' not in head:
+                    data = client.recv(4096)
+                    if not data or len(head) > 16384:
+                        return
+                    head += data
+                head, rest = head.split(b'\r\n\r\n', 1)
+                lines = head.decode('latin-1').split('\r\n')
+                method, target = (lines[0].split(' ') + ['', ''])[:2]
+                if any(self.authorized(line) for line in lines[1:]):
+                    break
                 client.sendall(b'HTTP/1.1 407 Proxy Authentication Required\r\n'
                                b'Proxy-Authenticate: Basic\r\nContent-Length: 0\r\n\r\n')
+            else:
                 return
             host, _, port = target.rpartition(':')
             host = host.strip('[]')
