@@ -1250,23 +1250,27 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     /** A new conversation's Claude Code (the bridge's spare) is made ready, so its first message
-     *  does not wait for one to start. A saved conversation's starts only when a message is sent. */
+     *  does not wait for one to start. A saved conversation's starts only once written in (warm). */
     private void opened(Chat chat) {
         if (chat == null || chat.sessionId != null) return;
+        ready(chat);
+    }
+
+    private void ready(Chat chat) {
         warmedAt = android.os.SystemClock.uptimeMillis();
         bridge.post("/open", obj("chat", chat.key, "sessionId", chat.sessionId, "cwd", chat.cwd,
                 "model", model.isEmpty() ? null : model, "effort", effort.isEmpty() ? null : effort), null);
     }
 
-    /** When a new conversation was last opened (or written in): see warm. */
+    /** When a conversation was last opened (or written in): see warm. */
     private long warmedAt;
 
-    /** Something is being written in a new conversation: its Claude Code gets ready meanwhile
-     *  (opened), at most every 20 s. */
+    /** Something is being written: the conversation's Claude Code gets ready meanwhile, a saved
+     *  one's resumed (not on opening it: one looked through would be kept running), at most every 20 s. */
     private void warm() {
         if (!linked || current == null || current.running) return;
         if (android.os.SystemClock.uptimeMillis() - warmedAt < 20_000) return;
-        opened(current);
+        ready(current);
     }
 
     /** The drawer lists only the working folder's conversations (off by default; Settings → 外观). */
