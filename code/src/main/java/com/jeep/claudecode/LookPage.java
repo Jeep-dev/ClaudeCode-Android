@@ -73,6 +73,19 @@ final class LookPage extends Part {
             Themes.setCrab(app, on);
             app.restyle();
         });
+        if (Themes.crab(app)) {
+            LinearLayout styles = Ui.column(app);
+            styles.setPadding(dp(8), dp(8), dp(8), dp(8));
+            LinearLayout line = null;
+            for (int i = 0; i < Crab.NAMES.length; i++) {
+                if (i % 3 == 0) {
+                    line = Ui.row(app);
+                    styles.addView(line, Ui.fill());
+                }
+                line.addView(crabCell(i), new LinearLayout.LayoutParams(0, -2, 1));
+            }
+            show.addView(styles, Ui.fill());
+        }
         sheets.toggle(show, "思考", "显示模型的思考过程", Themes.showThinking(app), on -> {
             Themes.setShowThinking(app, on);
             app.settings.fillSettings(app.settings.launchCache);
@@ -111,6 +124,26 @@ final class LookPage extends Part {
      * container (left half), the secondary's (top right) and the tertiary's (bottom right), its
      * primary in the middle, larger and ticked when chosen; its name below in its primary.
      */
+    /** One of the crab's styles, wearing it, the chosen one marked. */
+    private View crabCell(int style) {
+        boolean chosen = Themes.crabStyle(app) == style;
+        LinearLayout cell = Ui.column(app);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        cell.setPadding(0, dp(6), 0, dp(8));
+        cell.setBackground(Ui.press(app, null, dp(16)));
+        cell.addView(new Crab(app, style, true), new LinearLayout.LayoutParams(-2, -2));
+        TextView name = Ui.text(app, Crab.NAMES[style], 12.5f, chosen ? R.color.accentPress : R.color.text2);
+        if (chosen) name.setTypeface(Ui.MEDIUM);
+        name.setPadding(0, dp(2), 0, 0);
+        cell.addView(name);
+        cell.setOnClickListener(v -> {
+            if (chosen) return;
+            Themes.setCrabStyle(app, style);
+            app.restyle();
+        });
+        return cell;
+    }
+
     private View swatch(Themes.Theme t, boolean chosen, boolean dark) {
         int[] c = t.swatch(dark); // primary, its container, the secondary's, the tertiary's, on primary
         LinearLayout cell = Ui.column(app);

@@ -37,7 +37,7 @@ final class Box extends Part {
     /** The box, built (again after a restyle) for the layout in use. */
     View buildComposer() {
         LinearLayout wrap = Ui.column(app);
-        wrap.setPadding(dp(32), dp(4), dp(32), dp(18));
+        wrap.setPadding(dp(12), dp(4), dp(12), dp(18));
         LinearLayout card;
         if (app.screen.immersive) {
             card = new Glass.Pane(app, app.screen.host, dp(26), col(R.color.bg), Glass.alpha(col(R.color.surface), 0.55f),
@@ -48,7 +48,7 @@ final class Box extends Part {
             card.setBackground(Ui.round(col(R.color.surface), dp(26), dp(1), col(R.color.border)));
             card.setElevation(dp(2));
         }
-        card.setPadding(dp(6), dp(4), dp(6), dp(4));
+        card.setPadding(dp(8), dp(8), dp(8), dp(8)); // 56dp with one line, as DSH Go's
 
         crab = Themes.crab(app) ? new Crab(app) : null;
         if (crab != null) {

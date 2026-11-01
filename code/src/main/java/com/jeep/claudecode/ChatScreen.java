@@ -290,7 +290,7 @@ final class ChatScreen extends Part {
         // The buttons just under the status bar, and the box about as far from the bottom (or
         // just above the keyboard).
         int below = keyboard ? insetBottom + dp(8) : Math.max(insetBottom + dp(8), insetTop - dp(12));
-        composer.setPadding(dp(32), dp(4), dp(32), below);
+        composer.setPadding(dp(12), dp(4), dp(12), below);
         if (app.drawer.drawerPanel != null) app.drawer.drawerPanel.setPadding(0, insetTop, 0, keyboard ? 0 : insetBottom);
         ((FrameLayout.LayoutParams) topButtons.getLayoutParams()).topMargin = insetTop;
         ((FrameLayout.LayoutParams) banner.getLayoutParams()).setMargins(dp(12), insetTop + dp(52), dp(12), 0);
@@ -437,16 +437,13 @@ final class ChatScreen extends Part {
     }
 
     private void buildHero(LinearLayout box) {
-        ImageView mark = new ImageView(app);
-        mark.setImageResource(R.drawable.mascot);
-        box.addView(mark, new LinearLayout.LayoutParams(dp(65), dp(40))); // 5dp to each of its 13×8 pixels
         // The folder it will work in, which can be changed only until the first message: tapped, it is picked (/folder).
         boolean pick = app.link.linked && app.current.sessionId == null;
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         String hello = h < 5 ? "夜深了" : h < 11 ? "早上好" : h < 13 ? "中午好" : h < 18 ? "下午好" : "晚上好";
         TextView big = Ui.text(app, hello, 30, R.color.text);
         big.setTypeface(Ui.SERIF);
-        big.setPadding(0, dp(18), 0, dp(pick ? 2 : 10)); // the line under it is 8dp in its own round
+        big.setPadding(0, 0, 0, dp(pick ? 2 : 10)); // the line under it is 8dp in its own round
         big.setGravity(Gravity.CENTER);
         box.addView(big, Ui.fill());
         String folder = Ui.base(app.current.cwd == null || app.current.cwd.isEmpty() ? claude.defaultCwd : app.current.cwd);

@@ -9,11 +9,11 @@ import android.view.View;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The pixel crab (the mascot) on top of the box: it breathes and blinks, and dances while a reply runs or when tapped. */
+/** The pixel crab (the mascot) on top of the box, in the clothes of one of its styles: it breathes and blinks, and dances while a reply runs or when tapped. */
 final class Crab extends View {
-    private static final int COLS = 23, ROWS = 11;
-    /** Where the crab's own 13×8 grid starts: room above for hopping, to the left for swaying. */
-    private static final int X0 = 2, Y0 = 2;
+    private static final int COLS = 23, ROWS = 13;
+    /** Where the crab's own 13×8 grid starts: room above for hopping and a hat, to the left for swaying. */
+    private static final int X0 = 2, Y0 = 4;
     private static final int BODY = 0xFFD97757, EYE = 0xFF1F1E1D, HEART = 0xFFE8708F, SHADOW = 0x26808080;
 
     /** The body without arms and legs: x, y, width, height. */
@@ -29,6 +29,16 @@ final class Crab extends View {
     private static final int[][] DANCE = {
             {0, 2, 0, 0, 0, -1}, {1, 2, 0, 1, 0, -1}, {0, 0, 2, 0, 0, 1}, {1, 0, 2, 1, 0, 1},
             {0, 2, 2, 0, 1, 0}, {2, 2, 2, 1, 1, 0}, {0, 1, 1, 0, 1, 0}, {2, 1, 1, 1, 1, 0}};
+    private static final int INK = 0xFF1F1E1D, GOLD = 0xFFF2C14E, RED = 0xFFD63B3B, PURPLE = 0xFF6B4FBB, BONE = 0xFFF2F0E8;
+    static final String[] NAMES = {"经典", "墨镜", "巫师", "海盗", "国王", "忍者"};
+    /** What each style puts on: x, y, width, height, colour, on the crab's grid (y above 0 is over its head). */
+    private static final int[][][] CLOTHES = {
+            {},
+            {{2, 1, 3, 2, INK}, {8, 1, 3, 2, INK}, {5, 1, 3, 1, INK}, {3, 1, 1, 1, 0xFF7A8594}, {9, 1, 1, 1, 0xFF7A8594}},
+            {{6, -2, 1, 1, PURPLE}, {5, -1, 3, 1, PURPLE}, {3, 0, 7, 1, PURPLE}, {6, -1, 1, 1, GOLD}},
+            {{4, -1, 5, 1, INK}, {2, 0, 9, 1, INK}, {6, -1, 1, 1, BONE}, {2, 1, 3, 1, INK}},
+            {{3, -2, 1, 1, GOLD}, {6, -2, 1, 1, GOLD}, {9, -2, 1, 1, GOLD}, {3, -1, 7, 1, GOLD}, {6, -1, 1, 1, RED}},
+            {{2, 0, 9, 1, RED}, {11, 0, 2, 1, RED}, {12, 1, 1, 1, RED}}};
     private static final String[] HEART_ROWS = {".X.X.", "XXXXX", ".XXX.", "..X.."};
     private static final String[] NOTE_ROWS = {".XX", ".X.", ".X.", "XX.", "XX."};
     private static final int BEAT = 170, IDLE_BEAT = 450, TAP_DANCE = 3400;
@@ -37,6 +47,9 @@ final class Crab extends View {
     private final int px;
     /** What floats up from it: kind (0 heart, 1 note) and the beats it has risen. */
     private final List<int[]> floating = new ArrayList<>();
+    private final int style;
+    /** Only shown (in Settings): not moving, no tap. */
+    private final boolean still;
     private boolean busy;
     private long tapUntil;
     private int step;
@@ -54,10 +67,16 @@ final class Crab extends View {
     };
 
     Crab(Context c) {
+        this(c, Themes.crabStyle(c), false);
+    }
+
+    Crab(Context c, int style, boolean still) {
         super(c);
+        this.style = Math.max(0, Math.min(style, CLOTHES.length - 1));
+        this.still = still;
         px = Math.max(1, Math.round(3 * c.getResources().getDisplayMetrics().density));
-        setContentDescription("螃蟹，点一下它会跳舞");
-        setOnClickListener(v -> {
+        setContentDescription(still ? NAMES[this.style] : "螃蟹，点一下它会跳舞");
+        if (!still) setOnClickListener(v -> {
             tapUntil = SystemClock.uptimeMillis() + TAP_DANCE;
             floating.add(new int[]{0, 0});
             removeCallbacks(tick);
@@ -67,7 +86,7 @@ final class Crab extends View {
 
     /** A reply is running: it dances until that is over. */
     void busy(boolean on) {
-        if (busy == on) return;
+        if (still || busy == on) return;
         busy = on;
         removeCallbacks(tick);
         post(tick);
@@ -76,7 +95,7 @@ final class Crab extends View {
     @Override protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         removeCallbacks(tick);
-        post(tick);
+        if (!still) post(tick);
     }
 
     @Override protected void onDetachedFromWindow() {
@@ -94,7 +113,7 @@ final class Crab extends View {
     }
 
     @Override protected void onDraw(Canvas c) {
-        boolean dance = busy || SystemClock.uptimeMillis() < tapUntil;
+        boolean dance = !still && (busy || SystemClock.uptimeMillis() < tapUntil);
         int[] f;
         if (dance) f = DANCE[step % DANCE.length];
         else f = new int[]{0, (step / 2) % 2, (step / 2) % 2, 0, 0, 0}; // breathing: the arms rise a little and fall
@@ -119,10 +138,15 @@ final class Crab extends View {
             else cell(c, dx + x, dy + 1, EYE);
         }
 
+        for (int[] k : CLOTHES[style]) {
+            paint.setColor(k[4]);
+            c.drawRect((dx + k[0]) * px, (dy + k[1]) * px, (dx + k[0] + k[2]) * px, (dy + k[1] + k[3]) * px, paint);
+        }
+
         for (int[] p : floating) {
             String[] rows = p[0] == 0 ? HEART_ROWS : NOTE_ROWS;
             int color = p[0] == 0 ? HEART : BODY;
-            int x = X0 + 14 + (p[1] % 2), y = 6 - p[1] - (p[0] == 0 ? 0 : 1);
+            int x = X0 + 14 + (p[1] % 2), y = 8 - p[1] - (p[0] == 0 ? 0 : 1);
             paint.setColor(color);
             paint.setAlpha(255 - p[1] * 34);
             for (int r = 0; r < rows.length; r++) {

@@ -192,6 +192,15 @@ final class Themes {
         prefs(c).edit().putBoolean("crab", on).apply();
     }
 
+    /** Which of the crab's styles it wears (Crab.NAMES). */
+    static int crabStyle(Context c) {
+        return prefs(c).getInt("crabStyle", 0);
+    }
+
+    static void setCrabStyle(Context c, int style) {
+        prefs(c).edit().putInt("crabStyle", style).apply();
+    }
+
     /** The model's thinking as rows in the conversation (on by default). */
     static boolean showThinking(Context c) {
         return prefs(c).getBoolean("thinking", true);

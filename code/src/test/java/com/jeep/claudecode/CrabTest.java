@@ -69,4 +69,25 @@ public class CrabTest {
         assertTrue("every beat of the dance looks different from the one before: " + moved, moved >= 6);
         assertFalse("dancing is not how it rests", same(rest, previous));
     }
+
+    @Test public void everyStyleIsShown() throws Exception {
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        int n = Crab.NAMES.length;
+        Bitmap strip = null;
+        Canvas sc = null;
+        for (int i = 0; i < n; i++) {
+            Crab crab = new Crab(a, i, true);
+            crab.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            crab.layout(0, 0, crab.getMeasuredWidth(), crab.getMeasuredHeight());
+            if (strip == null) {
+                strip = Bitmap.createBitmap(crab.getWidth() * n, crab.getHeight(), Bitmap.Config.ARGB_8888);
+                sc = new Canvas(strip);
+            }
+            sc.drawBitmap(draw(crab), i * crab.getWidth(), 0, null);
+        }
+        OUT.mkdirs();
+        try (FileOutputStream o = new FileOutputStream(new File(OUT, "31-crab-styles.png"))) {
+            strip.compress(Bitmap.CompressFormat.PNG, 100, o);
+        }
+    }
 }
