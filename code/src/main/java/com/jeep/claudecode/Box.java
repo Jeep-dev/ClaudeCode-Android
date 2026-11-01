@@ -52,8 +52,12 @@ final class Box extends Part {
 
         crab = Themes.crab(app) ? new Crab(app) : null;
         if (crab != null) {
-            wrap.addView(crab, new LinearLayout.LayoutParams(-2, -2));
-            Ui.margins(crab, app, 4, 0, 0, 0);
+            // About a third of the way across, where DSH Go's whale stands, not in the corner.
+            LinearLayout stand = Ui.row(app);
+            stand.addView(new View(app), new LinearLayout.LayoutParams(0, 1, 0.7f));
+            stand.addView(crab, new LinearLayout.LayoutParams(-2, -2));
+            stand.addView(new View(app), new LinearLayout.LayoutParams(0, 1, 1.3f));
+            wrap.addView(stand, Ui.fill());
         }
 
         slashScroll = new ScrollView(app) {
