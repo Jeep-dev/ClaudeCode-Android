@@ -69,10 +69,10 @@ public class ThemesTest {
         MainActivity a = Robolectric.buildActivity(MainActivity.class).setup().get();
         View root = a.getWindow().getDecorView();
         idle();
-        set(a, "linked", true);
-        set(a, "setup", null);
-        set(a, "home", "/root");
-        set(a, "defaultCwd", "/root/photos");
+        set(a.link, "linked", true);
+        set(a.link, "setup", null);
+        set(a.claude, "home", "/root");
+        set(a.claude, "defaultCwd", "/root/photos");
         Chat chat = (Chat) get(a, "current");
         chat.cwd = "/root/photos";
 
@@ -101,7 +101,7 @@ public class ThemesTest {
         idle();
 
         long now = System.currentTimeMillis() / 1000;
-        set(a, "sessions", new JSONArray("[{\"id\":\"p1\",\"title\":\"按月份整理照片\",\"cwd\":\"/root/photos\",\"mtime\":" + now + "},"
+        set(a.drawer, "sessions", new JSONArray("[{\"id\":\"p1\",\"title\":\"按月份整理照片\",\"cwd\":\"/root/photos\",\"mtime\":" + now + "},"
                 + "{\"id\":\"p2\",\"title\":\"给番茄钟加一个白噪音开关\",\"cwd\":\"/root/work/pomodoro\",\"mtime\":" + (now - 5400) + "},"
                 + "{\"id\":\"p3\",\"title\":\"这个月的电费为什么这么高\",\"cwd\":\"/root\",\"mtime\":" + (now - 90000) + "},"
                 + "{\"id\":\"p4\",\"title\":\"把读书笔记导出成 Markdown\",\"cwd\":\"/root/notes\",\"mtime\":" + (now - 200000) + "},"
@@ -117,7 +117,7 @@ public class ThemesTest {
             idle();
             String name = look[0] + (look[1].equals("2") ? "-dark" : "");
             shot(root, name + "-chat");
-            call(a, "renderSessions");
+            call(a.drawer, "renderSessions");
             ((DrawerFrame) get(a, "frame")).open();
             idle();
             shot(root, name + "-drawer");

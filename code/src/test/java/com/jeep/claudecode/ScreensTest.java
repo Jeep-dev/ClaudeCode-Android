@@ -102,11 +102,11 @@ public class ScreensTest {
         shot(root, "01-setup");
 
 
-        set(a, "linked", true);
-        set(a, "setup", null);
-        set(a, "home", "/data/data/com.termux/files/home");
-        set(a, "defaultCwd", "/data/data/com.termux/files/home/work");
-        set(a, "defaultModel", "deepseek-flash[1m]");
+        set(a.link, "linked", true);
+        set(a.link, "setup", null);
+        set(a.claude, "home", "/data/data/com.termux/files/home");
+        set(a.claude, "defaultCwd", "/data/data/com.termux/files/home/work");
+        set(a.claude, "defaultModel", "deepseek-flash[1m]");
         Chat chat = (Chat) get(a, "current");
         chat.cwd = "/data/data/com.termux/files/home/work";
         call(a, "renderNow");
@@ -161,11 +161,11 @@ public class ScreensTest {
         shot(root, "05-expanded");
 
         // Drawer
-        set(a, "sessions", new JSONArray("[{\"id\":\"s1\",\"title\":\"帮我看看 work 里有什么\",\"cwd\":\"/data/data/com.termux/files/home/work\",\"mtime\":" + (System.currentTimeMillis() / 1000) + "},"
+        set(a.drawer, "sessions", new JSONArray("[{\"id\":\"s1\",\"title\":\"帮我看看 work 里有什么\",\"cwd\":\"/data/data/com.termux/files/home/work\",\"mtime\":" + (System.currentTimeMillis() / 1000) + "},"
                 + "{\"id\":\"s2\",\"title\":\"写一个鹈鹕骑自行车的 SVG 动画\",\"cwd\":\"/data/data/com.termux/files/home/work\",\"mtime\":" + (System.currentTimeMillis() / 1000 - 3600) + "},"
                 + "{\"id\":\"s3\",\"title\":\"Xed-Editor 中文翻译\",\"cwd\":\"/data/data/com.termux/files/home/Xed-Editor\",\"mtime\":" + (System.currentTimeMillis() / 1000 - 90000) + "},"
                 + "{\"id\":\"s4\",\"title\":\"termux 里装 claude code\",\"cwd\":\"/data/data/com.termux/files/home\",\"mtime\":" + (System.currentTimeMillis() / 1000 - 400000) + "}]"));
-        call(a, "renderSessions");
+        call(a.drawer, "renderSessions");
         ((DrawerFrame) get(a, "frame")).open();
         idle();
         shot(root, "06-drawer");
@@ -173,12 +173,12 @@ public class ScreensTest {
         idle();
 
         // Slash menu and a note
-        EditText input = (EditText) get(a, "input");
+        EditText input = (EditText) get(a.box, "input");
         input.setText("/");
         idle();
         shot(root, "07-slash");
         input.setText("/effort");
-        call(a, "send");
+        call(a.sender, "send");
         idle();
         shot(root, "08-note");
 
@@ -245,35 +245,35 @@ public class ScreensTest {
         sw.invoke(a, chat);
         idle();
 
-        call(a, "settingsSheet");
+        call(a.settings, "settingsSheet");
         idle();
         Dialog d = ShadowDialog.getLatestDialog();
         View sheet = d.getWindow().getDecorView();
         shot(sheet, "09-settings");
-        Method sf = MainActivity.class.getDeclaredMethod("settingsFile");
+        Method sf = Claude.class.getDeclaredMethod("settingsFile");
         sf.setAccessible(true);
-        java.io.File settingsFile = (java.io.File) sf.invoke(a);
+        java.io.File settingsFile = (java.io.File) sf.invoke(a.claude);
         settingsFile.getParentFile().mkdirs();
         Userland.write(settingsFile, "{\"env\":{\"ANTHROPIC_BASE_URL\":\"https://api.deepseek.com/anthropic\",\"ANTHROPIC_AUTH_TOKEN\":\"sk-1234567890abcdef\",\"DISABLE_TELEMETRY\":\"1\"},"
                 + "\"alwaysThinkingEnabled\":true,\"cleanupPeriodDays\":90,\"permissions\":{\"allow\":[\"Bash\"]},\"effortLevel\":\"high\"}");
-        set(a, "schema", new org.json.JSONArray("[{\"key\":\"verbose\",\"type\":\"bool\",\"desc\":\"Show full tool output instead of truncated summaries\"},"
+        set(a.claudePage, "schema", new org.json.JSONArray("[{\"key\":\"verbose\",\"type\":\"bool\",\"desc\":\"Show full tool output instead of truncated summaries\"},"
                 + "{\"key\":\"effortLevel\",\"type\":\"enum\",\"choices\":[\"low\",\"medium\",\"high\",\"xhigh\"],\"desc\":\"Persisted effort level for supported models.\"},"
                 + "{\"key\":\"cleanupPeriodDays\",\"type\":\"number\",\"desc\":\"Number of days to retain chat transcripts before automatic cleanup (default: 30).\"}]"));
-        Method open = MainActivity.class.getDeclaredMethod("settingsOpen", String.class);
+        Method open = Settings.class.getDeclaredMethod("settingsOpen", String.class);
         open.setAccessible(true);
         for (String page : new String[]{"look", "talk", "model", "claude", "storage", "about"}) {
-            set(a, "settingsStill", 0L); // the clock stands still here: no move is ever over
-            open.invoke(a, page);
+            set(a.settings, "settingsStill", 0L); // the clock stands still here: no move is ever over
+            open.invoke(a.settings, page);
             idle();
             shot(sheet, "09-settings-" + page);
         }
-        Method one = MainActivity.class.getDeclaredMethod("settingSheet", String.class);
+        Method one = ClaudePage.class.getDeclaredMethod("settingSheet", String.class);
         one.setAccessible(true);
-        one.invoke(a, "effortLevel");
+        one.invoke(a.claudePage, "effortLevel");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-enum");
         ShadowDialog.getLatestDialog().dismiss();
-        call(a, "addSettingSheet");
+        call(a.claudePage, "addSettingSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-add");
         ShadowDialog.getLatestDialog().dismiss();
@@ -284,7 +284,7 @@ public class ScreensTest {
         Userland.write(land.file(Userland.HOME + "/.claude/skills/pdf-tools/SKILL.md"), "---\nname: pdf-tools\n---\n");
         a.getSharedPreferences("app", 0).edit().putString("skills",
                 "[\"pdf-tools\",\"simplify\",\"code-review\",\"security-review\",\"document-skills:xlsx\"]").apply();
-        call(a, "skillsSheet");
+        call(a.skills, "skillsSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-skills");
         ShadowDialog.getLatestDialog().dismiss();
@@ -297,42 +297,42 @@ public class ScreensTest {
         JSONObject withHooks = new JSONObject(Userland.read(new java.io.FileInputStream(settingsFile)));
         withHooks.put("hooks", new JSONObject("{\"PostToolUse\":[{\"matcher\":\"Edit|Write\",\"hooks\":[{\"type\":\"command\",\"command\":\"prettier --write\"}]}],\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"notify-send done\"}]}]}"));
         Userland.write(settingsFile, withHooks.toString());
-        Method items = MainActivity.class.getDeclaredMethod("itemsSheet", String.class);
+        Method items = ExtPage.class.getDeclaredMethod("itemsSheet", String.class);
         items.setAccessible(true);
         for (String kind : new String[]{"agents", "commands"}) {
-            items.invoke(a, kind);
+            items.invoke(a.ext, kind);
             idle();
             shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-" + kind);
             ShadowDialog.getLatestDialog().dismiss();
         }
-        call(a, "hooksSheet");
+        call(a.ext, "hooksSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-hooks");
         ShadowDialog.getLatestDialog().dismiss();
-        open.invoke(a, "ext");
+        open.invoke(a.settings, "ext");
         idle();
         shot(sheet, "09-settings-ext");
-        call(a, "mcpSheet");
+        call(a.mcp, "mcpSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-mcp");
         ShadowDialog.getLatestDialog().dismiss();
-        call(a, "envSheet");
+        call(a.claudePage, "envSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "09-setting-env");
         ShadowDialog.getLatestDialog().dismiss();
-        open.invoke(a, (Object) null);
+        open.invoke(a.settings, (Object) null);
         idle();
         d.dismiss();
 
-        Method cfg = MainActivity.class.getDeclaredMethod("applyConfig", JSONObject.class);
+        Method cfg = Claude.class.getDeclaredMethod("applyConfig", JSONObject.class);
         cfg.setAccessible(true);
-        cfg.invoke(a, new JSONObject("{\"models\":[\"deepseek-flash[1m]\",\"deepseek-flash\"],\"defaultModel\":\"deepseek-flash[1m]\","
+        cfg.invoke(a.claude, new JSONObject("{\"models\":[\"deepseek-flash[1m]\",\"deepseek-flash\"],\"defaultModel\":\"deepseek-flash[1m]\","
                 + "\"efforts\":[\"low\",\"medium\",\"high\",\"xhigh\",\"max\"],\"effort\":\"max\","
                 + "\"permissionModes\":[\"acceptEdits\",\"auto\",\"bypassPermissions\",\"manual\",\"dontAsk\",\"plan\"],"
                 + "\"claudeModels\":[{\"value\":\"default\",\"displayName\":\"Default (recommended)\",\"resolvedModel\":\"claude-opus-5-5\"},"
                 + "{\"value\":\"opus\",\"displayName\":\"Opus\",\"resolvedModel\":\"claude-opus-5-5\",\"description\":\"Opus 5.5 · Best for everyday\"},{\"value\":\"fable\",\"displayName\":\"Fable\"},"
                 + "{\"value\":\"sonnet\",\"displayName\":\"Sonnet\",\"description\":\"Sonnet 5.5 · Efficient\"},{\"value\":\"haiku\",\"displayName\":\"Haiku\"}]}"));
-        call(a, "modelSheet");
+        call(a.pickers, "modelSheet");
         idle();
         shot(ShadowDialog.getLatestDialog().getWindow().getDecorView(), "11-model");
         ShadowDialog.getLatestDialog().dismiss();
@@ -356,9 +356,9 @@ public class ScreensTest {
         call(a, "restyle");
         idle();
         shot(a.getWindow().getDecorView(), "13-large");
-        androidx.recyclerview.widget.RecyclerView list = (androidx.recyclerview.widget.RecyclerView) get(a, "list");
+        androidx.recyclerview.widget.RecyclerView list = (androidx.recyclerview.widget.RecyclerView) get(a.screen, "list");
         list.scrollBy(0, -400);
-        call(a, "showJump");
+        call(a.screen, "showJump");
         ShadowLooper.idleMainLooper(300, java.util.concurrent.TimeUnit.MILLISECONDS);
         shot(a.getWindow().getDecorView(), "14-jump");
         Fonts.setSize(a, 1);
@@ -382,9 +382,9 @@ public class ScreensTest {
 
     static final class RecyclerScroll {
         static void top(MainActivity a) throws Exception {
-            androidx.recyclerview.widget.RecyclerView list = (androidx.recyclerview.widget.RecyclerView) get(a, "list");
+            androidx.recyclerview.widget.RecyclerView list = (androidx.recyclerview.widget.RecyclerView) get(a.screen, "list");
             list.scrollToPosition(0);
-            set(a, "stick", false);
+            set(a.screen, "stick", false);
         }
     }
 }

@@ -98,6 +98,14 @@ interface is plain Android views (Java), so scrolling and text selection are the
   output (or a transcript) into messages and blocks; `ThreadAdapter` shows them in a
   RecyclerView; `Md` renders Markdown with Markwon, fenced code as cards with a copy button;
   `DrawerFrame` is the drawer that a horizontal swipe anywhere opens.
+- `MainActivity` keeps the conversations open and is made of parts, each a `Part` built for it that reaches the
+  others through it (`Claude` and `Sheets` first, which `Part` checks): `Link` (the link to the bridge, and
+  unpacking the userland before it), `ChatScreen` (the conversation page),
+  `Box` (the box the message is written in, with `SlashCommands` and `Attachments`), `Sender` (sending, queueing,
+  answering Claude Code, stopping), `Finder` (`/find`), `MessageActions` (a message's menu, `/tree`, delete),
+  `Drawer` (the conversation list), `Settings` with its pages (`LookPage`, `ClaudePage`, `ExtPage` with `Skills`
+  and `McpServers`, `AppPage`), `Pickers` (folder, model, permission mode, CLAUDE.md), `Sheets` (the sheets and
+  rows those are built of) and `Claude` (what is known of Claude Code, and its settings.json).
 
 ## Interface
 
@@ -147,3 +155,14 @@ address and key, or to import the old setup from Termux.
 
 `ScreensTest` renders the main screens with Robolectric's native graphics:
 `gradle :code:testDebugUnitTest --tests com.jeep.claudecode.ScreensTest -Dshots=<dir>`.
+
+## Tests
+
+- `ChatTest` applies scripts of Claude Code's stream-json messages (and a saved transcript) to a `Chat` and
+  compares the conversation after each with `src/test/resources/chat/*.txt`. A change of what `Chat` does is
+  recorded again with `-Drecord=true`.
+- `src/test/python/test_bridge_http.py` starts the bridge's HTTP handler with a fake `claude` and compares every
+  route's status and body with `bridge_http.golden.json` (`--record` writes it again);
+  `test_bridge_schema.py` checks how the settings are read out of Claude Code's program, and reads the
+  installed `claude` too when there is one. Run them with `python3 -I`.
+

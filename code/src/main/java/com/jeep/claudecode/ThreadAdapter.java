@@ -413,7 +413,7 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
     private Chat.Block growing;
     /**
      * The row opened last (its box): the list keeps it in sight as it grows (opening, a picture or
-     * a result coming in) until the list is moved otherwise (MainActivity lets go of it).
+     * a result coming in) until the list is moved otherwise (ChatScreen lets go of it).
      */
     View opened;
     /** A row moving open or closed: taps on it meanwhile wait. */
