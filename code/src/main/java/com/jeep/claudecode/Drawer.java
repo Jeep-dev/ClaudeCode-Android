@@ -13,6 +13,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -50,6 +51,14 @@ final class Drawer extends Part {
     String drawnState = "";
     /** What the foot last showed: drawn again only when that changes. */
     String shownLink;
+    /** What the list shows: all of them, those running, those waiting for an answer, those changed since they were last seen. */
+    private int filter;
+    private static final String[] FILTERS = {"全部", "运行中", "待确认", "未读"};
+    /** The row of filters above the list. */
+    private LinearLayout chips;
+    /** For 未读: each conversation's last change as it was last seen (id -> mtime), kept in the preferences. */
+    private Map<String, Double> seen;
+    private boolean seenChanged;
 
     Drawer(MainActivity app) { super(app); }
 
@@ -120,6 +129,15 @@ final class Drawer extends Part {
         d.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(44)));
         Ui.margins(searchBox, app, 12, 0, 12, 4);
 
+        // The filters: a pale round for the one chosen, a hairline round for the others.
+        HorizontalScrollView chipScroll = new HorizontalScrollView(app);
+        chipScroll.setHorizontalScrollBarEnabled(false);
+        chips = Ui.row(app);
+        chips.setPadding(dp(12), dp(6), dp(12), dp(4));
+        chipScroll.addView(chips);
+        d.addView(chipScroll, Ui.fill());
+        renderChips(new int[FILTERS.length]);
+
         // The list fades out at its ends, as the conversation does under its bar, instead of
         // being cut by a line.
         FrameLayout listArea = new FrameLayout(app);
@@ -153,6 +171,13 @@ final class Drawer extends Part {
         linkText.setPadding(dp(9), 0, 0, 0);
         link.addView(linkText);
         foot.addView(link, Ui.weight());
+        // 功能, beside Settings: its own button, round as the gear.
+        ImageView features = Ui.iconButton(app, R.drawable.ic_grid, 44, 20, R.color.text2);
+        features.setBackground(Ui.press(app, Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)), dp(22)));
+        features.setContentDescription("全部功能");
+        features.setOnClickListener(v -> app.features.open());
+        foot.addView(features, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        Ui.margins(features, app, 0, 0, 8, 0);
         // Round, white with a hairline: as the conversation's own buttons; a tap on it is the line's.
         ImageView gear = Ui.iconButton(app, R.drawable.ic_gear, 44, 20, R.color.text2);
         gear.setBackground(Ui.round(col(R.color.surface), dp(22), dp(1), col(R.color.border)));
@@ -199,6 +224,7 @@ final class Drawer extends Part {
     void keepSessions(JSONArray next) {
         sessions = next;
         sessionsRead = true;
+        forgetSeen(next);
         String text = next.toString();
         try {
             work.execute(() -> {
@@ -266,6 +292,7 @@ final class Drawer extends Part {
         String q = search.trim().toLowerCase(Locale.ROOT);
         String group = "";
         int shown = 0;
+        int[] counts = new int[FILTERS.length];
         // Only the working folder's (Settings → 外观 → 只显示当前目录): new conversations' folder, not its subfolders.
         String here = onlyHere() ? claude.workFolder().replaceAll("/+$", "") : "";
         // Pinned ones first, under their own heading.
@@ -280,8 +307,16 @@ final class Drawer extends Part {
         for (JSONObject s : ordered) {
             String titleText = s.optString("title").isEmpty() ? "新对话" : s.optString("title"), folder = s.optString("cwd"), id = s.optString("id");
             if (!here.isEmpty() && !folder.replaceAll("/+$", "").equals(here)) continue;
+            Chat chat = app.chats.get(app.bySession.containsKey(id) ? app.bySession.get(id) : id);
+            boolean live = chat != null ? chat.running : s.optBoolean("running");
+            boolean pending = chat != null && chat.pending();
+            boolean unread = unread(s, id);
+            if (live) counts[1]++;
+            if (pending) counts[2]++;
+            if (unread) counts[3]++;
             boolean byName = titleText.toLowerCase(Locale.ROOT).contains(q) || folder.toLowerCase(Locale.ROOT).contains(q);
             if (!q.isEmpty() && !byName && !hits.containsKey(id)) continue;
+            if ((filter == 1 && !live) || (filter == 2 && !pending) || (filter == 3 && !unread)) continue;
             String g = pins.contains(id) ? "置顶" : group(s.optDouble("mtime"));
             if (!g.equals(group)) {
                 group = g;
@@ -291,8 +326,6 @@ final class Drawer extends Part {
                 label.setPadding(dp(12), dp(sessionsBox.getChildCount() == 0 ? 8 : 20), dp(12), dp(8));
                 sessionsBox.addView(label);
             }
-            Chat chat = app.chats.get(app.bySession.containsKey(id) ? app.bySession.get(id) : id);
-            boolean live = chat != null ? chat.running : s.optBoolean("running");
             LinearLayout item = Ui.column(app);
             item.setPadding(dp(12), dp(10), dp(12), dp(10));
             boolean active = id.equals(app.current.sessionId);
@@ -309,6 +342,20 @@ final class Drawer extends Part {
             t.setSingleLine(true);
             t.setEllipsize(TextUtils.TruncateAt.END);
             line.addView(t, Ui.weight());
+            if (pending) {
+                TextView tag = Ui.text(app, "待确认", 11.5f, R.color.accent);
+                tag.setTypeface(Ui.MEDIUM);
+                tag.setPadding(dp(8), dp(3), dp(8), dp(3));
+                tag.setBackground(Ui.round(col(R.color.accentSoft), dp(10)));
+                line.addView(tag);
+                Ui.margins(tag, app, 8, 0, 0, 0);
+            }
+            if (unread) {
+                View mark = new View(app);
+                mark.setBackground(Ui.round(col(R.color.accent), dp(4)));
+                line.addView(mark, new LinearLayout.LayoutParams(dp(8), dp(8)));
+                Ui.margins(mark, app, 8, 0, 0, 0);
+            }
             item.addView(line, Ui.fill());
             TextView meta = Ui.text(app, Ui.base(folder), 12.5f, R.color.text3);
             meta.setPadding(0, dp(3), 0, 0);
@@ -341,8 +388,10 @@ final class Drawer extends Part {
             sessionsBox.addView(item, Ui.fill());
             shown++;
         }
+        if (seenChanged) saveSeen();
+        renderChips(counts);
         if (shown == 0) {
-            String none = !q.isEmpty() ? "没有匹配的对话" : here.isEmpty() ? "还没有对话" : Ui.base(here) + " 里还没有对话";
+            String none = !q.isEmpty() ? "没有匹配的对话" : filter > 0 ? "没有" + FILTERS[filter] + "的对话" : here.isEmpty() ? "还没有对话" : Ui.base(here) + " 里还没有对话";
             LinearLayout empty = Ui.column(app);
             empty.setGravity(Gravity.CENTER_HORIZONTAL);
             empty.setPadding(dp(16), dp(48), dp(16), dp(28));
@@ -351,6 +400,72 @@ final class Drawer extends Part {
             empty.addView(words);
             sessionsBox.addView(empty, Ui.fill());
         }
+    }
+
+    /** The row of filters, each with how many it would show (but 全部). */
+    private void renderChips(int[] counts) {
+        if (chips == null) return;
+        chips.removeAllViews();
+        for (int i = 0; i < FILTERS.length; i++) {
+            int f = i;
+            boolean on = filter == i;
+            TextView c = Ui.text(app, FILTERS[i] + (i > 0 && counts[i] > 0 ? " " + counts[i] : ""), 13.5f, on ? R.color.accent : R.color.text2);
+            if (on) c.setTypeface(Ui.MEDIUM);
+            c.setGravity(Gravity.CENTER);
+            c.setPadding(dp(14), 0, dp(14), 0);
+            c.setBackground(Ui.press(app, on ? Ui.round(col(R.color.accentSoft), dp(16))
+                    : Ui.round(col(R.color.surface), dp(16), dp(1), col(R.color.border)), dp(16)));
+            c.setOnClickListener(v -> {
+                if (filter == f) return;
+                filter = f;
+                renderSessions();
+            });
+            chips.addView(c, new LinearLayout.LayoutParams(-2, dp(32)));
+            if (i > 0) Ui.margins(c, app, 8, 0, 0, 0);
+        }
+    }
+
+    /** Changed since it was last seen. The open one is seen; one met for the first time counts as seen. */
+    private boolean unread(JSONObject s, String id) {
+        double mtime = s.optDouble("mtime");
+        if (Double.isNaN(mtime)) return false;
+        if (seen == null) loadSeen();
+        Double was = seen.get(id);
+        if (was == null || id.equals(app.current.sessionId)) {
+            if (was == null || was != mtime) { seen.put(id, mtime); seenChanged = true; }
+            return false;
+        }
+        return mtime > was + 0.5;
+    }
+
+    private void loadSeen() {
+        seen = new HashMap<>();
+        try {
+            JSONObject o = new JSONObject(prefs.getString("seen", "{}"));
+            for (java.util.Iterator<String> it = o.keys(); it.hasNext(); ) {
+                String k = it.next();
+                seen.put(k, o.optDouble(k));
+            }
+        } catch (JSONException ignored) {
+            // everything counts as seen again
+        }
+    }
+
+    private void saveSeen() {
+        seenChanged = false;
+        prefs.edit().putString("seen", new JSONObject(seen).toString()).apply();
+    }
+
+    /** What the bridge no longer lists is forgotten. */
+    private void forgetSeen(JSONArray listed) {
+        if (listed.length() == 0) return;
+        if (seen == null) loadSeen();
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (int i = 0; i < listed.length(); i++) {
+            JSONObject s = listed.optJSONObject(i);
+            if (s != null) ids.add(s.optString("id"));
+        }
+        if (seen.keySet().retainAll(ids)) seenChanged = true;
     }
 
     private void openSession(String id, String titleText, String folder) {

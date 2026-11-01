@@ -177,6 +177,16 @@ final class Chat {
         return m;
     }
 
+    /** Something in the last turn waits for the person: a tool that asks whether it may run, or a question. */
+    boolean pending() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Msg m = messages.get(i);
+            if (m.kind == Msg.USER) return false;
+            for (Block b : m.blocks) if (b.kind == Block.TOOL && b.ask != null) return true;
+        }
+        return false;
+    }
+
     Block tool(String id) {
         for (int i = messages.size() - 1; i >= 0; i--) {
             for (Block b : messages.get(i).blocks) if (b.kind == Block.TOOL && id.equals(b.toolId)) return b;

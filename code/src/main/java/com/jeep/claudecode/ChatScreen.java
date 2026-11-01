@@ -512,8 +512,16 @@ final class ChatScreen extends Part {
         Ui.margins(actions, app, 0, 18, 0, 0);
     }
 
+    /** Searching the conversation: /find is in the box, the words come next. */
+    void findInChat() {
+        app.box.input.setText("/find ");
+        app.box.input.setSelection(app.box.input.length());
+        app.box.input.requestFocus();
+        app.box.showKeyboard();
+    }
+
     /**
-     * The top bar's menu: a small card under its button, holding what the app adds (the terminal,
+     * The top bar's menu: a small card under its button, holding what the app adds (全部功能, the terminal,
      * searching the conversation) rather than more buttons; each also a / command where it has one.
      */
     private void moreMenu(View anchor) {
@@ -528,13 +536,9 @@ final class ChatScreen extends Part {
         android.widget.PopupWindow pop = new android.widget.PopupWindow(room, width + 2 * shade, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
+        sheets.menuItem(card, pop, R.drawable.ic_grid, "全部功能", null, app.features::open);
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null, app::openTerminal);
-        sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", "/find", () -> {
-            app.box.input.setText("/find ");
-            app.box.input.setSelection(app.box.input.length());
-            app.box.input.requestFocus();
-            app.box.showKeyboard();
-        });
+        sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", "/find", this::findInChat);
         // Its right edge on the button's, a little below it; it grows out of that corner.
         pop.showAsDropDown(anchor, shade, dp(6) - shade, Gravity.END);
         card.setPivotX(width);

@@ -83,6 +83,15 @@ final class Settings extends Part {
         refreshSettings();
     }
 
+    /** Opens Settings on one of its pages (back goes to the list of pages). */
+    void openAt(String page) {
+        if (settingsPage != null) return;
+        settingsAt = page;
+        settingsSheet();
+        if (page.equals("claude")) app.claudePage.loadSchema(() -> { });
+        if (page.equals("storage")) app.appPage.measureStorage();
+    }
+
     /** A page of Settings: the round back button (with the name beside it on the list of pages), its contents scrolling under. */
     private View settingsView() {
         LinearLayout root = Ui.column(app);

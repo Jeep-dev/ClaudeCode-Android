@@ -61,6 +61,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     McpServers mcp;
     AppPage appPage;
     Pickers pickers;
+    Features features;
 
     // state: the conversations, by key and by the session each comes to have
     final Map<String, Chat> chats = new HashMap<>();
@@ -98,6 +99,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         mcp = new McpServers(this);
         appPage = new AppPage(this);
         pickers = new Pickers(this);
+        features = new Features(this);
         md = new Md(talkContext(), this::copy, this::openUrl, this::userFile);
         // The keyboard opens when the box is tapped, never by itself (coming back from the background).
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
