@@ -1,0 +1,1107 @@
+{
+ "records": [
+  {
+   "body": {
+    "claude": "<T>/bin/claude",
+    "defaultCwd": "<T>/home/work",
+    "home": "<T>/home",
+    "ok": true,
+    "version": 65
+   },
+   "req": "GET /health ",
+   "status": 200
+  },
+  {
+   "body": {
+    "auth": false,
+    "baseUrl": "",
+    "claudeModels": [],
+    "claudeVersion": "9.9.9",
+    "defaultModel": "",
+    "effort": "",
+    "efforts": [
+     "low",
+     "medium",
+     "high"
+    ],
+    "models": [],
+    "permissionModes": [
+     "default",
+     "plan",
+     "bypassPermissions"
+    ]
+   },
+   "req": "GET /config ",
+   "status": 200
+  },
+  {
+   "body": {
+    "marketplaces": [],
+    "plugins": []
+   },
+   "req": "GET /plugins ",
+   "status": 200
+  },
+  {
+   "body": {
+    "appendSystemPrompt": "",
+    "disallowedTools": "",
+    "extraArgs": "",
+    "permissionMode": "bypassPermissions"
+   },
+   "req": "GET /launch ",
+   "status": 200
+  },
+  {
+   "body": {
+    "path": "<T>/home/.claude/CLAUDE.md",
+    "text": ""
+   },
+   "req": "GET /memory?scope=global ",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "unknown scope"
+   },
+   "req": "GET /memory?scope=nope ",
+   "status": 400
+  },
+  {
+   "body": {
+    "path": "<T>/f/CLAUDE.md",
+    "text": ""
+   },
+   "req": "GET /memory?scope=folder&cwd=<T>/f ",
+   "status": 200
+  },
+  {
+   "body": {
+    "dirs": [
+     "bin",
+     "home"
+    ],
+    "home": "<T>/home",
+    "parent": "/tmp",
+    "path": "<T>"
+   },
+   "req": "GET /dirs?path=<T> ",
+   "status": 200
+  },
+  {
+   "body": {
+    "dirs": [],
+    "error": "[Errno 2] No such file or directory: '/definitely/not/here'",
+    "parent": "/definitely/not",
+    "path": "/definitely/not/here"
+   },
+   "req": "GET /dirs?path=/definitely/not/here ",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "not found"
+   },
+   "req": "GET /image?id=none&at=0&n=0 ",
+   "status": 404
+  },
+  {
+   "body": {
+    "error": "not found"
+   },
+   "req": "GET /history?id=none ",
+   "status": 404
+  },
+  {
+   "body": {
+    "error": "not found"
+   },
+   "req": "GET /nothing ",
+   "status": 404
+  },
+  {
+   "body": {
+    "error": "invalid literal for int() with base 10: 'abc'"
+   },
+   "req": "GET /events?since=abc ",
+   "status": 400
+  },
+  {
+   "body": {
+    "sessions": [
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "mtime": 1735689601.0,
+      "size": 1039,
+      "title": "first question"
+     },
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000002",
+      "mtime": 1735689601.0,
+      "size": 1011,
+      "title": ""
+     },
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000003",
+      "mtime": 1735689601.0,
+      "size": 496,
+      "title": "only one"
+     }
+    ]
+   },
+   "req": "GET /sessions ",
+   "status": 200
+  },
+  {
+   "body": {
+    "results": [
+     {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "snippet": "… question about pelicans second answer"
+     }
+    ]
+   },
+   "req": "GET /search?q=pelicans ",
+   "status": 200
+  },
+  {
+   "body": {
+    "results": []
+   },
+   "req": "GET /search?q= ",
+   "status": 200
+  },
+  {
+   "body": {
+    "context": 0,
+    "cwd": "/tmp/proj",
+    "id": "aaaaaaaa-0000-0000-0000-000000000001",
+    "messages": [
+     {
+      "images": [],
+      "role": "user",
+      "text": "first question",
+      "uuid": "u1"
+     },
+     {
+      "blocks": [
+       {
+        "text": "first answer",
+        "type": "text"
+       }
+      ],
+      "role": "assistant",
+      "uuid": "a1"
+     },
+     {
+      "images": [],
+      "role": "user",
+      "text": "second question about pelicans",
+      "uuid": "u2"
+     },
+     {
+      "blocks": [
+       {
+        "text": "second answer",
+        "type": "text"
+       }
+      ],
+      "role": "assistant",
+      "uuid": "a2"
+     }
+    ],
+    "model": null,
+    "title": null
+   },
+   "req": "GET /history?id=aaaaaaaa-0000-0000-0000-000000000001 ",
+   "status": 200
+  },
+  {
+   "body": {
+    "appendSystemPrompt": "be brief",
+    "disallowedTools": "",
+    "extraArgs": "",
+    "permissionMode": "plan"
+   },
+   "req": "POST /launch {\"appendSystemPrompt\": \"be brief\", \"permissionMode\": \"plan\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "bad request: unknown permission mode unheard-of"
+   },
+   "req": "POST /launch {\"permissionMode\": \"unheard-of\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request: No closing quotation"
+   },
+   "req": "POST /launch {\"extraArgs\": \"'unclosed\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "appendSystemPrompt": "be brief",
+    "disallowedTools": "",
+    "extraArgs": "",
+    "permissionMode": "plan"
+   },
+   "req": "POST /launch {}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "path": "<T>/home/.claude/CLAUDE.md"
+   },
+   "req": "POST /memory {\"scope\": \"global\", \"text\": \"remember me\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "path": "<T>/f/CLAUDE.md"
+   },
+   "req": "POST /memory {\"cwd\": \"<T>/f\", \"scope\": \"folder\", \"text\": \"folder text\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "bad request: unknown scope"
+   },
+   "req": "POST /memory {\"scope\": \"bogus\", \"text\": \"x\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "path": "<T>/home/.claude/CLAUDE.md",
+    "text": "remember me"
+   },
+   "req": "GET /memory?scope=global ",
+   "status": 200
+  },
+  {
+   "body": {
+    "path": "<T>/f/CLAUDE.md",
+    "text": "folder text"
+   },
+   "req": "GET /memory?scope=folder&cwd=<T>/f ",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /mkdir {\"path\": \"<T>/new/dir\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "[Errno 20] Not a directory: '<T>/bin/claude/x'"
+   },
+   "req": "POST /mkdir {\"path\": \"<T>/bin/claude/x\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request: 'path'"
+   },
+   "req": "POST /mkdir {}",
+   "status": 400
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /mcp {\"action\": \"set\", \"config\": {\"command\": \"x\"}, \"name\": \"srv\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /mcp {\"action\": \"remove\", \"name\": \"srv\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "boom"
+   },
+   "req": "POST /mcp {\"action\": \"set\", \"config\": {}, \"name\": \"bad\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request"
+   },
+   "req": "POST /mcp {\"action\": \"set\", \"name\": \"bad name\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request"
+   },
+   "req": "POST /mcp {\"action\": \"nope\", \"name\": \"srv\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request"
+   },
+   "req": "POST /mcp {\"action\": \"set\", \"name\": \"srv\", \"scope\": \"galaxy\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "ok": true,
+    "output": "done"
+   },
+   "req": "POST /plugin {\"action\": \"install\", \"name\": \"p1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "output": "done"
+   },
+   "req": "POST /plugin {\"action\": \"market-add\", \"name\": \"owner/repo\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "no such plugin"
+   },
+   "req": "POST /plugin {\"action\": \"install\", \"name\": \"fail\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request"
+   },
+   "req": "POST /plugin {\"action\": \"install\", \"name\": \"-x\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request"
+   },
+   "req": "POST /plugin {\"action\": \"explode\", \"name\": \"p\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /title {\"id\": \"aaaaaaaa-0000-0000-0000-000000000002\", \"title\": \"  A   new   name \"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": false
+   },
+   "req": "POST /title {\"id\": \"nonexistent\", \"title\": \"x\"}",
+   "status": 404
+  },
+  {
+   "body": {
+    "error": "bad request"
+   },
+   "req": "POST /title {\"id\": \"aaaaaaaa-0000-0000-0000-000000000002\", \"title\": \"   \"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "not found"
+   },
+   "req": "POST /nothing {}",
+   "status": 404
+  },
+  {
+   "body": {
+    "error": "bad request: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"
+   },
+   "req": "POST /send ",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "bad request: 'chat'"
+   },
+   "req": "POST /send {}",
+   "status": 400
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /stop {\"chat\": \"unknown\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "cancelled": true
+   },
+   "req": "POST /cancel {\"chat\": \"unknown\", \"uuid\": \"x\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "not asked any more"
+   },
+   "req": "POST /permission {\"allow\": true, \"chat\": \"unknown\", \"requestId\": \"r1\"}",
+   "status": 409
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /open {\"cwd\": \"<T>/work2\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /open {\"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000001\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "path": "<T>/up/doc.txt"
+   },
+   "req": "POST /upload name=doc.txt",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "path": "<T>/up/doc (1).txt"
+   },
+   "req": "POST /upload name=doc.txt",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "path": "<T>/up/evil.txt"
+   },
+   "req": "POST /upload name=../evil.txt",
+   "status": 200
+  },
+  {
+   "body": [
+    "doc (1).txt",
+    "doc.txt",
+    "evil.txt"
+   ],
+   "req": "upload files",
+   "status": 0
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /send {\"chat\": \"c1\", \"content\": \"hello\", \"cwd\": \"<T>/w\", \"mid\": \"m1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true,
+    "repeated": true
+   },
+   "req": "POST /send {\"chat\": \"c1\", \"content\": \"hello\", \"mid\": \"m1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /send {\"chat\": \"c1\", \"content\": [{\"text\": \"blocks\", \"type\": \"text\"}], \"mid\": \"m2\", \"uuid\": \"u-x\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /send {\"chat\": \"c2\", \"content\": \"slow\", \"mid\": \"m3\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "cancelled": true
+   },
+   "req": "POST /cancel {\"chat\": \"c2\", \"uuid\": \"late\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "cancelled": false
+   },
+   "req": "POST /cancel {\"chat\": \"c2\", \"uuid\": \"early\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /stop {\"chat\": \"c2\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /stop {\"chat\": \"c1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /send {\"chat\": \"c3\", \"content\": \"ask\", \"mid\": \"m4\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "not asked any more"
+   },
+   "req": "POST /permission {\"allow\": true, \"chat\": \"c3\", \"requestId\": \"nope\"}",
+   "status": 409
+  },
+  {
+   "body": {
+    "error": "回复还在进行"
+   },
+   "req": "POST /rewind {\"chat\": \"c3\", \"sessionId\": \"\", \"uuid\": \"x\"}",
+   "status": 409
+  },
+  {
+   "body": {
+    "error": "回复还在进行"
+   },
+   "req": "POST /delete-message {\"chat\": \"c3\", \"role\": \"user\", \"sessionId\": \"\", \"uuid\": \"x\"}",
+   "status": 409
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /permission {\"allow\": true, \"answers\": {\"q\": \"a\"}, \"chat\": \"c3\", \"requestId\": \"r1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "not asked any more"
+   },
+   "req": "POST /permission {\"allow\": true, \"chat\": \"c3\", \"requestId\": \"r1\"}",
+   "status": 409
+  },
+  {
+   "body": {
+    "error": "cannot start"
+   },
+   "req": "POST /send {\"chat\": \"bad-OSError\", \"content\": \"x\", \"mid\": \"f-OSError\"}",
+   "status": 500
+  },
+  {
+   "body": {
+    "error": "bad value"
+   },
+   "req": "POST /send {\"chat\": \"bad-ValueError\", \"content\": \"x\", \"mid\": \"f-ValueError\"}",
+   "status": 500
+  },
+  {
+   "body": {
+    "error": "RuntimeError: odd"
+   },
+   "req": "POST /send {\"chat\": \"bad-RuntimeError\", \"content\": \"x\", \"mid\": \"f-RuntimeError\"}",
+   "status": 500
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /send {\"chat\": \"bad-OSError\", \"content\": \"x\", \"mid\": \"f-OSError\"}",
+   "status": 200
+  },
+  {
+   "body": [
+    {
+     "chat": "bad-OSError",
+     "data": {
+      "is_error": false,
+      "session_id": "sid-11f6ad",
+      "subtype": "success",
+      "type": "result"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "bad-OSError",
+     "data": {
+      "message": {
+       "content": [
+        {
+         "text": "ok",
+         "type": "text"
+        }
+       ],
+       "id": "x"
+      },
+      "session_id": "sid-11f6ad",
+      "type": "assistant"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "bad-OSError",
+     "data": {
+      "model": "fake",
+      "session_id": "sid-11f6ad",
+      "subtype": "init",
+      "type": "system"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "bad-OSError",
+     "data": {
+      "response": {
+       "error": "no",
+       "request_id": "title-X",
+       "subtype": "error"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "bad-OSError",
+     "data": {
+      "running": true
+     },
+     "kind": "state"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "is_error": false,
+      "session_id": "sid-aaf4c6",
+      "subtype": "success",
+      "type": "result"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "is_error": false,
+      "session_id": "sid-aaf4c6",
+      "subtype": "success",
+      "type": "result"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "message": {
+       "content": [
+        {
+         "text": "ok",
+         "type": "text"
+        }
+       ],
+       "id": "x"
+      },
+      "session_id": "sid-aaf4c6",
+      "type": "assistant"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "message": {
+       "content": [
+        {
+         "text": "ok",
+         "type": "text"
+        }
+       ],
+       "id": "x"
+      },
+      "session_id": "sid-aaf4c6",
+      "type": "assistant"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "model": "fake",
+      "session_id": "sid-aaf4c6",
+      "subtype": "init",
+      "type": "system"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "model": "fake",
+      "session_id": "sid-aaf4c6",
+      "subtype": "init",
+      "type": "system"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "response": {
+       "error": "no",
+       "request_id": "title-X",
+       "subtype": "error"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "running": true
+     },
+     "kind": "state"
+    },
+    {
+     "chat": "c1",
+     "data": {
+      "running": true
+     },
+     "kind": "state"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "model": "fake",
+      "session_id": "sid-57e8a7",
+      "subtype": "init",
+      "type": "system"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "response": {
+       "error": "no",
+       "request_id": "title-X",
+       "subtype": "error"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "response": {
+       "request_id": "cancel-X",
+       "response": {
+        "cancelled": false
+       },
+       "subtype": "success"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "response": {
+       "request_id": "cancel-X",
+       "response": {
+        "cancelled": true
+       },
+       "subtype": "success"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "response": {
+       "request_id": "stop-X",
+       "response": {},
+       "subtype": "success"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "running": true
+     },
+     "kind": "state"
+    },
+    {
+     "chat": "c2",
+     "data": {
+      "session_id": "sid-57e8a7",
+      "subtype": "error_during_execution",
+      "type": "result"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c3",
+     "data": {
+      "is_error": false,
+      "session_id": "sid-1c8f09",
+      "subtype": "success",
+      "type": "result"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c3",
+     "data": {
+      "message": {
+       "content": [
+        {
+         "text": "ok",
+         "type": "text"
+        }
+       ],
+       "id": "x"
+      },
+      "session_id": "sid-1c8f09",
+      "type": "assistant"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c3",
+     "data": {
+      "model": "fake",
+      "session_id": "sid-1c8f09",
+      "subtype": "init",
+      "type": "system"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c3",
+     "data": {
+      "request": {
+       "input": {
+        "command": "ls"
+       },
+       "subtype": "can_use_tool",
+       "tool_name": "Bash",
+       "tool_use_id": "t1"
+      },
+      "request_id": "r1",
+      "type": "control_request"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c3",
+     "data": {
+      "response": {
+       "error": "no",
+       "request_id": "title-X",
+       "subtype": "error"
+      },
+      "type": "control_response"
+     },
+     "kind": "cc"
+    },
+    {
+     "chat": "c3",
+     "data": {
+      "running": true
+     },
+     "kind": "state"
+    }
+   ],
+   "req": "GET /events?since=0",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "记录里没有这条消息"
+   },
+   "req": "POST /rewind {\"chat\": \"none\", \"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000001\", \"uuid\": \"nope\"}",
+   "status": 404
+  },
+  {
+   "body": {
+    "left": 2,
+    "ok": true
+   },
+   "req": "POST /rewind {\"chat\": \"none\", \"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000001\", \"uuid\": \"u2\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "context": 0,
+    "cwd": "/tmp/proj",
+    "id": "aaaaaaaa-0000-0000-0000-000000000001",
+    "messages": [
+     {
+      "images": [],
+      "role": "user",
+      "text": "first question",
+      "uuid": "u1"
+     },
+     {
+      "blocks": [
+       {
+        "text": "first answer",
+        "type": "text"
+       }
+      ],
+      "role": "assistant",
+      "uuid": "a1"
+     }
+    ],
+    "model": null,
+    "title": null
+   },
+   "req": "GET /history?id=aaaaaaaa-0000-0000-0000-000000000001 ",
+   "status": 200
+  },
+  {
+   "body": {
+    "left": 3,
+    "ok": true
+   },
+   "req": "POST /delete-message {\"chat\": \"none\", \"role\": \"assistant\", \"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000002\", \"uuid\": \"b1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "记录里没有这条消息"
+   },
+   "req": "POST /delete-message {\"chat\": \"none\", \"role\": \"user\", \"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000002\", \"uuid\": \"zz\"}",
+   "status": 404
+  },
+  {
+   "body": {
+    "left": 2,
+    "ok": true
+   },
+   "req": "POST /delete-message {\"chat\": \"none\", \"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000002\", \"uuid\": \"v2\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "context": 0,
+    "cwd": "/tmp/proj",
+    "id": "aaaaaaaa-0000-0000-0000-000000000002",
+    "messages": [
+     {
+      "images": [],
+      "role": "user",
+      "text": "other conversation",
+      "uuid": "v1"
+     },
+     {
+      "blocks": [
+       {
+        "text": "done",
+        "type": "text"
+       }
+      ],
+      "role": "assistant",
+      "uuid": "b2"
+     }
+    ],
+    "model": null,
+    "title": "A new name"
+   },
+   "req": "GET /history?id=aaaaaaaa-0000-0000-0000-000000000002 ",
+   "status": 200
+  },
+  {
+   "body": {
+    "left": 0,
+    "ok": true
+   },
+   "req": "POST /rewind {\"chat\": \"none\", \"sessionId\": \"aaaaaaaa-0000-0000-0000-000000000003\", \"uuid\": \"w1\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "sessions": [
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "mtime": 1735689601.0,
+      "size": 511,
+      "title": "first question"
+     },
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000002",
+      "mtime": 1735689601.0,
+      "size": 593,
+      "title": "A new name"
+     }
+    ]
+   },
+   "req": "GET /sessions ",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": true
+   },
+   "req": "POST /delete {\"id\": \"aaaaaaaa-0000-0000-0000-000000000001\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": false
+   },
+   "req": "POST /delete {\"id\": \"nonexistent\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "ok": false
+   },
+   "req": "POST /delete {}",
+   "status": 200
+  },
+  {
+   "body": {
+    "sessions": [
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000002",
+      "mtime": 1735689601.0,
+      "size": 593,
+      "title": "A new name"
+     }
+    ]
+   },
+   "req": "GET /sessions ",
+   "status": 200
+  }
+ ]
+}

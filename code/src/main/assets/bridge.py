@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 62  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 65  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -835,9 +835,34 @@ def end(proc):
     proc.wait()
 
 
+def let_go(chat):
+    """Ends the chat's claude and forgets it, so the next message starts it again. The caller holds chat.lock."""
+    proc, chat.proc = chat.proc, None
+    end(proc)
+
+
 chats = {}
 chats_lock = threading.Lock()
 seen_messages = []  # ids of messages already sent: the app may repeat a request whose answer it lost
+
+
+def first_sight(mid):
+    """Whether a message (its id from the app, None for one without) is new; a repeat is not sent again."""
+    with chats_lock:
+        if mid is None:
+            return True
+        if mid in seen_messages:
+            return False
+        seen_messages.append(mid)
+        del seen_messages[:-200]
+        return True
+
+
+def forget_message(mid):
+    """A message that could not be sent is new again: the app's retry sends it."""
+    with chats_lock:
+        if mid in seen_messages:
+            seen_messages.remove(mid)
 
 
 def chat_for(key, session_id=None, create=True):
@@ -1155,6 +1180,22 @@ def delete_message(session_id, message_uuid, role):
     log('session %s: %s message %s deleted, %d lines of %d' % (
         session_id[:8], role, message_uuid[:8], len(gone), len(lines)))
     return left
+
+
+def delete_session(session_id):
+    """Deletes a conversation: its claude goes first (it would write the transcript again), with no exit
+    event (the app let it go), then the transcript. True when there was one."""
+    target = find_session(session_id) if session_id else None
+    with chats_lock:
+        gone = [chats.pop(k) for k in [k for k, c in chats.items() if session_id and c.session_id == session_id]]
+    for chat in gone:
+        with chat.lock:
+            chat.running = False
+            let_go(chat)
+    if target:
+        os.remove(target)
+        shutil.rmtree(target[:-6], ignore_errors=True)
+    return bool(target)
 
 
 def keep_title(key, session_id, title):
@@ -1777,6 +1818,8 @@ def settings_schema():
                 os.makedirs(STATE_DIR, exist_ok=True)
                 with open(SCHEMA_FILE, 'w', encoding='utf-8') as f:
                     json.dump({'stamp': stamp, 'settings': found}, f)
+            else:  # a release that changed the bundle: said here, or the settings page is just empty
+                log('settings schema: none read from %s (%s, %d bytes in the best line)' % (path, stamp, len(best)))
             return found
         except (OSError, ValueError):
             return []
@@ -1968,43 +2011,57 @@ class Handler(BaseHTTPRequestHandler):
     def get(self):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
-        if url.path == '/health':
-            self.reply(200, {'ok': True, 'version': VERSION, 'started': STARTED, 'home': HOME, 'defaultCwd': DEFAULT_CWD,
-                             'claude': shutil.which('claude')})
-        elif url.path == '/events':
-            self.events(int(q.get('since') or 0), q.get('bridge'))
-        elif url.path == '/image':
-            found = session_image(q.get('id'), int(q.get('at') or 0), int(q.get('n') or 0))
-            if not found:
-                return self.reply(404, {'error': 'not found'})
-            self.reply(200, {'type': found[0], 'data': found[1]})
-        elif url.path == '/sessions':
-            self.reply(200, {'sessions': list_sessions()})
-        elif url.path == '/search':
-            self.reply(200, {'results': search_sessions(q.get('q', ''))})
-        elif url.path == '/history':
-            data = load_history(q.get('id', ''))
-            self.reply(200 if data else 404, data or {'error': 'not found'})
-        elif url.path == '/config':
-            self.reply(200, read_config())
-        elif url.path == '/plugins':
-            self.reply(200, list_plugins())
-        elif url.path == '/settings-schema':
-            self.reply(200, {'settings': settings_schema()})
-        elif url.path == '/launch':
-            self.reply(200, launch.data)
-        elif url.path == '/memory':
-            path = memory_path(q.get('scope'), q.get('cwd'))
-            try:
-                with open(path, encoding='utf-8') as f:
-                    text = f.read()
-            except OSError:
-                text = ''
-            self.reply(200, {'path': path, 'text': text})
-        elif url.path == '/dirs':
-            self.reply(200, list_dirs(q.get('path')))
-        else:
-            self.reply(404, {'error': 'not found'})
+        route = self.GET.get(url.path)
+        if route is None:
+            return self.reply(404, {'error': 'not found'})
+        route(self, q)
+
+    def get_health(self, q):
+        self.reply(200, {'ok': True, 'version': VERSION, 'started': STARTED, 'home': HOME, 'defaultCwd': DEFAULT_CWD,
+                         'claude': shutil.which('claude')})
+
+    def get_events(self, q):
+        self.events(int(q.get('since') or 0), q.get('bridge'))
+
+    def get_image(self, q):
+        found = session_image(q.get('id'), int(q.get('at') or 0), int(q.get('n') or 0))
+        if not found:
+            return self.reply(404, {'error': 'not found'})
+        self.reply(200, {'type': found[0], 'data': found[1]})
+
+    def get_sessions(self, q):
+        self.reply(200, {'sessions': list_sessions()})
+
+    def get_search(self, q):
+        self.reply(200, {'results': search_sessions(q.get('q', ''))})
+
+    def get_history(self, q):
+        data = load_history(q.get('id', ''))
+        self.reply(200 if data else 404, data or {'error': 'not found'})
+
+    def get_config(self, q):
+        self.reply(200, read_config())
+
+    def get_plugins(self, q):
+        self.reply(200, list_plugins())
+
+    def get_settings_schema(self, q):
+        self.reply(200, {'settings': settings_schema()})
+
+    def get_launch(self, q):
+        self.reply(200, launch.data)
+
+    def get_memory(self, q):
+        path = memory_path(q.get('scope'), q.get('cwd'))
+        try:
+            with open(path, encoding='utf-8') as f:
+                text = f.read()
+        except OSError:
+            text = ''
+        self.reply(200, {'path': path, 'text': text})
+
+    def get_dirs(self, q):
+        self.reply(200, list_dirs(q.get('path')))
 
     def do_post(self):
         try:
@@ -2029,118 +2086,111 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def post(self, path, data):
-        if path == '/send':
-            mid = data.get('mid')
-            with chats_lock:
-                repeated = mid is not None and mid in seen_messages
-                if mid is not None and not repeated:
-                    seen_messages.append(mid)
-                    del seen_messages[:-200]
-            if repeated:
-                return self.reply(200, {'ok': True, 'repeated': True})
-            chat = chat_for(data['chat'], data.get('sessionId'))
-            try:
-                chat.send(data['content'], cwd=data.get('cwd'), model=data.get('model') or None,
-                          session_id=data.get('sessionId'), effort=data.get('effort') or None,
-                          message_uuid=data.get('uuid') or None)
-            except Exception as e:
-                chat.running = False
-                with chats_lock:
-                    if mid in seen_messages:
-                        seen_messages.remove(mid)  # not sent: the app's retry sends it
-                if isinstance(e, (OSError, ValueError)):
-                    return self.reply(500, {'error': str(e)})
-                raise
+        route = self.POST.get(path)
+        if route is None:
+            return self.reply(404, {'error': 'not found'})
+        route(self, data)
+
+    def post_send(self, data):
+        mid = data.get('mid')
+        if not first_sight(mid):
+            return self.reply(200, {'ok': True, 'repeated': True})
+        chat = chat_for(data['chat'], data.get('sessionId'))
+        try:
+            chat.send(data['content'], cwd=data.get('cwd'), model=data.get('model') or None,
+                      session_id=data.get('sessionId'), effort=data.get('effort') or None,
+                      message_uuid=data.get('uuid') or None)
+        except Exception as e:
+            chat.running = False
+            forget_message(mid)
+            if isinstance(e, (OSError, ValueError)):
+                return self.reply(500, {'error': str(e)})
+            raise
+        self.reply(200, {'ok': True})
+
+    def post_open(self, data):
+        # A new conversation was opened: the spare is made ready for it (a saved one's claude
+        # starts only when a message is sent).
+        if not data.get('sessionId'):
+            spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
+        threading.Thread(target=spare.fill, daemon=True).start()
+        self.reply(200, {'ok': True})
+
+    def post_launch(self, data):
+        launch.set(data)
+        self.reply(200, launch.data)
+
+    def post_memory(self, data):
+        target = memory_path(data.get('scope'), data.get('cwd'))
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, 'w', encoding='utf-8') as f:
+            f.write(data.get('text') or '')
+        launch.gen += 1  # Claude Code reads CLAUDE.md when it starts: new conversations have it
+        self.reply(200, {'ok': True, 'path': target})
+
+    def post_cancel(self, data):
+        chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+        cancelled = True if chat is None else chat.cancel(str(data.get('uuid') or ''))
+        if cancelled is None:
+            return self.reply(504, {'error': 'Claude Code did not answer'})
+        self.reply(200, {'cancelled': cancelled})
+
+    def post_stop(self, data):
+        chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+        if chat:
+            chat.stop()
+        self.reply(200, {'ok': True})
+
+    def post_delete(self, data):
+        self.reply(200, {'ok': delete_session(data.get('id', ''))})
+
+    def cut_transcript(self, data, cut):
+        """Back to before one of the user's messages (/rewind), or one message out (/delete-message): its
+        claude goes first (it holds the conversation, and would write it again), then the transcript is
+        changed; the next message resumes it. No exit event: the app asked for it. `cut` is given the
+        session and the message's uuid and returns the messages left, or None."""
+        session_id = str(data.get('sessionId') or '')
+        chat = chat_for(data['chat'], session_id, create=False)
+        if chat:
+            with chat.lock:
+                if chat.running:
+                    return self.reply(409, {'error': '回复还在进行'})
+                let_go(chat)
+        left = cut(session_id, str(data.get('uuid') or ''))
+        if left is None:
+            return self.reply(404, {'error': '记录里没有这条消息'})
+        if not left and chat:
+            chat.session_id = None  # nothing left to resume: the next message starts it anew
+        self.reply(200, {'ok': True, 'left': left})
+
+    def post_rewind(self, data):
+        self.cut_transcript(data, rewind_session)
+
+    def post_delete_message(self, data):
+        role = str(data.get('role') or 'user')
+        self.cut_transcript(data, lambda session_id, uuid: delete_message(session_id, uuid, role))
+
+    def post_title(self, data):
+        session_id = str(data.get('id') or '')
+        title = ' '.join(str(data.get('title') or '').split())[:200]
+        if not title:
+            return self.reply(400, {'error': 'bad request'})
+        ok = rename(session_id, title)
+        self.reply(200 if ok else 404, {'ok': ok})
+
+    def post_permission(self, data):
+        chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+        answers = data.get('answers') if isinstance(data.get('answers'), dict) else None
+        if not chat or not chat.answer(data['requestId'], bool(data.get('allow')), answers):
+            return self.reply(409, {'error': 'not asked any more'})
+        self.reply(200, {'ok': True})
+
+    def post_mkdir(self, data):
+        try:
+            os.makedirs(os.path.expanduser(data['path']), exist_ok=True)
             self.reply(200, {'ok': True})
-        elif path == '/open':
-            # A new conversation was opened: the spare is made ready for it (a saved one's claude
-            # starts only when a message is sent).
-            if not data.get('sessionId'):
-                spare.wish(data.get('cwd'), data.get('model') or None, data.get('effort') or None)
-            threading.Thread(target=spare.fill, daemon=True).start()
-            self.reply(200, {'ok': True})
-        elif path == '/launch':
-            launch.set(data)
-            self.reply(200, launch.data)
-        elif path == '/memory':
-            target = memory_path(data.get('scope'), data.get('cwd'))
-            os.makedirs(os.path.dirname(target), exist_ok=True)
-            with open(target, 'w', encoding='utf-8') as f:
-                f.write(data.get('text') or '')
-            launch.gen += 1  # Claude Code reads CLAUDE.md when it starts: new conversations have it
-            self.reply(200, {'ok': True, 'path': target})
-        elif path == '/mcp':
-            self.mcp(data)
-        elif path == '/plugin':
-            self.plugin(data)
-        elif path == '/cancel':
-            chat = chat_for(data['chat'], data.get('sessionId'), create=False)
-            cancelled = True if chat is None else chat.cancel(str(data.get('uuid') or ''))
-            if cancelled is None:
-                return self.reply(504, {'error': 'Claude Code did not answer'})
-            self.reply(200, {'cancelled': cancelled})
-        elif path == '/stop':
-            chat = chat_for(data['chat'], data.get('sessionId'), create=False)
-            if chat:
-                chat.stop()
-            self.reply(200, {'ok': True})
-        elif path == '/delete':
-            session_id = data.get('id', '')
-            target = find_session(session_id) if session_id else None
-            # Its claude goes first: it would write the transcript again. No exit event: the app let it go.
-            with chats_lock:
-                gone = [chats.pop(k) for k in [k for k, c in chats.items() if session_id and c.session_id == session_id]]
-            for chat in gone:
-                with chat.lock:
-                    chat.running = False
-                    proc, chat.proc = chat.proc, None
-                    end(proc)
-            if target:
-                os.remove(target)
-                shutil.rmtree(target[:-6], ignore_errors=True)
-            self.reply(200, {'ok': bool(target)})
-        elif path in ('/rewind', '/delete-message'):
-            # Back to before one of the user's messages (rewind_session), or one message out
-            # (delete_message): its claude goes first (it holds the conversation, and would write
-            # it again), then the transcript is changed; the next message resumes it. No exit
-            # event: the app asked for it.
-            session_id = str(data.get('sessionId') or '')
-            chat = chat_for(data['chat'], session_id, create=False)
-            if chat:
-                with chat.lock:
-                    if chat.running:
-                        return self.reply(409, {'error': '回复还在进行'})
-                    proc, chat.proc = chat.proc, None
-                    end(proc)
-            target = str(data.get('uuid') or '')
-            left = rewind_session(session_id, target) if path == '/rewind' else \
-                delete_message(session_id, target, str(data.get('role') or 'user'))
-            if left is None:
-                return self.reply(404, {'error': '记录里没有这条消息'})
-            if not left and chat:
-                chat.session_id = None  # nothing left to resume: the next message starts it anew
-            self.reply(200, {'ok': True, 'left': left})
-        elif path == '/title':
-            session_id = str(data.get('id') or '')
-            title = ' '.join(str(data.get('title') or '').split())[:200]
-            if not title:
-                return self.reply(400, {'error': 'bad request'})
-            ok = rename(session_id, title)
-            self.reply(200 if ok else 404, {'ok': ok})
-        elif path == '/permission':
-            chat = chat_for(data['chat'], data.get('sessionId'), create=False)
-            answers = data.get('answers') if isinstance(data.get('answers'), dict) else None
-            if not chat or not chat.answer(data['requestId'], bool(data.get('allow')), answers):
-                return self.reply(409, {'error': 'not asked any more'})
-            self.reply(200, {'ok': True})
-        elif path == '/mkdir':
-            try:
-                os.makedirs(os.path.expanduser(data['path']), exist_ok=True)
-                self.reply(200, {'ok': True})
-            except OSError as e:
-                self.reply(400, {'error': str(e)})
-        else:
-            self.reply(404, {'error': 'not found'})
+        except OSError as e:
+            self.reply(400, {'error': str(e)})
 
     def upload(self):
         """A file the app attached, its bytes as the body (streamed to disk, never held whole), into
@@ -2252,6 +2302,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, OSError):
             log('events: app gone')
+
+    # Where each request goes: the path to the method answering it, given the query (GET) or the
+    # body (POST). /upload is not here: its body is the file, read as it is streamed to disk.
+    GET = {'/health': get_health, '/events': get_events, '/image': get_image, '/sessions': get_sessions,
+           '/search': get_search, '/history': get_history, '/config': get_config, '/plugins': get_plugins,
+           '/settings-schema': get_settings_schema, '/launch': get_launch, '/memory': get_memory, '/dirs': get_dirs}
+    POST = {'/send': post_send, '/open': post_open, '/launch': post_launch, '/memory': post_memory, '/mcp': mcp,
+            '/plugin': plugin, '/cancel': post_cancel, '/stop': post_stop, '/delete': post_delete,
+            '/rewind': post_rewind, '/delete-message': post_delete_message, '/title': post_title,
+            '/permission': post_permission, '/mkdir': post_mkdir}
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
