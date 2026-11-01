@@ -69,6 +69,10 @@ final class LookPage extends Part {
             Themes.setShowTitle(app, on);
             app.restyle();
         });
+        sheets.toggle(show, "螃蟹", "输入框上的像素螃蟹，回复时跳舞，点一下也会", Themes.crab(app), on -> {
+            Themes.setCrab(app, on);
+            app.restyle();
+        });
         sheets.toggle(show, "思考", "显示模型的思考过程", Themes.showThinking(app), on -> {
             Themes.setShowThinking(app, on);
             app.settings.fillSettings(app.settings.launchCache);

@@ -29,6 +29,8 @@ final class Box extends Part {
     private LinearLayout attachments, slashMenu;
     private HorizontalScrollView attachScroll;
     ScrollView slashScroll;
+    /** The crab on top of the box, or null when it is turned off. */
+    private Crab crab;
 
     Box(MainActivity app) { super(app); }
 
@@ -47,6 +49,12 @@ final class Box extends Part {
             card.setElevation(dp(2));
         }
         card.setPadding(dp(6), dp(4), dp(6), dp(4));
+
+        crab = Themes.crab(app) ? new Crab(app) : null;
+        if (crab != null) {
+            wrap.addView(crab, new LinearLayout.LayoutParams(-2, -2));
+            Ui.margins(crab, app, 4, 0, 0, 0);
+        }
 
         slashScroll = new ScrollView(app) {
             @Override protected void onMeasure(int w, int h) {
@@ -182,6 +190,7 @@ final class Box extends Part {
         sendBtn.setEnabled(stop || canSend);
         sendBtn.setPadding(dp(6), dp(6), dp(6), dp(6));
         renderAttachments();
+        if (crab != null) crab.busy(app.current.running);
     }
 
     private void renderAttachments() {

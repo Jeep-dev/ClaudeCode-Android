@@ -183,6 +183,15 @@ final class Themes {
         return prefs(c).getBoolean("title", false);
     }
 
+    /** The pixel crab on top of the box (on by default). */
+    static boolean crab(Context c) {
+        return prefs(c).getBoolean("crab", true);
+    }
+
+    static void setCrab(Context c, boolean on) {
+        prefs(c).edit().putBoolean("crab", on).apply();
+    }
+
     /** The model's thinking as rows in the conversation (on by default). */
     static boolean showThinking(Context c) {
         return prefs(c).getBoolean("thinking", true);
