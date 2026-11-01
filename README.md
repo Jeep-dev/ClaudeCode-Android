@@ -21,7 +21,7 @@ App 自带一个小型 Linux 环境（Alpine + proot），Claude Code 就跑在�
 - **斜杠命令**：`/model`、`/effort`、`/folder`、`/find`、`/tree`（回退到某条消息）等由 App 处理，其余（`/compact`、`/context`、技能……）照原样交给 Claude Code。
 - **终端**：内置终端（基于 Termux 的终端组件），可以 `apk add` 装软件，或者直接运行 `claude`。
 - **设置**：API 地址和 Key、模型、权限模式、系统提示、CLAUDE.md、技能、工具开关、MCP 服务器、后台保活。
-- **外观**：Claude 配色和 RikkaHub 的几套配色，各有浅色和深色，深色可以用纯黑。默认是 Claude 配色，深浅跟随系统。
+- **外观**：Claude 配色和 RikkaHub 的几套配色，各有浅色和深色，深色可以用纯黑。默认是 Claude 配色，深浅跟随系统。问候页上的像素螃蟹（Claude 的吉祥物）出现时会跳一段舞，点它也会跳；设置里有 6 种装扮可以换。
 
 ## 安装
 

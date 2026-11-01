@@ -437,16 +437,16 @@ final class ChatScreen extends Part {
     }
 
     private void buildHero(LinearLayout box) {
-        ImageView mark = new ImageView(app);
-        mark.setImageResource(R.drawable.mascot);
-        box.addView(mark, new LinearLayout.LayoutParams(dp(65), dp(40))); // 5dp to each of its 13×8 pixels
+        // The crab, in the style Settings has for it: it dances when the greeting comes up, and when tapped.
+        Crab crab = new Crab(app, Themes.crabStyle(app), false, 5);
+        box.addView(crab, new LinearLayout.LayoutParams(-2, -2));
         // The folder it will work in, which can be changed only until the first message: tapped, it is picked (/folder).
         boolean pick = app.link.linked && app.current.sessionId == null;
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         String hello = h < 5 ? "夜深了" : h < 11 ? "早上好" : h < 13 ? "中午好" : h < 18 ? "下午好" : "晚上好";
         TextView big = Ui.text(app, hello, 30, R.color.text);
         big.setTypeface(Ui.SERIF);
-        big.setPadding(0, dp(18), 0, dp(pick ? 2 : 10)); // the line under it is 8dp in its own round
+        big.setPadding(0, dp(4), 0, dp(pick ? 2 : 10)); // the line under it is 8dp in its own round
         big.setGravity(Gravity.CENTER);
         box.addView(big, Ui.fill());
         String folder = Ui.base(app.current.cwd == null || app.current.cwd.isEmpty() ? claude.defaultCwd : app.current.cwd);
@@ -472,6 +472,7 @@ final class ChatScreen extends Part {
         // A new conversation's: one after another up into place. Built again on every render, it stays still then.
         if (heroFor == app.current) return;
         heroFor = app.current;
+        crab.dance();
         for (int i = 0; i < box.getChildCount(); i++) {
             View v = box.getChildAt(i);
             v.setAlpha(0f);
