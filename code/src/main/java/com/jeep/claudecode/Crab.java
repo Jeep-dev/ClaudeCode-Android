@@ -36,7 +36,7 @@ final class Crab extends View {
             {},
             {{2, 1, 3, 2, INK}, {8, 1, 3, 2, INK}, {5, 1, 3, 1, INK}, {3, 1, 1, 1, 0xFF7A8594}, {9, 1, 1, 1, 0xFF7A8594}},
             {{6, -2, 1, 1, PURPLE}, {5, -1, 3, 1, PURPLE}, {3, 0, 7, 1, PURPLE}, {6, -1, 1, 1, GOLD}},
-            {{4, -1, 5, 1, INK}, {2, 0, 9, 1, INK}, {6, -1, 1, 1, BONE}, {2, 1, 3, 1, INK}},
+            {{4, -1, 5, 1, INK}, {2, 0, 9, 1, INK}, {6, 0, 1, 1, BONE}},
             {{3, -2, 1, 1, GOLD}, {6, -2, 1, 1, GOLD}, {9, -2, 1, 1, GOLD}, {3, -1, 7, 1, GOLD}, {6, -1, 1, 1, RED}},
             {{2, 0, 9, 1, RED}, {11, 0, 2, 1, RED}, {12, 1, 1, 1, RED}}};
     private static final String[] HEART_ROWS = {".X.X.", "XXXXX", ".XXX.", "..X.."};
