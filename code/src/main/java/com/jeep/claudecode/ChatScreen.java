@@ -437,7 +437,7 @@ final class ChatScreen extends Part {
     }
 
     private void buildHero(LinearLayout box) {
-        // The crab, in the style Settings has for it: it dances when the greeting comes up, and when tapped.
+        // The crab, in the style Settings has for it: it plays one of its moves when the greeting comes up, and another when tapped.
         Crab crab = new Crab(app, Themes.crabStyle(app), false, 5);
         box.addView(crab, new LinearLayout.LayoutParams(-2, -2));
         // The folder it will work in, which can be changed only until the first message: tapped, it is picked (/folder).
@@ -472,7 +472,7 @@ final class ChatScreen extends Part {
         // A new conversation's: one after another up into place. Built again on every render, it stays still then.
         if (heroFor == app.current) return;
         heroFor = app.current;
-        crab.dance();
+        crab.enter();
         for (int i = 0; i < box.getChildCount(); i++) {
             View v = box.getChildAt(i);
             v.setAlpha(0f);

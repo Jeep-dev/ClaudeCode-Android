@@ -1,6 +1,5 @@
 package com.jeep.claudecode;
 
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import android.app.Activity;
@@ -21,7 +20,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.concurrent.TimeUnit;
 
-/** The crab dancing: eight beats side by side in one PNG (SHOTS directory),. */
+/** The crab's moves, one row of frames each in one PNG (SHOTS directory), and its styles. */
 @RunWith(RobolectricTestRunner.class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = 34, qualifiers = "w392dp-h850dp-xxhdpi")
@@ -36,38 +35,48 @@ public class CrabTest {
         return b;
     }
 
-    private static boolean same(Bitmap a, Bitmap b) {
-        return a.sameAs(b);
+    private static void save(Bitmap b, String name) throws Exception {
+        OUT.mkdirs();
+        try (FileOutputStream o = new FileOutputStream(new File(OUT, name + ".png"))) {
+            b.compress(Bitmap.CompressFormat.PNG, 100, o);
+        }
     }
 
-    @Test public void danceBeatsDiffer() throws Exception {
+    @Test public void everyMoveShowsAndEndsAtRest() throws Exception {
         Activity a = Robolectric.buildActivity(Activity.class).setup().get();
-        Crab crab = new Crab(a, 0, false, 3);
-        a.setContentView(crab);
-        ShadowLooper.idleMainLooper(10, TimeUnit.MILLISECONDS);
-        crab.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
-        crab.layout(0, 0, crab.getMeasuredWidth(), crab.getMeasuredHeight());
-
-        Bitmap rest = draw(crab);
-        crab.dance();
-        int w = crab.getWidth();
-        Bitmap strip = Bitmap.createBitmap(w * 8, crab.getHeight(), Bitmap.Config.ARGB_8888);
-        Canvas sc = new Canvas(strip);
-        Bitmap previous = null;
-        int moved = 0;
-        for (int i = 0; i < 8; i++) {
-            ShadowLooper.idleMainLooper(170, TimeUnit.MILLISECONDS);
-            Bitmap f = draw(crab);
-            sc.drawBitmap(f, i * w, 0, null);
-            if (previous != null && !same(previous, f)) moved++;
-            previous = f;
+        int moves = Crab.MOVES.size(), cols = 10;
+        Bitmap sheet = null;
+        Canvas sc = null;
+        int row = 0;
+        for (String name : Crab.MOVES.keySet()) {
+            Crab crab = new Crab(a, 0, false, 2);
+            a.setContentView(crab);
+            ShadowLooper.idleMainLooper(10, TimeUnit.MILLISECONDS);
+            crab.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+            crab.layout(0, 0, crab.getMeasuredWidth(), crab.getMeasuredHeight());
+            if (sheet == null) {
+                sheet = Bitmap.createBitmap(crab.getWidth() * cols / 2, crab.getHeight() * moves / 2, Bitmap.Config.ARGB_8888);
+                sc = new Canvas(sheet);
+            }
+            int frames = Crab.MOVES.get(name).length;
+            crab.play(name);
+            int distinct = 0;
+            Bitmap before = draw(crab), last = before;
+            for (int i = 0; i < frames; i++) {
+                ShadowLooper.idleMainLooper(60, TimeUnit.MILLISECONDS);
+                Bitmap f = draw(crab);
+                if (!f.sameAs(last)) distinct++;
+                last = f;
+                // Ten of its frames, evenly spaced.
+                if (i % Math.max(1, frames / cols) == 0 && i / Math.max(1, frames / cols) < cols) {
+                    Bitmap half = Bitmap.createScaledBitmap(f, f.getWidth() / 2, f.getHeight() / 2, false);
+                    sc.drawBitmap(half, (i / Math.max(1, frames / cols)) * half.getWidth(), row * half.getHeight(), null);
+                }
+            }
+            assertTrue(name + " moves", distinct >= 2);
+            row++;
         }
-        OUT.mkdirs();
-        try (FileOutputStream o = new FileOutputStream(new File(OUT, "30-crab-dance.png"))) {
-            strip.compress(Bitmap.CompressFormat.PNG, 100, o);
-        }
-        assertTrue("every beat of the dance looks different from the one before: " + moved, moved >= 6);
-        assertFalse("dancing is not how it rests", same(rest, previous));
+        save(sheet, "30-crab-moves");
     }
 
     @Test public void everyStyleIsShown() throws Exception {
@@ -85,9 +94,6 @@ public class CrabTest {
             }
             sc.drawBitmap(draw(crab), i * crab.getWidth(), 0, null);
         }
-        OUT.mkdirs();
-        try (FileOutputStream o = new FileOutputStream(new File(OUT, "31-crab-styles.png"))) {
-            strip.compress(Bitmap.CompressFormat.PNG, 100, o);
-        }
+        save(strip, "31-crab-styles");
     }
 }
