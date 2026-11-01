@@ -1,0 +1,56 @@
+=== permissions
+--- {'type':'system','subtype':'init','session_id':'s4'} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+--- {'type':'control_request','request_id':'r1','request':{'subtype':'can_use_tool','tool_use_id':'t1','tool_name':'Bash','input':{'command':'rm x'}}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm x"} running=true error=false ask=r1 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'control_request','request_id':'r2','request':{'subtype':'other'}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm x"} running=true error=false ask=r1 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'control_request','request_id':'r3'} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm x"} running=true error=false ask=r1 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'assistant','message':{'id':'q','content':[{'type':'tool_use','id':'t1','name':'Bash','input':{'command':'rm x'}}]}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm x"} running=true error=false ask=r1 streaming=false timed=false open=false images=[] picked={} other={} version=2
+--- {'type':'control_request','request_id':'r4','request':{'subtype':'can_use_tool','tool_use_id':'t1','tool_name':'Bash','input':{'command':'rm y'}}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=true error=false ask=r4 streaming=false timed=false open=false images=[] picked={} other={} version=3
+--- {'type':'control_request','request_id':'r5','request':{'subtype':'can_use_tool','tool_name':'Edit'}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=true error=false ask=r4 streaming=false timed=false open=false images=[] picked={} other={} version=3
+    block kind=2 text= title= toolId= name=Edit result=null partial= input={} running=true error=false ask=r5 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'control_cancel_request','request_id':'r4'} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=4
+    block kind=2 text= title= toolId= name=Edit result=null partial= input={} running=true error=false ask=r5 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'control_cancel_request','request_id':'unknown'} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=4
+    block kind=2 text= title= toolId= name=Edit result=null partial= input={} running=true error=false ask=r5 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'control_request','request_id':'r6','request':{'subtype':'can_use_tool','tool_use_id':'t7','tool_name':'AskUserQuestion','input':{'questions':[{'question':'Which?','options':[{'label':'A'},{'label':'B'}]}]}}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=3 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=4
+    block kind=2 text= title= toolId= name=Edit result=null partial= input={} running=true error=false ask=r5 streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=2 text= title= toolId=t7 name=AskUserQuestion result=null partial= input={"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]} running=true error=false ask=r6 streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'t7','content':'User has answered: "Which?"="A"'}]}} -> false
+chat session=s4 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=3 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=4
+    block kind=2 text= title= toolId= name=Edit result=null partial= input={} running=true error=false ask=r5 streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=2 text= title= toolId=t7 name=AskUserQuestion result=User has answered: "Which?"="A" partial= input={"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=2
+--- {'type':'result','subtype':'success'} -> true
+chat session=s4 model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=4 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"rm y"} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=5
+    block kind=2 text= title= toolId= name=Edit result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=2
+    block kind=2 text= title= toolId=t7 name=AskUserQuestion result=User has answered: "Which?"="A" partial= input={"questions":[{"question":"Which?","options":[{"label":"A"},{"label":"B"}]}]} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=2

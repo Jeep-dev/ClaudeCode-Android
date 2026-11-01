@@ -1,0 +1,32 @@
+=== partialInput
+ => {}
+   => {}
+{ => {}
+{"a" => {}
+{"a": => {}
+{"a":"he => {"a":"he"}
+{"a":"he\ => {"a":"he"}
+{"a":"h\u00e => {"a":"h"}
+{"a":"x\u00e9y\n\"q"} => {"a":"xéy\n\"q"}
+{"a":"x","b":12 => {"a":"x"}
+{"a":"x","b":12, => {"a":"x","b":12}
+{"a":"x","b":[1,2 => {"a":"x"}
+{"a":"x","b":[1,2],"c":"y => {"a":"x","b":[1,2],"c":"y"}
+{"a":{"n":1},"b":"z => {"a":{"n":1},"b":"z"}
+{"a":{"n":1 => {}
+{"a":true,"b":null,"c":"w"} => {"a":true,"b":null,"c":"w"}
+[1,2] => {}
+{,"a":"1"} => {"a":"1"}
+{"a":"1",,"b":"2"} => {"a":"1","b":"2"}
+{"a" "1"} => {}
+{"a":"line1\nline2\ttab => {"a":"line1\nline2\ttab"}
+=== results
+text => text=text images=[]
+[{"type":"text","text":"a"},{"type":"image"},null,{"type":"text","text":"b"}] => text=a
+[图片]
+b images=[]
+[{"type":"image","source":{"type":"base64","media_type":"image\/webp","data":"QQ=="}},{"type":"image","source":{"type":"base64","data":""}},{"type":"image","source":{"type":"base64","data":"Qg=="}}] => text=[图片]
+[图片]
+[图片] images=[data:image/webp;base64,QQ==, data:image/png;base64,Qg==]
+null => text= images=[]
+5 => text= images=[]

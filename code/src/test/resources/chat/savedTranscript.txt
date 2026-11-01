@@ -1,0 +1,14 @@
+chat session=s6 model=saved-model running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=0 done=false uuid=u1 text=question note=null images=[data:image/png;base64,AA, null] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=true uuid=a1 text= note=null images=[] files=[] version=0 index=[] streamed=[]
+    block kind=1 text=hmm title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=answer title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Read result=contents partial= input={"file_path":"\/x"} running=false error=false ask=null streaming=false timed=false open=false images=[ccimg:1] picked={} other={} version=0
+    block kind=2 text= title= toolId=t2 name=Bash result=null partial= input={} running=false error=true ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=0 done=false uuid=null text=second note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=0 text=live reply title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+=== reload without a live reply
+chat session=null model=kept running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+owner=true tool(t2).error=true

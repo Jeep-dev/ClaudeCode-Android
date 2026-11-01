@@ -1,0 +1,35 @@
+=== system
+--- {'type':'system','subtype':'api_retry','attempt':2,'max_retries':10,'error_status':529,'error':'overloaded'} -> false
+chat session=null model=null running=false stopping=false stopped=false detail=重试 2/10 · 529 overloaded verb=<random> toolRunning=false handed=false
+--- {'type':'system','subtype':'api_retry','attempt':1,'max_retries':10,'error_status':null,'error':'unknown'} -> false
+chat session=null model=null running=false stopping=false stopped=false detail=重试 1/10 · 连接断开 verb=<random> toolRunning=false handed=false
+--- {'type':'system','subtype':'api_retry','attempt':1,'max_retries':10,'error_status':null,'error':null} -> false
+chat session=null model=null running=false stopping=false stopped=false detail=重试 1/10 · 连接断开 verb=<random> toolRunning=false handed=false
+--- {'type':'system','subtype':'api_retry','attempt':3,'max_retries':10,'error_status':null,'error':'ECONNRESET'} -> false
+chat session=null model=null running=false stopping=false stopped=false detail=重试 3/10 · ECONNRESET verb=<random> toolRunning=false handed=false
+--- {'type':'system','subtype':'status','status':'requesting'} -> false
+chat session=null model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+--- {'type':'system','subtype':'compact_boundary'} -> false
+chat session=null model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+--- {'type':'system','subtype':'init','session_id':'s3','model':'m3'} -> false
+chat session=s3 model=m3 running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+--- {'type':'system','subtype':'init'} -> false
+chat session=s3 model=m3 running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+=== side chain
+--- {'type':'stream_event','parent_tool_use_id':'t0','event':{'type':'content_block_start','index':0,'content_block':{'type':'text'}}} -> false
+chat session=s3 model=m3 running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+--- {'type':'assistant','parent_tool_use_id':'t0','message':{'id':'x','content':[{'type':'text','text':'inner'}]}} -> false
+chat session=s3 model=m3 running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+--- {'type':'user','parent_tool_use_id':'t0','message':{'content':[{'type':'tool_result','tool_use_id':'t','content':'x'}]}} -> false
+chat session=s3 model=m3 running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+--- {'type':'assistant','parent_tool_use_id':null,'message':{'id':'y','content':[{'type':'text','text':'outer'}]}} -> false
+chat session=s3 model=m3 running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=3 done=false uuid=null text=上下文已压缩 note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=0 text=outer title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0

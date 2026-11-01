@@ -1,0 +1,111 @@
+=== not streamed
+--- {'type':'system','subtype':'init','session_id':'s2'} -> false
+chat session=s2 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+--- {'type':'assistant','message':{'id':'a1','content':[{'type':'thinking','thinking':'think'},{'type':'thinking','thinking':''},{'type':'text','text':'Said'},{'type':'text','text':''},{'type':'tool_use','id':'t1','name':'Bash','input':{'command':'ls'}},{'type':'tool_use','id':'t2','name':'Read'}]}} -> false
+chat session=s2 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=6 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"ls"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t2 name=Read result=null partial= input={} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+--- {'type':'user','message':{'content':[{'type':'tool_result','tool_use_id':'t1','is_error':true,'content':[{'type':'text','text':'no'},{'type':'image','source':{'type':'base64','media_type':'image/jpeg','data':'QUJD'}}]},{'type':'tool_result','tool_use_id':'gone','content':'x'},{'type':'text','text':'y'},{'type':'tool_result','tool_use_id':'t2','content':[{'type':'image','source':{'type':'url'}}]}]}} -> false
+chat session=s2 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=6 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+--- {'type':'result','subtype':'success','is_error':true,'result':'Rate limited','session_id':'s2'} -> true
+chat session=s2 model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+=== error during execution
+--- {'type':'system','subtype':'init','session_id':'s2'} -> false
+chat session=s2 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+--- {'type':'assistant','message':{'id':'a2','content':[{'type':'tool_use','id':'t3','name':'Bash','input':{}}]}} -> false
+chat session=s2 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t3 name=Bash result=null partial= input={} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+--- {'type':'result','subtype':'error_during_execution'} -> true
+chat session=s2 model=null running=false stopping=false stopped=true detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t3 name=Bash result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=4 text= title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+=== stopped
+--- {'type':'system','subtype':'init'} -> false
+chat session=s2 model=null running=true stopping=true stopped=true detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t3 name=Bash result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=4 text= title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+--- {'type':'assistant','message':{'id':'a3','content':[{'type':'text','text':'partly'}]}} -> false
+chat session=s2 model=null running=true stopping=true stopped=true detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t3 name=Bash result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=4 text= title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=0 text=partly title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+--- {'type':'result','subtype':'success','session_id':'s9'} -> true
+chat session=s9 model=null running=false stopping=false stopped=true detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=7 index=[] streamed=[]
+    block kind=1 text=think title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=0 text=Said title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=2 text= title= toolId=t1 name=Bash result=no
+[图片] partial= input={"command":"ls"} running=false error=true ask=null streaming=false timed=false open=false images=[data:image/jpeg;base64,QUJD] picked={} other={} version=1
+    block kind=2 text= title= toolId=t2 name=Read result=[图片] partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=3 text=Rate limited title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t3 name=Bash result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+    block kind=4 text= title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=partly title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+    block kind=4 text= title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+=== result without a reply
+--- {'type':'result','subtype':'success','is_error':true} -> true
+chat session=null model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=3 text=success title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+--- {'type':'other'} -> false
+chat session=null model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=3 text=success title=请求失败 toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0

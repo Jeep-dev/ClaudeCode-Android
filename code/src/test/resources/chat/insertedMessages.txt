@@ -1,0 +1,105 @@
+=== inserted
+--- {'type':'system','subtype':'init','session_id':'s5'} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=true
+  queued text=insert me inserted=true uuid=q1 now=false notInserted=false
+  queued text=too late inserted=true uuid=q2 now=false notInserted=false
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'assistant','message':{'id':'p1','content':[{'type':'tool_use','id':'t1','name':'Bash','input':{'command':'sleep 1'}}]}} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=true
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=insert me inserted=true uuid=q1 now=false notInserted=false
+  queued text=too late inserted=true uuid=q2 now=false notInserted=false
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'command_lifecycle','command_uuid':'q1','state':'queued'} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=true
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=insert me inserted=true uuid=q1 now=false notInserted=false
+  queued text=too late inserted=true uuid=q2 now=false notInserted=false
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'command_lifecycle','command_uuid':'nobody','state':'started'} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=true
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=insert me inserted=true uuid=q1 now=false notInserted=false
+  queued text=too late inserted=true uuid=q2 now=false notInserted=false
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'command_lifecycle','command_uuid':'q1','state':'started'} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=true
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  queued text=too late inserted=true uuid=q2 now=false notInserted=false
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'assistant','message':{'id':'p2','content':[{'type':'text','text':'after the insertion'}]}} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=true
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=true uuid=q2 now=false notInserted=false
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'command_lifecycle','command_uuid':'q2','state':'cancelled'} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=true handed=false
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=true error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=false uuid=null now=false notInserted=true
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+--- {'type':'result','subtype':'success','session_id':'s5'} -> true
+chat session=s5 model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=false uuid=null now=false notInserted=true
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+chat session=s5 model=null running=false stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=false uuid=null now=false notInserted=true
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+=== handed at the end
+--- {'type':'system','subtype':'init'} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=false
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=false uuid=null now=false notInserted=true
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+=== a turn ends while something is handed
+--- {'type':'assistant','message':{'id':'p3','content':[{'type':'text','text':'x'}]}} -> false
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=true
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=false uuid=null text= note=null images=[] files=[] version=1 index=[] streamed=[]
+    block kind=0 text=x title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=false uuid=null now=false notInserted=true
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+  queued text=again inserted=true uuid=null now=false notInserted=false
+--- {'type':'result','subtype':'success'} -> true
+chat session=s5 model=null running=true stopping=false stopped=false detail= verb=<random> toolRunning=false handed=true
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=2 text= title= toolId=t1 name=Bash result=null partial= input={"command":"sleep 1"} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=1
+  msg kind=0 done=false uuid=null text=insert me note=null images=[] files=[] version=0 index=[] streamed=[]
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=after the insertion title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  msg kind=1 done=true uuid=null text= note=null images=[] files=[] version=2 index=[] streamed=[]
+    block kind=0 text=x title= toolId=null name=null result=null partial= input={} running=false error=false ask=null streaming=false timed=false open=false images=[] picked={} other={} version=0
+  queued text=too late inserted=false uuid=null now=false notInserted=true
+  queued text=waits inserted=false uuid=null now=false notInserted=false
+  queued text=again inserted=true uuid=null now=false notInserted=false
+reply(false)=false tool(t1)=true tool(none)=false

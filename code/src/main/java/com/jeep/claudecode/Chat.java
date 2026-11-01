@@ -67,6 +67,15 @@ final class Chat {
 
         Block(int kind) { this.kind = kind; }
         void touch() { version++; }
+
+        /** A tool Claude Code runs (or asks to run): its row, running. */
+        static Block tool(String toolId, String name) {
+            Block b = new Block(TOOL);
+            b.toolId = toolId;
+            b.name = name;
+            b.running = true;
+            return b;
+        }
     }
 
     final String key;
@@ -124,7 +133,6 @@ final class Chat {
 
     String randomVerb() { return VERBS[new Random().nextInt(VERBS.length)]; }
 
-    /** The reply being written, created on demand. */
     /** The running reply has a tool running (or being written): a message sent now goes to the
      *  model with the tool's result. */
     boolean toolRunning() {
@@ -159,6 +167,7 @@ final class Chat {
         messages.add(u);
     }
 
+    /** The reply being written, created on demand. */
     Msg reply(boolean create) {
         Msg last = messages.isEmpty() ? null : messages.get(messages.size() - 1);
         if (last != null && last.kind == Msg.ASSISTANT && !last.done) return last;
@@ -217,253 +226,272 @@ final class Chat {
      * conversation list should be refreshed).
      */
     boolean apply(JSONObject d) {
-        String t = d.optString("type");
-        String sub = d.optString("subtype");
+        // Inside a sub-agent: shown as its step, not as part of the reply.
         boolean sideChain = !d.isNull("parent_tool_use_id") && d.has("parent_tool_use_id");
-        if ("command_lifecycle".equals(t)) {
-            // What happens to a message handed to Claude Code while a reply ran.
-            String id = d.optString("command_uuid"), state = d.optString("state");
-            for (Queued q : queue) {
-                if (!q.inserted || !id.equals(q.uuid)) continue;
-                if ("started".equals(state)) {
-                    queue.remove(q);
-                    showInserted(q);
-                } else if (!"queued".equals(state)) { // it will not reach the model: it waits here again
-                    q.inserted = false;
-                    q.uuid = null;
-                    q.notInserted = true;
-                }
-                break;
-            }
-            return false;
-        }
-        if ("control_request".equals(t)) {
-            // Claude Code asks whether a tool may run (a permission mode that asks): its row asks the user.
-            JSONObject r = d.optJSONObject("request");
-            if (r == null || !"can_use_tool".equals(r.optString("subtype"))) return false;
-            String id = r.optString("tool_use_id");
-            Block b = id.isEmpty() ? null : tool(id);
-            if (b == null) {
-                Msg m = reply(true);
-                b = new Block(Block.TOOL);
-                b.toolId = id;
-                b.name = r.optString("tool_name");
-                b.running = true;
-                m.blocks.add(b);
-                m.touch();
-            }
-            if (r.optJSONObject("input") != null) b.input = r.optJSONObject("input");
-            b.ask = d.optString("request_id");
-            b.touch();
-            return false;
-        }
-        if ("control_cancel_request".equals(t)) {
-            String id = d.optString("request_id");
-            for (Msg m : messages) for (Block b : m.blocks) if (id.equals(b.ask)) { b.ask = null; b.touch(); }
-            return false;
-        }
-        if ("system".equals(t)) {
-            if ("init".equals(sub)) {
-                // A turn begins: also one Claude Code starts by itself, for a message inserted too late
-                // for the turn before.
-                if (!running) {
-                    running = true;
-                    startedAt = System.currentTimeMillis();
-                }
-                if (d.has("session_id")) sessionId = d.optString("session_id");
-                model = d.optString("model", model);
-            } else if ("api_retry".equals(sub)) {
-                // No HTTP status (null) means the connection itself failed, e.g. dropped mid-request;
-                // Claude Code then calls the error "unknown".
-                String error = d.isNull("error") ? "" : d.optString("error");
-                String why = !d.isNull("error_status") ? (d.optString("error_status") + " " + error).trim()
-                        : error.isEmpty() || "unknown".equals(error) ? "连接断开" : error;
-                detail = "重试 " + d.optInt("attempt") + "/" + d.optInt("max_retries") + (why.isEmpty() ? "" : " · " + why);
-            } else if ("status".equals(sub)) {
-                if ("requesting".equals(d.optString("status"))) detail = "";
-            } else if ("compact_boundary".equals(sub)) {
-                Msg m = new Msg(Msg.DIVIDER);
-                m.text = "上下文已压缩";
-                messages.add(m);
-            }
-            return false;
-        }
-        if ("stream_event".equals(t)) {
-            if (sideChain) return false; // inside a sub-agent: shown as its step
-            detail = "";
-            JSONObject e = d.optJSONObject("event");
-            if (e == null) return false;
-            Msg m = reply(true);
-            String et = e.optString("type");
-            int index = e.optInt("index");
-            if ("message_start".equals(et)) {
-                m.index.clear();
-                JSONObject msg = e.optJSONObject("message");
-                if (msg != null) {
-                    m.streamed.add(msg.optString("id"));
-                }
-            } else if ("content_block_start".equals(et)) {
-                JSONObject cb = e.optJSONObject("content_block");
-                if (cb == null) return false;
-                Block b = null;
-                switch (cb.optString("type")) {
-                    case "text":
-                        b = new Block(Block.TEXT);
-                        b.text = cb.optString("text");
-                        break;
-                    case "thinking":
-                        b = new Block(Block.THINKING);
-                        b.streaming = true;
-                        b.started = System.currentTimeMillis();
-                        verb = "思考中";
-                        break;
-                    case "tool_use":
-                        b = new Block(Block.TOOL);
-                        b.toolId = cb.optString("id");
-                        b.name = cb.optString("name");
-                        b.running = true;
-                        verb = "运行中";
-                        break;
-                    default:
-                }
-                if (b != null) {
-                    m.blocks.add(b);
-                    m.index.put(index, b);
-                    m.touch();
-                }
-            } else if ("content_block_delta".equals(et)) {
-                Block b = m.index.get(index);
-                JSONObject dl = e.optJSONObject("delta");
-                if (b == null || dl == null) return false;
-                switch (dl.optString("type")) {
-                    case "text_delta":
-                        b.text += dl.optString("text");
-                        verb = "生成中";
-                        break;
-                    case "thinking_delta":
-                        b.text += dl.optString("thinking");
-                        break;
-                    case "input_json_delta": {
-                        // A long file's input is thousands of pieces: what came so far (its path, its
-                        // text) is read at most every 300 ms, so a Write shows as it is written and the
-                        // row is not drawn again for each piece.
-                        b.partial.append(dl.optString("partial_json"));
-                        long now = System.currentTimeMillis();
-                        if (now - b.shown < 300) return false;
-                        b.shown = now;
-                        b.input = partialInput(b.partial);
-                        break;
-                    }
-                    default:
-                }
-                b.touch();
-            } else if ("content_block_stop".equals(et)) {
-                Block b = m.index.get(index);
-                if (b != null && b.kind == Block.TOOL && b.partial.length() > 0) {
-                    try { b.input = new JSONObject(b.partial.toString()); } catch (Exception ignored) { /* incomplete */ }
-                    b.partial.setLength(0);
-                    b.touch();
-                }
-                if (b != null && b.kind == Block.THINKING) {
-                    b.streaming = false;
-                    b.millis = System.currentTimeMillis() - b.started;
-                    b.touch();
-                }
-            }
-            return false;
-        }
-        if ("assistant".equals(t)) {
-            if (sideChain) return false;
-            JSONObject msg = d.optJSONObject("message");
-            if (msg == null) return false;
-            Msg m = reply(true);
-            boolean streamed = m.streamed.contains(msg.optString("id"));
-            JSONArray content = msg.optJSONArray("content");
-            for (int i = 0; content != null && i < content.length(); i++) {
-                JSONObject c = content.optJSONObject(i);
-                if (c == null) continue;
-                String ct = c.optString("type");
-                if ("tool_use".equals(ct)) {
-                    Block b = tool(c.optString("id"));
-                    if (b != null) {
-                        if (c.optJSONObject("input") != null) b.input = c.optJSONObject("input");
-                        b.touch();
-                    } else {
-                        b = new Block(Block.TOOL);
-                        b.toolId = c.optString("id");
-                        b.name = c.optString("name");
-                        b.input = c.optJSONObject("input") != null ? c.optJSONObject("input") : new JSONObject();
-                        b.running = true;
-                        m.blocks.add(b);
-                        m.touch();
-                    }
-                } else if (!streamed) {
-                    if ("text".equals(ct) && !c.optString("text").isEmpty()) {
-                        Block b = new Block(Block.TEXT);
-                        b.text = c.optString("text");
-                        m.blocks.add(b);
-                    } else if ("thinking".equals(ct) && !c.optString("thinking").isEmpty()) {
-                        Block b = new Block(Block.THINKING);
-                        b.text = c.optString("thinking");
-                        m.blocks.add(b);
-                    }
-                    m.touch();
-                }
-            }
-            return false;
-        }
-        if ("user".equals(t)) {
-            if (sideChain) return false;
-            JSONObject msg = d.optJSONObject("message");
-            JSONArray content = msg == null ? null : msg.optJSONArray("content");
-            for (int i = 0; content != null && i < content.length(); i++) {
-                JSONObject c = content.optJSONObject(i);
-                if (c == null || !"tool_result".equals(c.optString("type"))) continue;
-                Block b = tool(c.optString("tool_use_id"));
-                if (b == null) continue;
-                b.result = resultText(c.opt("content"));
-                b.images.clear();
-                b.images.addAll(resultImages(c.opt("content")));
-                b.error = c.optBoolean("is_error");
-                b.running = false;
-                b.ask = null;
-                b.touch();
-            }
-            verb = randomVerb();
-            return false;
-        }
-        if ("result".equals(t)) {
-            // The reply may be in parts, a message inserted into it between them (showInserted): all
-            // end; how it ended goes under its last part, above a message inserted too late for it.
-            Msg m = null;
-            for (Msg x : messages) {
-                if (x.kind != Msg.ASSISTANT || x.done) continue;
-                if (m != null) { m.done = true; m.touch(); }
-                m = x;
-                for (Block b : x.blocks) {
-                    if (b.kind == Block.TOOL && (b.running || b.ask != null)) { b.running = false; b.ask = null; b.touch(); }
-                    if (b.kind == Block.THINKING && b.streaming) { b.streaming = false; b.touch(); }
-                }
-            }
-            if (m == null) m = reply(true);
-            if ("error_during_execution".equals(sub) || stopping) {
-                m.blocks.add(new Block(Block.STOPPED));
-            } else if (d.optBoolean("is_error")) {
-                Block b = new Block(Block.ERROR);
-                b.title = "请求失败";
-                b.text = d.optString("result", sub);
-                m.blocks.add(b);
-            }
-            m.done = true;
-            m.touch();
-            // A message inserted too late for this turn gets one of its own (Claude Code starts it).
-            running = handed();
-            stopped = stopping || "error_during_execution".equals(sub);
-            stopping = false;
-            if (d.has("session_id")) sessionId = d.optString("session_id");
-            return true;
+        switch (d.optString("type")) {
+            case "command_lifecycle": commandLifecycle(d); break;
+            case "control_request": controlRequest(d); break;
+            case "control_cancel_request": controlCancel(d); break;
+            case "system": system(d); break;
+            case "stream_event": if (!sideChain) streamEvent(d); break;
+            case "assistant": if (!sideChain) assistant(d); break;
+            case "user": if (!sideChain) toolResults(d); break;
+            case "result": return result(d);
+            default:
         }
         return false;
+    }
+
+    /** What happens to a message handed to Claude Code while a reply ran. */
+    private void commandLifecycle(JSONObject d) {
+        String id = d.optString("command_uuid"), state = d.optString("state");
+        for (Queued q : queue) {
+            if (!q.inserted || !id.equals(q.uuid)) continue;
+            if ("started".equals(state)) {
+                queue.remove(q);
+                showInserted(q);
+            } else if (!"queued".equals(state)) { // it will not reach the model: it waits here again
+                q.inserted = false;
+                q.uuid = null;
+                q.notInserted = true;
+            }
+            break;
+        }
+    }
+
+    /** Claude Code asks whether a tool may run (a permission mode that asks): its row asks the user. */
+    private void controlRequest(JSONObject d) {
+        JSONObject r = d.optJSONObject("request");
+        if (r == null || !"can_use_tool".equals(r.optString("subtype"))) return;
+        String id = r.optString("tool_use_id");
+        Block b = id.isEmpty() ? null : tool(id);
+        if (b == null) {
+            Msg m = reply(true);
+            b = Block.tool(id, r.optString("tool_name"));
+            m.blocks.add(b);
+            m.touch();
+        }
+        if (r.optJSONObject("input") != null) b.input = r.optJSONObject("input");
+        b.ask = d.optString("request_id");
+        b.touch();
+    }
+
+    private void controlCancel(JSONObject d) {
+        String id = d.optString("request_id");
+        for (Msg m : messages) for (Block b : m.blocks) if (id.equals(b.ask)) { b.ask = null; b.touch(); }
+    }
+
+    private void system(JSONObject d) {
+        String sub = d.optString("subtype");
+        if ("init".equals(sub)) {
+            // A turn begins: also one Claude Code starts by itself, for a message inserted too late
+            // for the turn before.
+            if (!running) {
+                running = true;
+                startedAt = System.currentTimeMillis();
+            }
+            if (d.has("session_id")) sessionId = d.optString("session_id");
+            model = d.optString("model", model);
+        } else if ("api_retry".equals(sub)) {
+            // No HTTP status (null) means the connection itself failed, e.g. dropped mid-request;
+            // Claude Code then calls the error "unknown".
+            String error = d.isNull("error") ? "" : d.optString("error");
+            String why = !d.isNull("error_status") ? (d.optString("error_status") + " " + error).trim()
+                    : error.isEmpty() || "unknown".equals(error) ? "连接断开" : error;
+            detail = "重试 " + d.optInt("attempt") + "/" + d.optInt("max_retries") + (why.isEmpty() ? "" : " · " + why);
+        } else if ("status".equals(sub)) {
+            if ("requesting".equals(d.optString("status"))) detail = "";
+        } else if ("compact_boundary".equals(sub)) {
+            Msg m = new Msg(Msg.DIVIDER);
+            m.text = "上下文已压缩";
+            messages.add(m);
+        }
+    }
+
+    /** The reply as it is written, piece by piece (--include-partial-messages). */
+    private void streamEvent(JSONObject d) {
+        detail = "";
+        JSONObject e = d.optJSONObject("event");
+        if (e == null) return;
+        Msg m = reply(true);
+        String et = e.optString("type");
+        int index = e.optInt("index");
+        if ("message_start".equals(et)) messageStart(m, e);
+        else if ("content_block_start".equals(et)) blockStart(m, e, index);
+        else if ("content_block_delta".equals(et)) blockDelta(m, e, index);
+        else if ("content_block_stop".equals(et)) blockStop(m, index);
+    }
+
+    private void messageStart(Msg m, JSONObject e) {
+        m.index.clear();
+        JSONObject msg = e.optJSONObject("message");
+        if (msg != null) {
+            m.streamed.add(msg.optString("id"));
+        }
+    }
+
+    private void blockStart(Msg m, JSONObject e, int index) {
+        JSONObject cb = e.optJSONObject("content_block");
+        if (cb == null) return;
+        Block b = null;
+        switch (cb.optString("type")) {
+            case "text":
+                b = new Block(Block.TEXT);
+                b.text = cb.optString("text");
+                break;
+            case "thinking":
+                b = new Block(Block.THINKING);
+                b.streaming = true;
+                b.started = System.currentTimeMillis();
+                verb = "思考中";
+                break;
+            case "tool_use":
+                b = Block.tool(cb.optString("id"), cb.optString("name"));
+                verb = "运行中";
+                break;
+            default:
+        }
+        if (b != null) {
+            m.blocks.add(b);
+            m.index.put(index, b);
+            m.touch();
+        }
+    }
+
+    private void blockDelta(Msg m, JSONObject e, int index) {
+        Block b = m.index.get(index);
+        JSONObject dl = e.optJSONObject("delta");
+        if (b == null || dl == null) return;
+        switch (dl.optString("type")) {
+            case "text_delta":
+                b.text += dl.optString("text");
+                verb = "生成中";
+                break;
+            case "thinking_delta":
+                b.text += dl.optString("thinking");
+                break;
+            case "input_json_delta": {
+                // A long file's input is thousands of pieces: what came so far (its path, its
+                // text) is read at most every 300 ms, so a Write shows as it is written and the
+                // row is not drawn again for each piece.
+                b.partial.append(dl.optString("partial_json"));
+                long now = System.currentTimeMillis();
+                if (now - b.shown < 300) return;
+                b.shown = now;
+                b.input = partialInput(b.partial);
+                break;
+            }
+            default:
+        }
+        b.touch();
+    }
+
+    private void blockStop(Msg m, int index) {
+        Block b = m.index.get(index);
+        if (b != null && b.kind == Block.TOOL && b.partial.length() > 0) {
+            try { b.input = new JSONObject(b.partial.toString()); } catch (Exception ignored) { /* incomplete */ }
+            b.partial.setLength(0);
+            b.touch();
+        }
+        if (b != null && b.kind == Block.THINKING) {
+            b.streaming = false;
+            b.millis = System.currentTimeMillis() - b.started;
+            b.touch();
+        }
+    }
+
+    /** A whole message of the model's: what the stream did not already bring, and each tool's final input. */
+    private void assistant(JSONObject d) {
+        JSONObject msg = d.optJSONObject("message");
+        if (msg == null) return;
+        Msg m = reply(true);
+        boolean streamed = m.streamed.contains(msg.optString("id"));
+        JSONArray content = msg.optJSONArray("content");
+        for (int i = 0; content != null && i < content.length(); i++) {
+            JSONObject c = content.optJSONObject(i);
+            if (c == null) continue;
+            String ct = c.optString("type");
+            if ("tool_use".equals(ct)) toolUse(m, c);
+            else if (!streamed) {
+                if ("text".equals(ct) && !c.optString("text").isEmpty()) {
+                    Block b = new Block(Block.TEXT);
+                    b.text = c.optString("text");
+                    m.blocks.add(b);
+                } else if ("thinking".equals(ct) && !c.optString("thinking").isEmpty()) {
+                    Block b = new Block(Block.THINKING);
+                    b.text = c.optString("thinking");
+                    m.blocks.add(b);
+                }
+                m.touch();
+            }
+        }
+    }
+
+    private void toolUse(Msg m, JSONObject c) {
+        Block b = tool(c.optString("id"));
+        if (b != null) {
+            if (c.optJSONObject("input") != null) b.input = c.optJSONObject("input");
+            b.touch();
+        } else {
+            b = Block.tool(c.optString("id"), c.optString("name"));
+            b.input = c.optJSONObject("input") != null ? c.optJSONObject("input") : new JSONObject();
+            m.blocks.add(b);
+            m.touch();
+        }
+    }
+
+    /** What the tools gave back. */
+    private void toolResults(JSONObject d) {
+        JSONObject msg = d.optJSONObject("message");
+        JSONArray content = msg == null ? null : msg.optJSONArray("content");
+        for (int i = 0; content != null && i < content.length(); i++) {
+            JSONObject c = content.optJSONObject(i);
+            if (c == null || !"tool_result".equals(c.optString("type"))) continue;
+            Block b = tool(c.optString("tool_use_id"));
+            if (b == null) continue;
+            b.result = resultText(c.opt("content"));
+            b.images.clear();
+            b.images.addAll(resultImages(c.opt("content")));
+            b.error = c.optBoolean("is_error");
+            b.running = false;
+            b.ask = null;
+            b.touch();
+        }
+        verb = randomVerb();
+    }
+
+    /** The turn ends. True: the conversation list should be refreshed. */
+    private boolean result(JSONObject d) {
+        String sub = d.optString("subtype");
+        // The reply may be in parts, a message inserted into it between them (showInserted): all
+        // end; how it ended goes under its last part, above a message inserted too late for it.
+        Msg m = null;
+        for (Msg x : messages) {
+            if (x.kind != Msg.ASSISTANT || x.done) continue;
+            if (m != null) { m.done = true; m.touch(); }
+            m = x;
+            for (Block b : x.blocks) {
+                if (b.kind == Block.TOOL && (b.running || b.ask != null)) { b.running = false; b.ask = null; b.touch(); }
+                if (b.kind == Block.THINKING && b.streaming) { b.streaming = false; b.touch(); }
+            }
+        }
+        if (m == null) m = reply(true);
+        if ("error_during_execution".equals(sub) || stopping) {
+            m.blocks.add(new Block(Block.STOPPED));
+        } else if (d.optBoolean("is_error")) {
+            Block b = new Block(Block.ERROR);
+            b.title = "请求失败";
+            b.text = d.optString("result", sub);
+            m.blocks.add(b);
+        }
+        m.done = true;
+        m.touch();
+        // A message inserted too late for this turn gets one of its own (Claude Code starts it).
+        running = handed();
+        stopped = stopping || "error_during_execution".equals(sub);
+        stopping = false;
+        if (d.has("session_id")) sessionId = d.optString("session_id");
+        return true;
     }
 
     /** Messages from the bridge's /history (Claude Code's transcript). */
@@ -481,52 +509,63 @@ final class Chat {
                 m.text = h.optString("text");
                 messages.add(m);
             } else if ("user".equals(role)) {
-                Msg m = new Msg(Msg.USER);
-                m.text = h.optString("text");
-                m.uuid = h.isNull("uuid") ? null : h.optString("uuid", null);
-                JSONArray imgs = h.optJSONArray("images");
-                for (int k = 0; imgs != null && k < imgs.length(); k++) m.images.add(imgs.isNull(k) ? null : imgs.optString(k));
-                messages.add(m);
+                messages.add(savedUser(h));
             } else if ("assistant".equals(role)) {
-                Msg m = new Msg(Msg.ASSISTANT);
-                m.done = true;
-                m.uuid = h.isNull("uuid") ? null : h.optString("uuid", null);
-                JSONArray blocks = h.optJSONArray("blocks");
-                for (int k = 0; blocks != null && k < blocks.length(); k++) {
-                    JSONObject o = blocks.optJSONObject(k);
-                    if (o == null) continue;
-                    switch (o.optString("type")) {
-                        case "text": {
-                            Block b = new Block(Block.TEXT);
-                            b.text = o.optString("text");
-                            m.blocks.add(b);
-                            break;
-                        }
-                        case "thinking": {
-                            Block b = new Block(Block.THINKING);
-                            b.text = o.optString("text");
-                            m.blocks.add(b);
-                            break;
-                        }
-                        case "tool": {
-                            Block b = new Block(Block.TOOL);
-                            b.toolId = o.optString("id");
-                            b.name = o.optString("name");
-                            b.input = o.optJSONObject("input") != null ? o.optJSONObject("input") : new JSONObject();
-                            b.result = o.has("result") ? o.optString("result") : null;
-                            JSONArray imgs = o.optJSONArray("images");
-                            for (int n = 0; imgs != null && n < imgs.length(); n++) b.images.add(imgs.optString(n));
-                            b.error = o.optBoolean("isError");
-                            m.blocks.add(b);
-                            break;
-                        }
-                        default:
-                    }
-                }
-                messages.add(m);
+                messages.add(savedReply(h));
             }
         }
         if (live != null) messages.add(live);
+    }
+
+    private static Msg savedUser(JSONObject h) {
+        Msg m = new Msg(Msg.USER);
+        m.text = h.optString("text");
+        m.uuid = h.isNull("uuid") ? null : h.optString("uuid", null);
+        JSONArray imgs = h.optJSONArray("images");
+        for (int k = 0; imgs != null && k < imgs.length(); k++) m.images.add(imgs.isNull(k) ? null : imgs.optString(k));
+        return m;
+    }
+
+    private static Msg savedReply(JSONObject h) {
+        Msg m = new Msg(Msg.ASSISTANT);
+        m.done = true;
+        m.uuid = h.isNull("uuid") ? null : h.optString("uuid", null);
+        JSONArray blocks = h.optJSONArray("blocks");
+        for (int k = 0; blocks != null && k < blocks.length(); k++) {
+            JSONObject o = blocks.optJSONObject(k);
+            if (o == null) continue;
+            switch (o.optString("type")) {
+                case "text": {
+                    Block b = new Block(Block.TEXT);
+                    b.text = o.optString("text");
+                    m.blocks.add(b);
+                    break;
+                }
+                case "thinking": {
+                    Block b = new Block(Block.THINKING);
+                    b.text = o.optString("text");
+                    m.blocks.add(b);
+                    break;
+                }
+                case "tool":
+                    m.blocks.add(savedTool(o));
+                    break;
+                default:
+            }
+        }
+        return m;
+    }
+
+    private static Block savedTool(JSONObject o) {
+        Block b = new Block(Block.TOOL);
+        b.toolId = o.optString("id");
+        b.name = o.optString("name");
+        b.input = o.optJSONObject("input") != null ? o.optJSONObject("input") : new JSONObject();
+        b.result = o.has("result") ? o.optString("result") : null;
+        JSONArray imgs = o.optJSONArray("images");
+        for (int n = 0; imgs != null && n < imgs.length(); n++) b.images.add(imgs.optString(n));
+        b.error = o.optBoolean("isError");
+        return b;
     }
 
     /**
