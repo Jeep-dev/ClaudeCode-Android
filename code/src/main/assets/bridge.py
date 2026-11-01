@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 66  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 67  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -114,7 +114,10 @@ class Launch:
         for key in ('permissionMode', 'appendSystemPrompt', 'extraArgs', 'disallowedTools'):
             if key in data:
                 new[key] = str(data[key] or '')
-        if choices.get('permission-mode') and new['permissionMode'] not in choices['permission-mode']:
+        # Only a mode being changed to is checked: one saved earlier that `claude --help` no longer lists
+        # still works, and must not make every other setting refused.
+        if new['permissionMode'] != self.data['permissionMode'] and choices.get('permission-mode') \
+                and new['permissionMode'] not in choices['permission-mode']:
             raise ValueError('unknown permission mode %s' % new['permissionMode'])
         shlex.split(new['extraArgs'])  # ValueError on bad quoting
         os.makedirs(STATE_DIR, exist_ok=True)
@@ -350,6 +353,21 @@ tunnels = Tunnels()
 
 def claude_path():
     return shutil.which('claude') or os.path.join(os.environ.get('PREFIX', '/usr'), 'bin', 'claude')
+
+
+def mcp_config(name, scope, folder):
+    """The config of one of Claude Code's MCP servers as it is kept now, from where `claude mcp` keeps
+    it for the scope (read, never written here); None when there is none."""
+    path = os.path.join(folder, '.mcp.json') if scope == 'project' else os.path.join(HOME, '.claude.json')
+    try:
+        with open(path, encoding='utf-8') as f:
+            kept = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if scope == 'local':
+        kept = (kept.get('projects') or {}).get(folder)
+    config = ((kept or {}).get('mcpServers') or {}).get(name)
+    return config if isinstance(config, dict) else None
 
 
 def claude_env():
@@ -788,9 +806,10 @@ class Chat:
             return True
 
     def stop(self):
+        """Interrupts the turn; False when none is running (nothing to stop: no result will say it was)."""
         with self.lock:
             if not self.alive() or not self.running:
-                return
+                return False
             log('chat %s: stop requested' % self.key[:8])
             request = {'type': 'control_request', 'request_id': 'stop-%d' % time.time(),
                        'request': {'subtype': 'interrupt'}}
@@ -809,6 +828,7 @@ class Chat:
                 if self.running and self.proc is proc and self.turn == turn and self.began == began:
                     self.close()
         threading.Thread(target=force, daemon=True).start()
+        return True
 
     def close(self):
         end(self.proc)
@@ -989,7 +1009,7 @@ def last_custom_title(path):
 TITLES_FILE = os.path.join(STATE_DIR, 'titles.json')
 titles = {}  # session id -> a short name made for it (a name given with /rename comes first)
 titles_lock = threading.Lock()
-naming = set()
+naming = set()  # session ids being named, or asked once and given no name (not asked again, until the bridge restarts)
 try:
     with open(TITLES_FILE, encoding='utf-8') as f:
         titles = {k: v for k, v in json.load(f).items() if isinstance(v, str)}
@@ -1233,13 +1253,15 @@ def name_new(chat, content):
 
 def name_later(key, session_id):
     """Names a conversation after a turn when it has no name yet (its first turn did not give one),
-    by its claude (Chat.ask_title); once."""
+    by its claude (Chat.ask_title); once, also when it gave none (the same first message would give none
+    again, and each turn would ask for nothing)."""
     with titles_lock:
         if session_id in titles or session_id in naming:
             return
         naming.add(session_id)
 
     def run():
+        asked = False
         try:
             with chats_lock:
                 chat = next((c for c in chats.values() if c.session_id == session_id), None)
@@ -1248,11 +1270,14 @@ def name_later(key, session_id):
             title = chat.ask_title(text) if text else None
             if title:
                 keep_title(key, session_id, title)
+            else:
+                asked = bool(text)
         except OSError as e:
             log('naming %s failed: %s' % (session_id[:8], e))
         finally:
-            with titles_lock:
-                naming.discard(session_id)
+            if not asked:  # nothing was asked (no claude, no message yet) or it could not be kept: a later turn tries
+                with titles_lock:
+                    naming.discard(session_id)
     threading.Thread(target=run, daemon=True).start()
 
 def last_said(path, tail=262_144):
@@ -1521,6 +1546,7 @@ def load_history(session_id):
                 continue
             try:
                 kind = e.get('type')
+                cwd = cwd or e.get('cwd')  # where it began, as list_sessions says: later ones follow its `cd`
                 if kind == 'custom-title' or e.get('customTitle'):
                     custom = e.get('customTitle') or custom
                 if unsaid(e):
@@ -1531,7 +1557,6 @@ def load_history(session_id):
                         messages.append({'role': 'user', 'text': text, 'images': [],
                                          'uuid': e['attachment'].get('source_uuid') or e.get('uuid')})
                     continue
-                cwd = e.get('cwd') or cwd
                 if kind == 'system' and e.get('subtype') == 'compact_boundary':
                     messages.append({'role': 'divider', 'text': '上下文已压缩'})
                     continue
@@ -2137,9 +2162,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def post_stop(self, data):
         chat = chat_for(data['chat'], data.get('sessionId'), create=False)
-        if chat:
-            chat.stop()
-        self.reply(200, {'ok': True})
+        self.reply(200, {'ok': True, 'stopped': bool(chat and chat.stop())})
 
     def post_delete(self, data):
         self.reply(200, {'ok': delete_session(data.get('id', ''))})
@@ -2228,12 +2251,22 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(400, {'error': 'bad request'})
         folder = os.path.expanduser(data.get('cwd') or HOME)
         run = lambda *a: subprocess.run([claude_path(), 'mcp', *a], cwd=folder, capture_output=True, text=True, timeout=120)
+        old = mcp_config(name, scope, folder) if action == 'set' else None
+        error = out = None
         try:
             out = run('remove', name, '-s', scope)
             if action == 'set':
                 out = run('add-json', name, json.dumps(data.get('config') or {}), '-s', scope)
         except (OSError, subprocess.SubprocessError) as e:
-            return self.reply(500, {'error': str(e)})
+            error = str(e)
+        if old and (error or out.returncode != 0):
+            # The new config did not go in, and `remove` took the server that was there: it is put back.
+            try:
+                run('add-json', name, json.dumps(old), '-s', scope)
+            except (OSError, subprocess.SubprocessError) as e:
+                log('mcp %s: the server that was there could not be put back: %s' % (name, e))
+        if error:
+            return self.reply(500, {'error': error})
         if out.returncode != 0:
             return self.reply(400, {'error': (out.stderr or out.stdout).strip()[-1000:]})
         launch.gen += 1  # new conversations start with it

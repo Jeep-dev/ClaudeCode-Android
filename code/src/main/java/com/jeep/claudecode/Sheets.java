@@ -270,6 +270,25 @@ final class Sheets extends Part {
         Ui.margins(tick, app, 12, 0, 0, 0);
     }
 
+    /** What a list shows when it has nothing to list (or is still being read): a line in the middle of its card. */
+    TextView empty(LinearLayout card, String text) {
+        TextView none = Ui.text(app, text, 14, R.color.text3);
+        none.setGravity(Gravity.CENTER);
+        none.setPadding(0, dp(18), 0, dp(18));
+        card.addView(none, Ui.fill());
+        return none;
+    }
+
+    /** The two buttons that end a sheet, side by side below what it holds: the left one (cancel) and the right one (the answer). */
+    void actions(Dialog sheet, TextView left, TextView right) {
+        LinearLayout row = Ui.row(app);
+        row.addView(left, new LinearLayout.LayoutParams(0, dp(42), 1));
+        row.addView(right, new LinearLayout.LayoutParams(0, dp(42), 1));
+        Ui.margins(right, app, 10, 0, 0, 0);
+        content(sheet).addView(row, Ui.fill());
+        Ui.margins(row, app, 0, 14, 0, 0);
+    }
+
     TextView button(String label, boolean accent, View.OnClickListener click) {
         TextView b = Ui.text(app, label, 14.5f, accent ? R.color.onAccent : R.color.text);
         b.setTypeface(Ui.MEDIUM);
@@ -322,7 +341,6 @@ final class Sheets extends Part {
             field.setTypeface(Ui.MONO);
         }
         content(sheet).addView(field, Ui.fill());
-        LinearLayout actions = Ui.row(app);
         TextView cancel = button("取消", false, v -> { sheet.dismiss(); if (back != null) back.run(); });
         TextView ok = button("保存", true, v -> save.accept(field.getText().toString(), () -> {
             sheet.dismiss();
@@ -330,11 +348,7 @@ final class Sheets extends Part {
         }));
         ok.setBackground(Ui.press(app, Ui.round(col(R.color.text), dp(10)), dp(10)));
         ok.setTextColor(col(R.color.bg));
-        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        actions(sheet, cancel, ok);
         if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         sheet.show();
         field.requestFocus();

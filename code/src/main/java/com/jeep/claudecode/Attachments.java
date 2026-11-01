@@ -69,9 +69,9 @@ final class Attachments extends Part {
             if (type != null && type.matches("image/(png|jpe?g|gif|webp|bmp|heic|heif|avif)")) {
                 // Claude Code scales a picture for the model itself and keeps the original, whose path,
                 // size and scale it gives the model: one it reads goes as it is, up to 10 MB (held in
-                // memory as it is sent). HEIC, HEIF and AVIF, which it cannot read, and a larger one go
-                // as JPEG of up to 4096 px.
-                byte[] raw = type.matches("image/(heic|heif|avif)") ? null : readUpTo(uri, 10 << 20);
+                // memory as it is sent). BMP, HEIC, HEIF and AVIF, which the API does not take, and a
+                // larger one go as JPEG of up to 4096 px.
+                byte[] raw = type.matches("image/(bmp|heic|heif|avif)") ? null : readUpTo(uri, 10 << 20);
                 BitmapFactory.Options o = new BitmapFactory.Options();
                 o.inJustDecodeBounds = true;
                 try (InputStream in = app.getContentResolver().openInputStream(uri)) { BitmapFactory.decodeStream(in, null, o); }

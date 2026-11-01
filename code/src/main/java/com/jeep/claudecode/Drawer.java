@@ -422,7 +422,7 @@ final class Drawer extends Part {
                 keepSessions(next);
                 String key = app.bySession.containsKey(id) ? app.bySession.get(id) : id;
                 if (app.current.key.equals(key)) app.switchTo(app.newChat());
-                app.chats.remove(key);
+                app.drop(key, id);
                 renderSessions();
                 toast("已删除");
             });

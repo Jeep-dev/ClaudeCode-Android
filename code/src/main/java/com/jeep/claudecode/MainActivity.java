@@ -16,8 +16,10 @@ import android.widget.Toast;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -63,6 +65,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     // state: the conversations, by key and by the session each comes to have
     final Map<String, Chat> chats = new HashMap<>();
     final Map<String, String> bySession = new HashMap<>();
+    private final Set<String> dropped = new HashSet<>(); // keys and sessions of conversations deleted: events still on the way are let go
     Chat current;
 
     // views
@@ -228,13 +231,25 @@ public final class MainActivity extends Activity implements Bridge.Events {
         if (frame.isOpen() && !drawer.drawerState().equals(drawer.drawnState)) drawer.renderSessions();
     }
 
+    /** A conversation deleted: it and its session are forgotten, and what its claude still says is let go (see chatFor). */
+    void drop(String key, String sessionId) {
+        chats.remove(key);
+        bySession.remove(sessionId);
+        bySession.values().remove(key);
+        dropped.add(key);
+        dropped.add(sessionId);
+    }
+
+    /** The conversation an event belongs to, made when it is not known yet; null for one deleted. */
     private Chat chatFor(JSONObject ev) {
         String key = ev.optString("chat");
         Chat chat = chats.get(key);
         if (chat != null) return chat;
+        if (dropped.contains(key)) return null;
         JSONObject data = ev.optJSONObject("data");
         String sid = data != null && data.has("session_id") ? data.optString("session_id") : key.startsWith("n-") ? null : key;
-        if (sid != null && bySession.containsKey(sid)) return chats.get(bySession.get(sid));
+        if (sid != null && dropped.contains(sid)) return null;
+        if (sid != null && bySession.containsKey(sid) && chats.containsKey(bySession.get(sid))) return chats.get(bySession.get(sid));
         // Started before this app was: its history loads from the transcript when opened.
         chat = new Chat(key);
         chat.sessionId = sid;
@@ -248,6 +263,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     private void onEvent(JSONObject ev) {
         if ("gap".equals(ev.optString("kind"))) { gap(); return; }
         Chat chat = chatFor(ev);
+        if (chat == null) return;
         chat.lastEvent = System.currentTimeMillis();
         String kind = ev.optString("kind");
         JSONObject data = ev.optJSONObject("data");
@@ -315,6 +331,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         }
         chat.unhand(); // what it held waits here again
         chat.running = false;
+        chat.stopping = false; // no result is coming to end the stop asked for: the next turn is its own
     }
 
     @Override public void link(boolean up) { link.changed(up); }

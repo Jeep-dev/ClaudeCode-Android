@@ -1,9 +1,7 @@
 package com.jeep.claudecode;
 
 import android.app.Dialog;
-import android.view.Gravity;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -116,10 +114,7 @@ final class McpServers extends Part {
             sheets.option(card, R.drawable.ic_globe, e.getKey(), mcpState(e.getValue()), false, null);
         }
         if (servers.isEmpty() && state.isEmpty()) {
-            TextView none = Ui.text(app, "还没有", 14, R.color.text3);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(0, dp(18), 0, dp(18));
-            card.addView(none, Ui.fill());
+            sheets.empty(card, "还没有");
         }
         LinearLayout add = sheets.card(sheet);
         Ui.margins(add, app, 0, 10, 0, 0);

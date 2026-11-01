@@ -153,11 +153,18 @@ final class ThreadAdapter extends RecyclerView.Adapter<ThreadAdapter.Holder> {
         return out;
     }
 
-    /** The text /find looks in for a row: the user's messages and the replies' text; null for the rest. */
-    String searchText(int position) {
-        if (position < 0 || position >= items.size()) return null;
+    /** Whether /find looks in a row: the user's messages and the replies' text, not the rest. */
+    boolean searchable(int position) {
+        if (position < 0 || position >= items.size()) return false;
+        int type = items.get(position).type;
+        return type == USER || type == TEXT;
+    }
+
+    /** The texts /find looks in for a row, as its views show them (Md.findable); null for a row it does not. */
+    List<String> searchText(int position) {
+        if (!searchable(position)) return null;
         Item it = items.get(position);
-        return it.type == USER ? it.msg.text : it.type == TEXT ? it.block.text : null;
+        return it.type == USER ? java.util.Collections.singletonList(it.msg.text) : md.findable(it.block.text);
     }
 
     @Override public int getItemCount() { return items.size(); }

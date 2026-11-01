@@ -38,10 +38,7 @@ final class Pickers extends Part {
                 sheets.option(card, R.drawable.ic_folder, name, null, false, () -> { sheet.dismiss(); folderSheet(here + "/" + name); });
             }
             if (dirs == null || dirs.length() == 0) {
-                TextView none = Ui.text(app, "没有子目录", 14, R.color.text3);
-                none.setGravity(Gravity.CENTER);
-                none.setPadding(0, dp(18), 0, dp(18));
-                card.addView(none, Ui.fill());
+                sheets.empty(card, "没有子目录");
             }
             LinearLayout field = Ui.row(app);
             EditText name = new EditText(app);
@@ -64,7 +61,6 @@ final class Pickers extends Part {
             Ui.margins(make, app, 8, 0, 0, 0);
             sheets.content(sheet).addView(field, Ui.fill());
             Ui.margins(field, app, 0, 10, 0, 0);
-            LinearLayout actions = Ui.row(app);
             TextView cancel = sheets.button("取消", false, v -> sheet.dismiss());
             TextView use = sheets.button("使用这个目录", true, v -> {
                 claude.cwd = here;
@@ -77,11 +73,7 @@ final class Pickers extends Part {
             });
             use.setBackground(Ui.press(app, Ui.round(col(R.color.text), dp(10)), dp(10)));
             use.setTextColor(col(R.color.bg));
-            actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
-            actions.addView(use, new LinearLayout.LayoutParams(0, dp(42), 1));
-            Ui.margins(use, app, 10, 0, 0, 0);
-            sheets.content(sheet).addView(actions, Ui.fill());
-            Ui.margins(actions, app, 0, 14, 0, 0);
+            sheets.actions(sheet, cancel, use);
             sheet.show();
         });
     }

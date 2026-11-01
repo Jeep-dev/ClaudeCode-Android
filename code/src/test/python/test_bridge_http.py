@@ -23,7 +23,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GOLDEN = os.path.join(HERE, 'bridge_http.golden.json')
 
 FAKE_CLAUDE = r'''#!/usr/bin/env python3
-import hashlib, json, sys, time
+import hashlib, json, os, sys, time
 a = sys.argv[1:]
 if a[:1] == ['--version']:
     print('9.9.9 (Claude Code)'); sys.exit(0)
@@ -32,8 +32,12 @@ if a[:1] == ['--help']:
     print('  --permission-mode <mode>   Mode (choices: "default", "plan", "bypassPermissions")')
     sys.exit(0)
 if a[:1] == ['mcp']:
+    with open(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), 'mcp.log'), 'a') as log:
+        log.write(json.dumps(a) + '\n')
     if 'bad' in a:
         print('boom', file=sys.stderr); sys.exit(1)
+    if a[1:2] == ['add-json'] and '"broken"' in a[3]:
+        print('Invalid configuration', file=sys.stderr); sys.exit(1)
     sys.exit(0)
 if a[:1] == ['plugin']:
     if 'list' in a:
@@ -317,6 +321,45 @@ def main():
     call('POST', '/delete', {'id': 'nonexistent'})
     call('POST', '/delete', {})
     call('GET', '/sessions')
+
+    # ---- a conversation whose claude moved on (cd): it began where list_sessions says ----
+    s4 = 'aaaaaaaa-0000-0000-0000-000000000004'
+    moved = user('x2', 'c1', 'after cd', s4)
+    moved['cwd'] = '/tmp/proj/sub'
+    transcript(os.path.join(proj, s4 + '.jsonl'), [user('x1', None, 'begins here', s4), reply('d1', 'x1', 'ok', s4), moved])
+    call('GET', '/history?id=' + s4)
+    call('GET', '/sessions')
+
+    # ---- a saved permission mode that --help no longer lists does not stop other settings ----
+    bridge.launch.data['permissionMode'] = 'saved-long-ago'
+    call('POST', '/launch', {'appendSystemPrompt': 'kept'})
+    call('POST', '/launch', {'permissionMode': 'saved-long-ago'})
+    call('POST', '/launch', {'permissionMode': 'unheard-of'})
+
+    # ---- an MCP server whose new config is refused is put back as it was ----
+    with open(os.path.join(home, '.claude.json'), 'w', encoding='utf-8') as f:
+        json.dump({'mcpServers': {'srv2': {'type': 'stdio', 'command': 'old'}}}, f)
+    open(os.path.join(tmp, 'bin', 'mcp.log'), 'w').close()
+    call('POST', '/mcp', {'name': 'srv2', 'action': 'set', 'config': {'broken': True}})
+    call('POST', '/mcp', {'name': 'srv3', 'action': 'set', 'config': {'broken': True}})  # none was there: nothing to put back
+    with open(os.path.join(tmp, 'bin', 'mcp.log'), encoding='utf-8') as f:
+        records.append({'req': 'claude mcp calls', 'status': 0, 'body': [json.loads(l) for l in f]})
+
+    # ---- a conversation that cannot be named by its claude is asked once, not after every turn ----
+    class Namer:
+        session_id = s4
+        asked = 0
+
+        def ask_title(self, text):
+            self.asked += 1
+            return ''
+    namer = Namer()
+    bridge.chats['namer'] = namer
+    for _ in range(3):
+        bridge.name_later('namer', s4)
+        time.sleep(0.5)
+    del bridge.chats['namer']
+    records.append({'req': 'name_later, claude names nothing, 3 turns', 'status': 0, 'body': {'asked': namer.asked}})
 
     # ---- end ----
     for chat in list(bridge.chats.values()):

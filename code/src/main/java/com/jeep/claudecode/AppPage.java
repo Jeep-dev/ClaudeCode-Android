@@ -14,6 +14,7 @@ import org.json.JSONArray;
 final class AppPage extends Part {
     /** Sizes in the userland, measured when the page opens: conversations, work, temporary files, all. */
     private long[] storage;
+    private int measured; // how many times it was measured: only the last answers
     /** How keeping alive was found (KeepAlive's states), UNKNOWN until checked in this run. */
     static final int UNKNOWN = -1;
     int keepAlive = UNKNOWN;
@@ -25,7 +26,9 @@ final class AppPage extends Part {
 
     void measureStorage() {
         storage = null;
-        work.execute(() -> {
+        int gen = ++measured;
+        // A thread of its own: walking the whole userland takes seconds, and work reads the files being attached.
+        Thread walk = new Thread(() -> {
             long[] s = {
                     Userland.size(userland.file(Userland.HOME + "/.claude/projects")),
                     Userland.size(userland.file(Userland.HOME + "/work")),
@@ -33,10 +36,13 @@ final class AppPage extends Part {
                     Userland.size(userland.file("/")),
             };
             ui.post(() -> {
+                if (gen != measured) return; // measured again meanwhile: that one answers
                 storage = s;
                 if ("storage".equals(app.settings.settingsAt)) app.settings.fillSettings(app.settings.launchCache);
             });
-        });
+        }, "measure-storage");
+        walk.setDaemon(true);
+        walk.start();
     }
 
     void fillStorage(LinearLayout box) {
@@ -69,7 +75,6 @@ final class AppPage extends Part {
     /** Asks before doing something that cannot be undone; does it off the main thread. */
     private void confirm(String title, String what, boolean danger, Runnable action) {
         Dialog sheet = sheets.sheet(title, what);
-        LinearLayout actions = Ui.row(app);
         TextView cancel = sheets.button("取消", false, v -> sheet.dismiss());
         TextView ok = sheets.button("确定", true, v -> {
             sheet.dismiss();
@@ -79,11 +84,7 @@ final class AppPage extends Part {
             });
         });
         if (danger) ok.setBackground(Ui.press(app, Ui.round(col(R.color.danger), dp(10)), dp(10)));
-        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        sheets.content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        sheets.actions(sheet, cancel, ok);
         sheet.show();
     }
 

@@ -16,10 +16,12 @@ final class Sender extends Part {
         @Override public void edit(Chat.Queued q) {
             Chat chat = app.current;
             takeBack(chat, q, () -> {
-                if (!chat.queue.remove(q) || app.current != chat) return;
-                String typed = app.box.input.getText().toString();
+                if (!chat.queue.remove(q)) return;
+                chat.attachments.addAll(0, q.attachments);
+                boolean here = app.current == chat;
+                String typed = here ? app.box.input.getText().toString() : chat.draft;
                 String text = typed.trim().isEmpty() ? q.text : q.text + "\n" + typed;
-                app.current.attachments.addAll(0, q.attachments);
+                if (!here) { chat.draft = text; return; } // another conversation was opened meanwhile: it waits in this one's draft
                 app.box.input.setText(text);
                 app.box.input.setSelection(app.box.input.length());
                 app.box.input.requestFocus();
@@ -266,7 +268,11 @@ final class Sender extends Part {
 
     void stop(Chat chat) {
         chat.stopping = true;
-        bridge.post("/stop", obj("chat", chat.key, "sessionId", chat.sessionId), null);
+        // Nothing to stop (the reply had just ended, or the request was lost): no result will say it
+        // was stopped, and the next turn must not be taken for one stopped.
+        bridge.post("/stop", obj("chat", chat.key, "sessionId", chat.sessionId), (status, data) -> {
+            if (status != 200 || !data.optBoolean("stopped")) chat.stopping = false;
+        });
     }
 
     /** A new conversation's Claude Code (the bridge's spare) is made ready, so its first message

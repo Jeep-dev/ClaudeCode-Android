@@ -6,7 +6,7 @@
     "defaultCwd": "<T>/home/work",
     "home": "<T>/home",
     "ok": true,
-    "version": 66
+    "version": 67
    },
    "req": "GET /health ",
    "status": 200
@@ -436,7 +436,8 @@
   },
   {
    "body": {
-    "ok": true
+    "ok": true,
+    "stopped": false
    },
    "req": "POST /stop {\"chat\": \"unknown\"}",
    "status": 200
@@ -547,14 +548,16 @@
   },
   {
    "body": {
-    "ok": true
+    "ok": true,
+    "stopped": true
    },
    "req": "POST /stop {\"chat\": \"c2\"}",
    "status": 200
   },
   {
    "body": {
-    "ok": true
+    "ok": true,
+    "stopped": false
    },
    "req": "POST /stop {\"chat\": \"c1\"}",
    "status": 200
@@ -1102,6 +1105,155 @@
    },
    "req": "GET /sessions ",
    "status": 200
+  },
+  {
+   "body": {
+    "context": 0,
+    "cwd": "/tmp/proj",
+    "id": "aaaaaaaa-0000-0000-0000-000000000004",
+    "messages": [
+     {
+      "images": [],
+      "role": "user",
+      "text": "begins here",
+      "uuid": "x1"
+     },
+     {
+      "blocks": [
+       {
+        "text": "ok",
+        "type": "text"
+       }
+      ],
+      "role": "assistant",
+      "uuid": "d1"
+     },
+     {
+      "images": [],
+      "role": "user",
+      "text": "after cd",
+      "uuid": "x2"
+     }
+    ],
+    "model": null,
+    "title": null
+   },
+   "req": "GET /history?id=aaaaaaaa-0000-0000-0000-000000000004 ",
+   "status": 200
+  },
+  {
+   "body": {
+    "sessions": [
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000002",
+      "mtime": 1735689601.0,
+      "size": 593,
+      "title": "A new name"
+     },
+     {
+      "cwd": "/tmp/proj",
+      "id": "aaaaaaaa-0000-0000-0000-000000000004",
+      "mtime": 1735689600.0,
+      "size": 737,
+      "title": "begins here"
+     }
+    ]
+   },
+   "req": "GET /sessions ",
+   "status": 200
+  },
+  {
+   "body": {
+    "appendSystemPrompt": "kept",
+    "disallowedTools": "",
+    "extraArgs": "",
+    "permissionMode": "saved-long-ago"
+   },
+   "req": "POST /launch {\"appendSystemPrompt\": \"kept\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "appendSystemPrompt": "kept",
+    "disallowedTools": "",
+    "extraArgs": "",
+    "permissionMode": "saved-long-ago"
+   },
+   "req": "POST /launch {\"permissionMode\": \"saved-long-ago\"}",
+   "status": 200
+  },
+  {
+   "body": {
+    "error": "bad request: unknown permission mode unheard-of"
+   },
+   "req": "POST /launch {\"permissionMode\": \"unheard-of\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "Invalid configuration"
+   },
+   "req": "POST /mcp {\"action\": \"set\", \"config\": {\"broken\": true}, \"name\": \"srv2\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "Invalid configuration"
+   },
+   "req": "POST /mcp {\"action\": \"set\", \"config\": {\"broken\": true}, \"name\": \"srv3\"}",
+   "status": 400
+  },
+  {
+   "body": [
+    [
+     "mcp",
+     "remove",
+     "srv2",
+     "-s",
+     "user"
+    ],
+    [
+     "mcp",
+     "add-json",
+     "srv2",
+     "{\"broken\": true}",
+     "-s",
+     "user"
+    ],
+    [
+     "mcp",
+     "add-json",
+     "srv2",
+     "{\"type\": \"stdio\", \"command\": \"old\"}",
+     "-s",
+     "user"
+    ],
+    [
+     "mcp",
+     "remove",
+     "srv3",
+     "-s",
+     "user"
+    ],
+    [
+     "mcp",
+     "add-json",
+     "srv3",
+     "{\"broken\": true}",
+     "-s",
+     "user"
+    ]
+   ],
+   "req": "claude mcp calls",
+   "status": 0
+  },
+  {
+   "body": {
+    "asked": 1
+   },
+   "req": "name_later, claude names nothing, 3 turns",
+   "status": 0
   }
  ]
 }

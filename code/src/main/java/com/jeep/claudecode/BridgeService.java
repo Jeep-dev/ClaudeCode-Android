@@ -38,7 +38,8 @@ public final class BridgeService extends Service {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private Userland userland;
     private PowerManager.WakeLock wake;
-    private Process proc;
+    /** The bridge's process: set and cleared on the worker, read by the watcher and onDestroy (a watcher must see it replaced or stopped). */
+    private volatile Process proc;
     /** Restarts after the bridge died on its own, in the last minute: a crash loop stops at three. */
     private final long[] deaths = new long[3];
     private int deathCount;

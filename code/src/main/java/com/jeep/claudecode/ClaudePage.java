@@ -143,7 +143,6 @@ final class ClaudePage extends Part {
             if (type.equals("number")) field.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         }
         sheets.content(sheet).addView(field, Ui.fill());
-        LinearLayout actions = Ui.row(app);
         TextView remove = sheets.button(value == null ? "取消" : "移除", false, v -> {
             if (value == null) sheet.dismiss(); else save.accept(null);
         });
@@ -160,11 +159,7 @@ final class ClaudePage extends Part {
         });
         ok.setBackground(Ui.press(app, Ui.round(col(R.color.text), dp(10)), dp(10)));
         ok.setTextColor(col(R.color.bg));
-        actions.addView(remove, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        sheets.content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        sheets.actions(sheet, remove, ok);
         if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         sheet.show();
     }
@@ -242,7 +237,6 @@ final class ClaudePage extends Part {
         Dialog sheet = sheets.sheet(key == null ? "添加变量" : key, null);
         EditText name = sheets.field(sheet, "名称", key == null ? "" : key, "NAME");
         EditText value = sheets.field(sheet, "值", key == null ? "" : claude.settingsEnv().optString(key), "");
-        LinearLayout actions = Ui.row(app);
         TextView remove = sheets.button(key == null ? "取消" : "删除", false, v -> {
             if (key == null) { sheet.dismiss(); envSheet(); return; }
             JSONObject json = claude.settingsJson();
@@ -267,11 +261,7 @@ final class ClaudePage extends Part {
         });
         ok.setBackground(Ui.press(app, Ui.round(col(R.color.text), dp(10)), dp(10)));
         ok.setTextColor(col(R.color.bg));
-        actions.addView(remove, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        sheets.content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        sheets.actions(sheet, remove, ok);
         if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         sheet.show();
     }
@@ -295,7 +285,6 @@ final class ClaudePage extends Part {
         EditText url = sheets.field(sheet, "地址", env.optString("ANTHROPIC_BASE_URL"), "https://api.anthropic.com");
         EditText token = sheets.field(sheet, "API Key", key, "sk-…");
         EditText name = sheets.field(sheet, "模型", env.optString("ANTHROPIC_MODEL"), "");
-        LinearLayout actions = Ui.row(app);
         TextView raw = sheets.button("settings.json", false, v -> {
             sheet.dismiss();
             rawSettingsSheet();
@@ -320,11 +309,7 @@ final class ClaudePage extends Part {
         });
         ok.setBackground(Ui.press(app, Ui.round(col(R.color.text), dp(10)), dp(10)));
         ok.setTextColor(col(R.color.bg));
-        actions.addView(raw, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        sheets.content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        sheets.actions(sheet, raw, ok);
         if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         sheet.show();
     }

@@ -2,9 +2,7 @@ package com.jeep.claudecode;
 
 import android.app.Dialog;
 import android.text.TextUtils;
-import android.view.Gravity;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -57,10 +55,7 @@ final class ExtPage extends Part {
         if (!app.link.linked) { toast("Claude Code 还没启动好"); return; }
         Dialog sheet = sheets.sheet("插件", null);
         LinearLayout card = sheets.card(sheet);
-        TextView wait = Ui.text(app, "…", 14, R.color.text3);
-        wait.setGravity(Gravity.CENTER);
-        wait.setPadding(0, dp(18), 0, dp(18));
-        card.addView(wait, Ui.fill());
+        sheets.empty(card, "…");
         LinearLayout more = sheets.card(sheet);
         Ui.margins(more, app, 0, 10, 0, 0);
         sheets.option(more, R.drawable.ic_plus, "安装", null, false, () -> {
@@ -81,10 +76,7 @@ final class ExtPage extends Part {
                 sheets.option(card, R.drawable.ic_file_plus, name, on ? p.optString("version") : "已停用", false, () -> { sheet.dismiss(); pluginActions(id, on); });
             }
             if (list == null || list.length() == 0) {
-                TextView none = Ui.text(app, status == 200 ? "还没有" : "读取失败", 14, R.color.text3);
-                none.setGravity(Gravity.CENTER);
-                none.setPadding(0, dp(18), 0, dp(18));
-                card.addView(none, Ui.fill());
+                sheets.empty(card, status == 200 ? "还没有" : "读取失败");
             }
         });
     }
@@ -115,10 +107,7 @@ final class ExtPage extends Part {
     private void marketsSheet() {
         Dialog sheet = sheets.sheet("市场", null);
         LinearLayout card = sheets.card(sheet);
-        TextView wait = Ui.text(app, "…", 14, R.color.text3);
-        wait.setGravity(Gravity.CENTER);
-        wait.setPadding(0, dp(18), 0, dp(18));
-        card.addView(wait, Ui.fill());
+        sheets.empty(card, "…");
         LinearLayout more = sheets.card(sheet);
         Ui.margins(more, app, 0, 10, 0, 0);
         sheets.option(more, R.drawable.ic_plus, "添加", null, false, () -> {
@@ -142,10 +131,7 @@ final class ExtPage extends Part {
                 });
             }
             if (card.getChildCount() == 0) {
-                TextView none = Ui.text(app, status == 200 ? "还没有" : "读取失败", 14, R.color.text3);
-                none.setGravity(Gravity.CENTER);
-                none.setPadding(0, dp(18), 0, dp(18));
-                card.addView(none, Ui.fill());
+                sheets.empty(card, status == 200 ? "还没有" : "读取失败");
             }
         });
     }
@@ -215,10 +201,7 @@ final class ExtPage extends Part {
                     it.file == null ? null : () -> { sheet.dismiss(); itemActions(kind, it.file); });
         }
         if (items.isEmpty()) {
-            TextView none = Ui.text(app, "还没有", 14, R.color.text3);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(0, dp(18), 0, dp(18));
-            card.addView(none, Ui.fill());
+            sheets.empty(card, "还没有");
         }
         LinearLayout add = sheets.card(sheet);
         Ui.margins(add, app, 0, 10, 0, 0);
@@ -322,10 +305,7 @@ final class ExtPage extends Part {
             }
         }
         if (card.getChildCount() == 0) {
-            TextView none = Ui.text(app, "还没有", 14, R.color.text3);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(0, dp(18), 0, dp(18));
-            card.addView(none, Ui.fill());
+            sheets.empty(card, "还没有");
         }
         LinearLayout more = sheets.card(sheet);
         Ui.margins(more, app, 0, 10, 0, 0);
@@ -373,10 +353,7 @@ final class ExtPage extends Part {
             if (on) sheets.check(card);
         }
         if (all.isEmpty()) {
-            TextView none = Ui.text(app, "发一条消息后显示", 14, R.color.text3);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(dp(12), dp(18), dp(12), dp(18));
-            card.addView(none, Ui.fill());
+            sheets.empty(card, "发一条消息后显示");
         }
         sheet.show();
     }

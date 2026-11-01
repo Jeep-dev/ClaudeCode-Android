@@ -38,11 +38,13 @@ final class Finder extends Part {
         findHits.clear();
         unCache();
         for (int p = 0; !findQuery.isEmpty() && p < app.screen.adapter.getItemCount(); p++) {
-            String s = app.screen.adapter.searchText(p);
-            if (s == null) continue;
-            s = s.toLowerCase(Locale.ROOT);
-            for (int i = s.indexOf(findQuery), k = 0; i >= 0; i = s.indexOf(findQuery, i + findQuery.length()), k++) {
-                findHits.add(new int[]{p, k});
+            List<String> texts = app.screen.adapter.searchText(p);
+            if (texts == null) continue;
+            // Counted in the texts the row's views show, in their order, as mark and findSpot count.
+            int k = 0;
+            for (String text : texts) {
+                String s = text.toLowerCase(Locale.ROOT);
+                for (int i = s.indexOf(findQuery); i >= 0; i = s.indexOf(findQuery, i + findQuery.length())) findHits.add(new int[]{p, k++});
             }
         }
         if (findHits.isEmpty()) {
@@ -91,7 +93,7 @@ final class Finder extends Part {
     }
 
     /** The text a row shows that /find looks in: a message's own (tagged findable), not labels such as 复制. */
-    private static void findTexts(View v, List<TextView> out) {
+    static void findTexts(View v, List<TextView> out) {
         if (v instanceof TextView) { if (v.getTag(R.id.findable) != null) out.add((TextView) v); return; }
         if (!(v instanceof ViewGroup)) return;
         for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++) findTexts(((ViewGroup) v).getChildAt(i), out);
@@ -119,7 +121,7 @@ final class Finder extends Part {
 
     /** Marks the places found in a row, the one gone to darker; or takes the marks away. */
     void mark(View row, int position) {
-        boolean marked = !findQuery.isEmpty() && app.screen.adapter.searchText(position) != null;
+        boolean marked = !findQuery.isEmpty() && app.screen.adapter.searchable(position);
         int[] at = finding() ? findHits.get(findAt) : null;
         List<TextView> texts = new ArrayList<>();
         findTexts(row, texts);

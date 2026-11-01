@@ -1,9 +1,7 @@
 package com.jeep.claudecode;
 
 import android.app.Dialog;
-import android.view.Gravity;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,10 +73,7 @@ final class Skills extends Part {
             sheets.option(card, R.drawable.ic_spark, k.name, k.from, false, k.dir == null ? null : () -> { sheet.dismiss(); skillActions(k.dir); });
         }
         if (skills.isEmpty()) {
-            TextView none = Ui.text(app, "还没有", 14, R.color.text3);
-            none.setGravity(Gravity.CENTER);
-            none.setPadding(0, dp(18), 0, dp(18));
-            card.addView(none, Ui.fill());
+            sheets.empty(card, "还没有");
         }
         LinearLayout add = sheets.card(sheet);
         Ui.margins(add, app, 0, 10, 0, 0);

@@ -266,16 +266,43 @@ final class Md {
                 if (!md.equals(cell.getTag(R.id.markdown)) || cell.getTag(R.id.font) == null || (int) cell.getTag(R.id.font) != fontGen) {
                     cell.setTag(R.id.font, fontGen);
                     cell.setTag(R.id.markdown, md);
-                    CharSequence styled = markwon.toMarkdown(md);
-                    int end = styled.length();
-                    while (end > 0 && Character.isWhitespace(styled.charAt(end - 1))) end--;
-                    cell.setText(styled.subSequence(0, end));
+                    cell.setText(cellText(md));
                 }
             }
             while (row.getChildCount() > n) row.removeViewAt(n);
             r++;
         }
         while (t.getChildCount() > r) t.removeViewAt(r);
+    }
+
+    /** What a table cell shows: its Markdown rendered, without the line ends after it. */
+    private CharSequence cellText(String markdown) {
+        CharSequence styled = markwon.toMarkdown(markdown);
+        int end = styled.length();
+        while (end > 0 && Character.isWhitespace(styled.charAt(end - 1))) end--;
+        return styled.subSequence(0, end);
+    }
+
+    /**
+     * The texts /find looks in for a reply, one for each of its views that takes marks and in the order
+     * of the views (render): prose as it shows, not as it was written (a link's address, the language
+     * after a fence and a table's rules are not on the screen), the code, and each cell of a table.
+     */
+    List<String> findable(String text) {
+        List<String> out = new ArrayList<>();
+        for (String[] p : split(text)) {
+            if ("code".equals(p[0])) out.add(p[1]);
+            else if ("table".equals(p[0])) {
+                String[] lines = p[1].split("\n");
+                int aligned = cells(lines[1]).size();
+                for (int i = 0; i < lines.length; i++) {
+                    if (i == 1) continue;
+                    List<String> cells = cells(lines[i]);
+                    for (int k = 0; k < Math.max(cells.size(), aligned); k++) out.add(cellText(k < cells.size() ? cells.get(k) : "").toString());
+                }
+            } else if (!"image".equals(p[0])) out.add(plain(p[1]));
+        }
+        return out;
     }
 
     /** A table line's cells: | a | b | → [a, b]; \| stays in its cell. */

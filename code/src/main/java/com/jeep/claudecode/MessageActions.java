@@ -60,14 +60,9 @@ final class MessageActions extends Part {
 
     private void rewindAsk(Chat chat, Chat.Msg m) {
         Dialog sheet = sheets.sheet("回到这条消息之前？", preview(m) + "\n\n它和之后的对话会删掉，不能恢复。");
-        LinearLayout actions = Ui.row(app);
         TextView cancel = sheets.button("取消", false, v -> sheet.dismiss());
         TextView ok = sheets.button("回退", true, v -> { sheet.dismiss(); rewind(chat, m); });
-        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        sheets.content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        sheets.actions(sheet, cancel, ok);
         sheet.show();
     }
 
@@ -104,8 +99,7 @@ final class MessageActions extends Part {
             if (s != null && !id.equals(s.optString("id"))) next.put(s);
         }
         app.drawer.keepSessions(next);
-        app.chats.remove(chat.key);
-        app.bySession.remove(id);
+        app.drop(chat.key, id);
         Chat fresh = app.newChat();
         fresh.cwd = chat.cwd;
         fresh.draft = draft;
@@ -251,14 +245,9 @@ final class MessageActions extends Part {
         Dialog sheet = sheets.sheet("删除这条消息？", (what.length() > 80 ? what.substring(0, 80) + "…" : what)
                 + "\n\n" + (m.kind == Chat.Msg.USER ? "" : "这条回复里的工具调用也一起删掉。")
                 + "Claude Code 的对话记录里也会删掉，不能恢复。");
-        LinearLayout actions = Ui.row(app);
         TextView cancel = sheets.button("取消", false, v -> sheet.dismiss());
         TextView ok = sheets.button("删除", true, v -> { sheet.dismiss(); deleteMessage(chat, m); });
-        actions.addView(cancel, new LinearLayout.LayoutParams(0, dp(42), 1));
-        actions.addView(ok, new LinearLayout.LayoutParams(0, dp(42), 1));
-        Ui.margins(ok, app, 10, 0, 0, 0);
-        sheets.content(sheet).addView(actions, Ui.fill());
-        Ui.margins(actions, app, 0, 14, 0, 0);
+        sheets.actions(sheet, cancel, ok);
         sheet.show();
     }
 
