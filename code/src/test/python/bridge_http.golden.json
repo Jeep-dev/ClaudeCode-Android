@@ -6,7 +6,7 @@
     "defaultCwd": "<T>/home/work",
     "home": "<T>/home",
     "ok": true,
-    "version": 65
+    "version": 66
    },
    "req": "GET /health ",
    "status": 200
