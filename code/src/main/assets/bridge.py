@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 65  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 66  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
