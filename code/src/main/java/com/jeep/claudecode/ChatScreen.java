@@ -290,7 +290,7 @@ final class ChatScreen extends Part {
         // The buttons just under the status bar, and the box about as far from the bottom (or
         // just above the keyboard).
         int below = keyboard ? insetBottom + dp(8) : Math.max(insetBottom + dp(8), insetTop - dp(12));
-        composer.setPadding(dp(12), dp(4), dp(12), below);
+        composer.setPadding(dp(32), dp(4), dp(32), below);
         if (app.drawer.drawerPanel != null) app.drawer.drawerPanel.setPadding(0, insetTop, 0, keyboard ? 0 : insetBottom);
         ((FrameLayout.LayoutParams) topButtons.getLayoutParams()).topMargin = insetTop;
         ((FrameLayout.LayoutParams) banner.getLayoutParams()).setMargins(dp(12), insetTop + dp(52), dp(12), 0);
