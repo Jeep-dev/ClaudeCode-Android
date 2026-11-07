@@ -370,6 +370,7 @@ final class Sheets extends Part {
         card.setPadding(0, dp(6), 0, dp(6));
         card.setBackground(Ui.round(col(R.color.surface), dp(16)));
         card.setElevation(dp(10));
+        card.setClipToOutline(true); // round at the corners, its rows too
         card.setMinimumWidth(dp(150));
         return card;
     }

@@ -526,6 +526,7 @@ final class ChatScreen extends Part {
         android.widget.PopupWindow pop = new android.widget.PopupWindow(room, -2, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
+        pop.setElevation(0); // the window's own shadow is square: only the card's, round, is drawn
         pop.setClippingEnabled(false); // the shadow's room may pass the screen's edge
         sheets.menuItem(card, pop, R.drawable.ic_chart, "用量", null, app.usage::show);
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null, app::openTerminal);

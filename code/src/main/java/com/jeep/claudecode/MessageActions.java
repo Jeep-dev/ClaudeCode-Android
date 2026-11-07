@@ -119,6 +119,7 @@ final class MessageActions extends Part {
         android.widget.PopupWindow pop = new android.widget.PopupWindow(room, -2, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
+        pop.setElevation(0); // the window's own shadow is square: only the card's, round, is drawn
         // Selecting is what is done most; it shows the Markdown, so a table's cells can be selected too.
         sheets.menuItem(card, pop, R.drawable.ic_edit_lines, "选择文字", null, () -> selectSheet(user ? m.text : replyText(m, false)));
         if (user) {
