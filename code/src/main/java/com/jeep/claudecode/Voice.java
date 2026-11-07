@@ -15,7 +15,9 @@ import java.util.ArrayList;
 import java.util.Locale;
 
 /**
- * Speaking into the box, with the phone's own speech recognizer: the mic button beside send.
+ * Speaking into the box: the mic button beside send. It listens with Claude Code's own dictation (its
+ * /voice, on the Claude.ai account it is logged in with: VoiceStream) unless a recognizer of the phone
+ * is picked in Settings.
  * Tapped, it listens until tapped again (a pause starts the next sentence); held, it listens
  * until let go. The words go in where the cursor is, as they are heard.
  */
@@ -45,6 +47,8 @@ final class Voice extends Part {
     /** Counts each listening: a restart left over from one ended is not taken by the next. */
     private int session;
     private final Runnable giveUp = this::finish;
+    /** Claude Code's dictation, while it listens with it. */
+    private VoiceStream stream;
 
     Voice(MainActivity app) { super(app); }
 
@@ -100,6 +104,7 @@ final class Voice extends Part {
                 .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
         // No EXTRA_CALLING_PACKAGE: the claude.ai app's recognizer checks the microphone for that package
         // under its own uid, finds no such pair and refuses ("caller without permission").
+        if (claudeCode()) { startStream(hold); return; }
         android.content.ComponentName chosen = chosen();
         if (chosen == null && !SpeechRecognizer.isRecognitionAvailable(app)) {
             // No recognizer to listen with here: the system's own voice input page, if there is one.
@@ -134,6 +139,43 @@ final class Voice extends Part {
         return country.isEmpty() ? lang : lang + "-" + country;
     }
 
+    /** Listens with Claude Code's dictation (the default; Settings → 对话 → 语音识别). */
+    private boolean claudeCode() { return prefs.getString("voice", "claudecode").equals("claudecode"); }
+
+    private void startStream(boolean hold) {
+        String[] why = new String[1];
+        String token = VoiceStream.token(userland.rootfs, why);
+        if (token == null) { toast(why[0]); return; }
+        VoiceStream[] self = new VoiceStream[1];
+        self[0] = new VoiceStream(ui, new VoiceStream.Listener() {
+            @Override public void text(String sentence) { if (stream == self[0]) write(sentence); }
+            @Override public void endpoint() { if (stream == self[0]) spanStart = spanEnd; }
+            @Override public void level(float rms) {
+                if (stream != self[0] || button == null) return;
+                float l = Math.max(0f, Math.min(1f, rms * 8f));
+                button.animate().scaleX(1f + 0.14f * l).scaleY(1f + 0.14f * l).setDuration(90).start();
+            }
+            @Override public void closed(String error) {
+                if (stream != self[0]) return;
+                boolean said = heard;
+                stream = null;
+                finish();
+                if (error != null) toast(error);
+                else if (!said) toast("没听清，请再说一次");
+            }
+        });
+        stream = self[0];
+        on = true;
+        session++;
+        held = hold;
+        stopping = between = heard = restarted = false;
+        String lang = Locale.getDefault().getLanguage();
+        String version = "";
+        try { version = app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionName; } catch (PackageManager.NameNotFoundException ignored) { /* ours */ }
+        stream.start(token, lang.isEmpty() ? "en" : lang, "ClaudeCode-Android/" + version);
+        paint();
+    }
+
     /** The recognizers on the phone (Google's, the claude.ai app's, a voice keyboard's, …). */
     private java.util.List<android.content.pm.ResolveInfo> services() {
         return app.getPackageManager().queryIntentServices(new Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0);
@@ -166,6 +208,7 @@ final class Voice extends Part {
 
     /** What Settings shows: the recognizer in use. */
     String serviceLabel() {
+        if (claudeCode()) return "Claude Code";
         android.content.ComponentName c = chosen();
         if (c != null) return label(c);
         android.content.ComponentName d = systemDefault();
@@ -174,22 +217,31 @@ final class Voice extends Part {
 
     /** Picks the recognizer to listen with: the system's default, or one of those on the phone. */
     void serviceSheet(Runnable after) {
-        android.app.Dialog sheet = sheets.sheet("语音识别", "识别由手机里的语音识别服务完成，不经过 Claude");
+        android.app.Dialog sheet = sheets.sheet("语音识别", null);
         android.widget.LinearLayout card = sheets.card(sheet);
-        String kept = chosen() == null ? "" : prefs.getString("voiceService", "");
-        android.content.ComponentName d = systemDefault();
-        sheets.option(card, 0, "系统默认", d == null ? null : label(d), false, () -> {
-            prefs.edit().putString("voiceService", "").apply();
+        boolean cc = claudeCode();
+        String kept = cc ? null : chosen() == null ? "" : prefs.getString("voiceService", "");
+        sheets.option(card, 0, "Claude Code", "/voice 同款，用 Claude.ai 账号", false, () -> {
+            cancel();
+            prefs.edit().putString("voice", "claudecode").apply();
             sheet.dismiss();
             after.run();
         });
-        if (kept.isEmpty()) sheets.check(card);
+        if (cc) sheets.check(card);
+        android.content.ComponentName d = systemDefault();
+        sheets.option(card, 0, "系统默认", d == null ? null : label(d), false, () -> {
+            cancel();
+            prefs.edit().putString("voice", "android").putString("voiceService", "").apply();
+            sheet.dismiss();
+            after.run();
+        });
+        if ("".equals(kept)) sheets.check(card);
         for (android.content.pm.ResolveInfo r : services()) {
             android.content.ComponentName c = new android.content.ComponentName(r.serviceInfo.packageName, r.serviceInfo.name);
             String flat = c.flattenToString();
             sheets.option(card, 0, label(c), c.getPackageName(), false, () -> {
                 cancel();
-                prefs.edit().putString("voiceService", flat).apply();
+                prefs.edit().putString("voice", "android").putString("voiceService", flat).apply();
                 sheet.dismiss();
                 after.run();
             });
@@ -207,6 +259,13 @@ final class Voice extends Part {
     /** Ends listening; the words still on their way are written in. */
     void stop() {
         if (!on || stopping) return;
+        if (stream != null) {
+            stopping = true;
+            held = false;
+            stream.stop();
+            paint();
+            return;
+        }
         if (between) { if (!heard) toast("没听清，请再说一次"); finish(); return; }
         stopping = true;
         held = false;
@@ -217,12 +276,14 @@ final class Voice extends Part {
 
     /** Ends listening at once (sent, another conversation, the app left): what is written stays. */
     void cancel() {
+        if (stream != null) { VoiceStream s = stream; stream = null; s.cancel(); }
         if (rec != null) rec.cancel();
         finish();
     }
 
     private void finish() {
         ui.removeCallbacks(giveUp);
+        if (stream != null) { VoiceStream s = stream; stream = null; s.cancel(); }
         if (rec != null) rec.destroy();
         rec = null;
         session++;
