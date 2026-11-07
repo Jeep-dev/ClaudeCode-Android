@@ -32,6 +32,8 @@ final class Voice extends Part {
     private boolean on, held, stopping;
     /** Between two sentences (the next not started yet); anything heard since it began. */
     private boolean between, heard;
+    /** The next sentence was just asked for without letting go of the last (a refusal is then retried, not shown). */
+    private boolean restarted;
     /** The press that stopped it: its release starts nothing. */
     private boolean pressStopped;
     private long pressedAt;
@@ -92,7 +94,8 @@ final class Voice extends Part {
         if (in.getSelectionStart() < 0) spanStart = spanEnd = in.length();
         listen = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                 .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE, language())
+                .putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language())
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.getPackageName());
@@ -111,10 +114,22 @@ final class Voice extends Part {
         on = true;
         session++;
         held = hold;
-        stopping = between = heard = false;
+        stopping = between = heard = restarted = false;
         quiet = 0;
         rec.startListening(listen);
         paint();
+    }
+
+    /**
+     * The language to listen for, as recognizers know it: language and country only ("zh-CN", "en-US").
+     * The system's own tag may carry a script ("zh-Hans-CN"), which some take for a language they do not
+     * have, and then listen for another.
+     */
+    private static String language() {
+        Locale l = Locale.getDefault();
+        String lang = l.getLanguage(), country = l.getCountry();
+        if (lang.equals("zh") && country.isEmpty()) country = "Hant".equals(l.getScript()) ? "TW" : "CN";
+        return country.isEmpty() ? lang : lang + "-" + country;
     }
 
     /** The microphone may be used now (asked when the button was first pressed): it listens, till tapped again. */
@@ -157,7 +172,7 @@ final class Voice extends Part {
     }
 
     private final RecognitionListener listener = new RecognitionListener() {
-        @Override public void onReadyForSpeech(Bundle params) {}
+        @Override public void onReadyForSpeech(Bundle params) { restarted = false; }
         @Override public void onBeginningOfSpeech() {}
         @Override public void onBufferReceived(byte[] buffer) {}
         @Override public void onEndOfSpeech() {}
@@ -189,6 +204,8 @@ final class Voice extends Part {
                 next();
                 return;
             }
+            if (restarted && on && !stopping && (error == SpeechRecognizer.ERROR_CLIENT
+                    || error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY)) { retry(); return; }
             boolean was = on;
             finish();
             String why = message(error);
@@ -204,7 +221,14 @@ final class Voice extends Part {
             finish();
             return;
         }
-        // A recognizer takes the next sentence once let go of the last.
+        // The next sentence at once, so its first words are not lost.
+        restarted = true;
+        rec.startListening(listen);
+    }
+
+    /** A recognizer that would not take the next sentence at once: let go of the last, and started again a moment later. */
+    private void retry() {
+        restarted = false;
         rec.cancel();
         between = true;
         int at = session;
