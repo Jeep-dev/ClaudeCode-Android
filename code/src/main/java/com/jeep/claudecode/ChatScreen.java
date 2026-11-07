@@ -514,8 +514,8 @@ final class ChatScreen extends Part {
     }
 
     /**
-     * The top bar's menu, as the claude.ai app's: the conversation's title in grey, then what the app
-     * adds (the terminal, searching the conversation) rather than more buttons.
+     * The top bar's menu, as the claude.ai app's card: what the app adds (the terminal, searching the
+     * conversation) rather than more buttons.
      */
     private void moreMenu(View anchor) {
         int shade = dp(14); // room around the card for its shadow
@@ -527,7 +527,6 @@ final class ChatScreen extends Part {
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
         pop.setClippingEnabled(false); // the shadow's room may pass the screen's edge
-        sheets.menuTitle(card, title.getText().toString());
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null, app::openTerminal);
         sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", null, () -> {
             app.box.input.setText("/find ");

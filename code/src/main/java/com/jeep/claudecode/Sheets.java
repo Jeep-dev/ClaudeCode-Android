@@ -374,16 +374,6 @@ final class Sheets extends Part {
         return card;
     }
 
-    /** A small menu's grey title line, above its rows. */
-    void menuTitle(LinearLayout card, String title) {
-        TextView t = Ui.text(app, title, 14, R.color.text3);
-        t.setSingleLine(true);
-        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        t.setMaxWidth(dp(200));
-        t.setPadding(dp(18), dp(10), dp(18), dp(6));
-        card.addView(t, Ui.fill());
-    }
-
     void menuItem(LinearLayout card, android.widget.PopupWindow pop, int icon, String label, String command, Runnable click) {
         LinearLayout row = Ui.row(app);
         row.setPadding(dp(18), 0, dp(20), 0);

@@ -52,7 +52,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   started) and MCP servers (kept in `~/.ccapp/mcp.json` and passed with `--mcp-config`; pasting
   a README's JSON adds them; servers added with `claude mcp add` are listed with their state);
   storage; keeping it running; and 关于.
-- The top bar's right button (three dots) opens a small menu as the claude.ai app's (the conversation's title in grey, no outline, as wide as its rows, near the screen's edge) for what the app adds, kept off the screen otherwise: 终端 and 搜索对话 (which puts `/find ` in the box). 终端 opens a terminal in the userland (`bash -l` as root in `/root`), built on
+- The top bar's right button (three dots) opens a small menu as the claude.ai app's (no outline, as wide as its rows, near the screen's edge) for what the app adds, kept off the screen otherwise: 终端 and 搜索对话 (which puts `/find ` in the box). 终端 opens a terminal in the userland (`bash -l` as root in `/root`), built on
   Termux's terminal emulator and view (Apache 2.0): for commands, `apk add`, and interactive
   programs such as vim or `claude` itself (its `/login` for a Claude subscription). A row of
   keys gives ESC, TAB, CTRL, ALT, arrows, common symbols and paste; pinch changes the text

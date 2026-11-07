@@ -48,7 +48,7 @@ final class Box extends Part {
             card.setBackground(Ui.round(col(R.color.surface), dp(26), dp(1), col(R.color.border)));
             card.setElevation(dp(2));
         }
-        card.setPadding(dp(8), dp(8), dp(8), dp(8));
+        card.setPadding(dp(7), dp(5), dp(7), dp(6));
 
         slashScroll = new ScrollView(app) {
             @Override protected void onMeasure(int w, int h) {
@@ -75,9 +75,9 @@ final class Box extends Part {
         input.setHint("回复 Claude…");
         input.setHintTextColor(col(R.color.text3));
         input.setTextColor(col(R.color.text));
-        input.setTextSize(18);
-        input.setPadding(dp(6), dp(8), dp(6), dp(8));
-        input.setMinHeight(dp(40));
+        input.setTextSize(17);
+        input.setPadding(dp(7), dp(6), dp(7), dp(4));
+        input.setMinHeight(dp(34));
         input.setMaxHeight((int) (app.getResources().getDisplayMetrics().heightPixels * 0.34f));
         // The keyboard's Enter sends (its key shows Send); the text still wraps over several lines.
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -112,38 +112,38 @@ final class Box extends Part {
         card.addView(input, Ui.fill());
 
         LinearLayout row = Ui.row(app);
-        row.setPadding(0, dp(8), 0, 0);
-        ImageView attach = round(R.drawable.ic_plus, 20);
+        row.setPadding(0, dp(4), 0, 0);
+        ImageView attach = round(R.drawable.ic_plus, 18);
         attach.setContentDescription("添加文件");
         attach.setOnClickListener(v -> app.attachments.pickFiles());
-        row.addView(attach, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        row.addView(attach, new LinearLayout.LayoutParams(dp(32), dp(32)));
 
         // The model and thinking level in use; tapped, both are picked.
-        modelChip = Ui.text(app, "", 15.5f, R.color.text);
+        modelChip = Ui.text(app, "", 14.5f, R.color.text);
         modelChip.setGravity(Gravity.CENTER);
         modelChip.setSingleLine(true);
         modelChip.setEllipsize(TextUtils.TruncateAt.END);
-        modelChip.setPadding(dp(16), 0, dp(16), 0);
-        modelChip.setBackground(Ui.press(app, Ui.round(fill(app), dp(18)), dp(18)));
+        modelChip.setPadding(dp(13), 0, dp(13), 0);
+        modelChip.setBackground(Ui.press(app, Ui.round(fill(app), dp(16)), dp(16)));
         modelChip.setOnClickListener(v -> app.pickers.modelSheet());
         // As wide as its words, but never pushing the mic and send off the line (a long name is cut short).
         FrameLayout chipRoom = new FrameLayout(app);
-        chipRoom.addView(modelChip, new FrameLayout.LayoutParams(-2, dp(36), Gravity.START | Gravity.CENTER_VERTICAL));
-        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(36), 1);
+        chipRoom.addView(modelChip, new FrameLayout.LayoutParams(-2, dp(32), Gravity.START | Gravity.CENTER_VERTICAL));
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(32), 1);
         mp.setMargins(dp(8), 0, dp(8), 0);
         row.addView(chipRoom, mp);
 
-        ImageView mic = round(R.drawable.ic_mic, 20);
+        ImageView mic = round(R.drawable.ic_mic, 18);
         app.voice.attach(mic);
-        row.addView(mic, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        row.addView(mic, new LinearLayout.LayoutParams(dp(32), dp(32)));
 
         // Send: the Enter icon, the ringed square to stop, on a round button as the others.
         sendBtn = new ImageView(app);
         sendBtn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         sendBtn.setContentDescription("发送");
         sendBtn.setOnClickListener(v -> app.sender.send());
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(36), dp(36));
-        sp.setMargins(dp(12), 0, 0, 0);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(32), dp(32));
+        sp.setMargins(dp(10), 0, 0, 0);
         row.addView(sendBtn, sp);
         card.addView(row, Ui.fill());
         wrap.addView(card, Ui.fill());
@@ -153,8 +153,8 @@ final class Box extends Part {
 
     /** A round button under the text (+, the mic): its icon on a light fill of the text's colour. */
     private ImageView round(int icon, int iconDp) {
-        ImageView b = Ui.iconButton(app, icon, 36, iconDp, R.color.text);
-        b.setBackground(Ui.press(app, Ui.round(fill(app), dp(18)), dp(18)));
+        ImageView b = Ui.iconButton(app, icon, 32, iconDp, R.color.text);
+        b.setBackground(Ui.press(app, Ui.round(fill(app), dp(16)), dp(16)));
         return b;
     }
 
@@ -215,9 +215,9 @@ final class Box extends Part {
         // On the same faint fill as + and the mic while there is nothing to send; solid in the text's colour
         // (white on dark) when there is, as the claude.ai app's round button.
         sendBtn.setImageTintList(android.content.res.ColorStateList.valueOf(live ? col(R.color.bg) : col(R.color.text3)));
-        sendBtn.setBackground(Ui.press(app, Ui.round(live ? col(R.color.text) : fill(app), dp(18)), dp(18)));
+        sendBtn.setBackground(Ui.press(app, Ui.round(live ? col(R.color.text) : fill(app), dp(16)), dp(16)));
         sendBtn.setEnabled(live);
-        sendBtn.setPadding(dp(8), dp(8), dp(8), dp(8));
+        sendBtn.setPadding(dp(7), dp(7), dp(7), dp(7));
         modelChip.setText(app.pickers.modelLabel());
         renderAttachments();
     }
