@@ -81,7 +81,7 @@ final class UsageSheet extends Part {
         // The headline: the share of the window in use, and how much of how much.
         LinearLayout head = Ui.row(app);
         head.setGravity(Gravity.BOTTOM);
-        TextView pct = Ui.text(app, Math.round(100.0 * total / max) + "%", 34, R.color.text);
+        TextView pct = Ui.text(app, Math.round(100.0 * total / max) + "%", 30, R.color.text);
         pct.setTypeface(Ui.MEDIUM);
         head.addView(pct);
         head.addView(new View(app), new LinearLayout.LayoutParams(0, 1, 1));
@@ -112,17 +112,25 @@ final class UsageSheet extends Part {
         if (buffer > 0) bar.add(buffer, bufferColor);
         bar.setContentDescription("上下文已用 " + tokens(total) + "，共 " + tokens(max));
         card.addView(bar, new LinearLayout.LayoutParams(-1, dp(10)));
-        Ui.margins(bar, app, 0, 12, 0, 10);
+        Ui.margins(bar, app, 0, 10, 0, 6);
 
-        // The legend: each part's name and amount, in the bar's order.
-        for (int i = 0; i < parts.size(); i++) legend(card, palette[(int) parts.get(i)[1]], chinese(names.get(i)), parts.get(i)[0]);
-        if (buffer > 0) legend(card, bufferColor, "自动压缩预留", buffer);
-        legend(card, Ui.color(app, R.color.surface2), "空闲", Math.max(0, max - total - buffer));
-        String model = c.optString("model");
-        if (!model.isEmpty()) {
-            TextView m = Ui.text(app, model, 12, R.color.text3);
-            m.setPadding(0, dp(8), 0, 0);
-            card.addView(m);
+        // The legend, in two columns (all of the sheet on one screen): each part's name and amount, in the bar's order.
+        List<Object[]> items = new ArrayList<>();
+        for (int i = 0; i < parts.size(); i++) items.add(new Object[]{palette[(int) parts.get(i)[1]], chinese(names.get(i)), parts.get(i)[0]});
+        if (buffer > 0) items.add(new Object[]{bufferColor, "自动压缩预留", buffer});
+        items.add(new Object[]{Ui.color(app, R.color.surface2), "空闲", Math.max(0, max - total - buffer)});
+        int rows = (items.size() + 1) / 2;
+        for (int r = 0; r < rows; r++) {
+            LinearLayout line = Ui.row(app);
+            for (int col = 0; col < 2; col++) {
+                int i = col * rows + r; // down the first column, then the second: the bar's order
+                LinearLayout cell = i < items.size()
+                        ? legend((int) items.get(i)[0], (String) items.get(i)[1], (long) items.get(i)[2]) : Ui.row(app);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1);
+                if (col == 0) lp.setMargins(0, 0, dp(14), 0);
+                line.addView(cell, lp);
+            }
+            card.addView(line, Ui.fill());
         }
     }
 
@@ -136,17 +144,19 @@ final class UsageSheet extends Part {
         return name;
     }
 
-    private void legend(LinearLayout card, int color, String name, long tokens) {
+    private LinearLayout legend(int color, String name, long tokens) {
         LinearLayout row = Ui.row(app);
         row.setPadding(0, dp(4), 0, dp(4));
         View dot = new View(app);
         dot.setBackground(Ui.round(color, dp(3), dp(1), Ui.color(app, R.color.border)));
         row.addView(dot, new LinearLayout.LayoutParams(dp(10), dp(10)));
-        TextView n = Ui.text(app, name, 14, R.color.text);
-        n.setPadding(dp(10), 0, 0, 0);
+        TextView n = Ui.text(app, name, 13.5f, R.color.text);
+        n.setPadding(dp(8), 0, dp(4), 0);
+        n.setSingleLine(true);
+        n.setEllipsize(TextUtils.TruncateAt.END);
         row.addView(n, Ui.weight());
-        row.addView(Ui.text(app, tokens(tokens), 14, R.color.text2));
-        card.addView(row, Ui.fill());
+        row.addView(Ui.text(app, tokens(tokens), 13.5f, R.color.text2));
+        return row;
     }
 
     // ---- 订阅额度 ----
@@ -158,7 +168,7 @@ final class UsageSheet extends Part {
             if (l == null) continue;
             if (i > 0) {
                 View gap = new View(app);
-                card.addView(gap, new LinearLayout.LayoutParams(1, dp(16)));
+                card.addView(gap, new LinearLayout.LayoutParams(1, dp(12)));
             }
             int pct = (int) Math.max(0, Math.min(100, Math.round(l.optDouble("percent", 0))));
             String severity = l.optString("severity");
@@ -187,7 +197,7 @@ final class UsageSheet extends Part {
             meter.add(pct, fillColor);
             meter.setContentDescription(name.getText() + " 已用 " + pct + "%");
             card.addView(meter, new LinearLayout.LayoutParams(-1, dp(8)));
-            Ui.margins(meter, app, 0, 8, 0, 6);
+            Ui.margins(meter, app, 0, 7, 0, 5);
 
             String resets = resets(l.optString("resetsAt"));
             if (!resets.isEmpty()) card.addView(Ui.text(app, resets, 12.5f, R.color.text3));
@@ -230,13 +240,13 @@ final class UsageSheet extends Part {
     private void label(LinearLayout box, String text) {
         TextView t = Ui.text(app, text, 14, R.color.text2);
         t.setTypeface(Ui.MEDIUM);
-        t.setPadding(dp(6), dp(box.getChildCount() > 0 ? 18 : 2), 0, dp(8));
+        t.setPadding(dp(6), dp(box.getChildCount() > 0 ? 14 : 0), 0, dp(6));
         box.addView(t);
     }
 
     private LinearLayout card(LinearLayout box) {
         LinearLayout card = Ui.column(app);
-        card.setPadding(dp(18), dp(16), dp(18), dp(16));
+        card.setPadding(dp(16), dp(12), dp(16), dp(13));
         card.setBackground(Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.border)));
         box.addView(card, Ui.fill());
         return card;
