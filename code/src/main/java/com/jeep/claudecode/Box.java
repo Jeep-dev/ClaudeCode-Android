@@ -23,6 +23,8 @@ import java.util.Map;
 
 /** The box the message is written in: the text, the send button, the menu of / commands and the files waiting to be sent. */
 final class Box extends Part {
+    /** The round buttons under the text, and their icons (dp). */
+    static final float BUTTON = 33.4f, ICON = 18.7f;
     private ImageView sendBtn;
     /** The model and thinking level, in a pill under the text. */
     private TextView modelChip;
@@ -48,7 +50,7 @@ final class Box extends Part {
             card.setBackground(Ui.round(col(R.color.surface), dp(26), dp(1), col(R.color.border)));
             card.setElevation(dp(2));
         }
-        card.setPadding(dp(7), dp(5), dp(7), dp(6));
+        card.setPadding(dp(7.35f), dp(6.05f), dp(7.35f), dp(6.7f));
 
         slashScroll = new ScrollView(app) {
             @Override protected void onMeasure(int w, int h) {
@@ -75,9 +77,9 @@ final class Box extends Part {
         input.setHint("回复 Claude…");
         input.setHintTextColor(col(R.color.text3));
         input.setTextColor(col(R.color.text));
-        input.setTextSize(17);
-        input.setPadding(dp(7), dp(6), dp(7), dp(4));
-        input.setMinHeight(dp(34));
+        input.setTextSize(17.35f);
+        input.setPadding(dp(6.65f), dp(6.7f), dp(6.65f), dp(5.4f));
+        input.setMinHeight(dp(36.1f));
         input.setMaxHeight((int) (app.getResources().getDisplayMetrics().heightPixels * 0.34f));
         // The keyboard's Enter sends (its key shows Send); the text still wraps over several lines.
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -112,38 +114,38 @@ final class Box extends Part {
         card.addView(input, Ui.fill());
 
         LinearLayout row = Ui.row(app);
-        row.setPadding(0, dp(4), 0, 0);
-        ImageView attach = round(R.drawable.ic_plus, 18);
+        row.setPadding(0, dp(5.4f), 0, 0);
+        ImageView attach = round(R.drawable.ic_plus);
         attach.setContentDescription("添加文件");
         attach.setOnClickListener(v -> app.attachments.pickFiles());
-        row.addView(attach, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        row.addView(attach, new LinearLayout.LayoutParams(dp(BUTTON), dp(BUTTON)));
 
         // The model and thinking level in use; tapped, both are picked.
-        modelChip = Ui.text(app, "", 14.5f, R.color.text);
+        modelChip = Ui.text(app, "", 14.85f, R.color.text);
         modelChip.setGravity(Gravity.CENTER);
         modelChip.setSingleLine(true);
         modelChip.setEllipsize(TextUtils.TruncateAt.END);
-        modelChip.setPadding(dp(13), 0, dp(13), 0);
-        modelChip.setBackground(Ui.press(app, Ui.round(fill(app), dp(16)), dp(16)));
+        modelChip.setPadding(dp(14.95f), 0, dp(14.95f), 0);
+        modelChip.setBackground(Ui.press(app, Ui.round(fill(app), dp(BUTTON / 2)), dp(BUTTON / 2)));
         modelChip.setOnClickListener(v -> app.pickers.modelSheet());
         // As wide as its words, but never pushing the mic and send off the line (a long name is cut short).
         FrameLayout chipRoom = new FrameLayout(app);
-        chipRoom.addView(modelChip, new FrameLayout.LayoutParams(-2, dp(32), Gravity.START | Gravity.CENTER_VERTICAL));
-        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(32), 1);
+        chipRoom.addView(modelChip, new FrameLayout.LayoutParams(-2, dp(BUTTON), Gravity.START | Gravity.CENTER_VERTICAL));
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(BUTTON), 1);
         mp.setMargins(dp(8), 0, dp(8), 0);
         row.addView(chipRoom, mp);
 
-        ImageView mic = round(R.drawable.ic_mic, 18);
+        ImageView mic = round(R.drawable.ic_mic);
         app.voice.attach(mic);
-        row.addView(mic, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        row.addView(mic, new LinearLayout.LayoutParams(dp(BUTTON), dp(BUTTON)));
 
         // Send: the Enter icon, the ringed square to stop, on a round button as the others.
         sendBtn = new ImageView(app);
         sendBtn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
         sendBtn.setContentDescription("发送");
         sendBtn.setOnClickListener(v -> app.sender.send());
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(32), dp(32));
-        sp.setMargins(dp(10), 0, 0, 0);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(BUTTON), dp(BUTTON));
+        sp.setMargins(dp(10.7f), 0, 0, 0);
         row.addView(sendBtn, sp);
         card.addView(row, Ui.fill());
         wrap.addView(card, Ui.fill());
@@ -152,9 +154,11 @@ final class Box extends Part {
     }
 
     /** A round button under the text (+, the mic): its icon on a light fill of the text's colour. */
-    private ImageView round(int icon, int iconDp) {
-        ImageView b = Ui.iconButton(app, icon, 32, iconDp, R.color.text);
-        b.setBackground(Ui.press(app, Ui.round(fill(app), dp(16)), dp(16)));
+    private ImageView round(int icon) {
+        ImageView b = Ui.iconButton(app, icon, 32, 18, R.color.text);
+        int pad = dp((BUTTON - ICON) / 2);
+        b.setPadding(pad, pad, pad, pad);
+        b.setBackground(Ui.press(app, Ui.round(fill(app), dp(BUTTON / 2)), dp(BUTTON / 2)));
         return b;
     }
 
@@ -215,9 +219,9 @@ final class Box extends Part {
         // On the same faint fill as + and the mic while there is nothing to send; solid in the text's colour
         // (white on dark) when there is, as the claude.ai app's round button.
         sendBtn.setImageTintList(android.content.res.ColorStateList.valueOf(live ? col(R.color.bg) : col(R.color.text3)));
-        sendBtn.setBackground(Ui.press(app, Ui.round(live ? col(R.color.text) : fill(app), dp(16)), dp(16)));
+        sendBtn.setBackground(Ui.press(app, Ui.round(live ? col(R.color.text) : fill(app), dp(BUTTON / 2)), dp(BUTTON / 2)));
         sendBtn.setEnabled(live);
-        sendBtn.setPadding(dp(7), dp(7), dp(7), dp(7));
+        sendBtn.setPadding(dp(7.35f), dp(7.35f), dp(7.35f), dp(7.35f));
         modelChip.setText(app.pickers.modelLabel());
         renderAttachments();
     }
