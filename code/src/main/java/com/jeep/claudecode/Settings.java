@@ -270,6 +270,7 @@ final class Settings extends Part {
             if (!app.link.linked) { toast("Claude Code 还没启动好"); return; }
             app.pickers.folderSheet(null);
         });
+        sheets.option(talk, R.drawable.ic_mic, "语音识别", app.voice.serviceLabel(), false, () -> app.voice.serviceSheet(this::refreshSettings));
         if (launch == null) return;
         String mode = launch.optString("permissionMode", "bypassPermissions");
         String prompt = launch.optString("appendSystemPrompt");

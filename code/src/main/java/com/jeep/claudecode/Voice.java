@@ -99,7 +99,8 @@ final class Voice extends Part {
                 .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, app.getPackageName());
-        if (!SpeechRecognizer.isRecognitionAvailable(app)) {
+        android.content.ComponentName chosen = chosen();
+        if (chosen == null && !SpeechRecognizer.isRecognitionAvailable(app)) {
             // No recognizer to listen with here: the system's own voice input page, if there is one.
             if (listen.resolveActivity(app.getPackageManager()) == null) {
                 toast("这台手机没有语音识别服务：可以用输入法自带的语音键");
@@ -109,7 +110,7 @@ final class Voice extends Part {
             app.startActivityForResult(listen, MainActivity.VOICE);
             return;
         }
-        rec = SpeechRecognizer.createSpeechRecognizer(app);
+        rec = chosen != null ? SpeechRecognizer.createSpeechRecognizer(app, chosen) : SpeechRecognizer.createSpeechRecognizer(app);
         rec.setRecognitionListener(listener);
         on = true;
         session++;
@@ -130,6 +131,70 @@ final class Voice extends Part {
         String lang = l.getLanguage(), country = l.getCountry();
         if (lang.equals("zh") && country.isEmpty()) country = "Hant".equals(l.getScript()) ? "TW" : "CN";
         return country.isEmpty() ? lang : lang + "-" + country;
+    }
+
+    /** The recognizers on the phone (Google's, a voice keyboard's, …). */
+    private java.util.List<android.content.pm.ResolveInfo> services() {
+        return app.getPackageManager().queryIntentServices(new Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0);
+    }
+
+    /** The recognizer picked in Settings, while it is still there; null: the system's default. */
+    private android.content.ComponentName chosen() {
+        String kept = prefs.getString("voiceService", "");
+        if (kept.isEmpty()) return null;
+        android.content.ComponentName c = android.content.ComponentName.unflattenFromString(kept);
+        for (android.content.pm.ResolveInfo r : services()) {
+            if (c != null && r.serviceInfo.packageName.equals(c.getPackageName()) && r.serviceInfo.name.equals(c.getClassName())) return c;
+        }
+        return null;
+    }
+
+    private String label(android.content.ComponentName c) {
+        try {
+            return String.valueOf(app.getPackageManager().getApplicationInfo(c.getPackageName(), 0).loadLabel(app.getPackageManager()));
+        } catch (PackageManager.NameNotFoundException e) {
+            return c.getPackageName();
+        }
+    }
+
+    /** The system's default recognizer (Settings → voice input), if one is set. */
+    private android.content.ComponentName systemDefault() {
+        String s = android.provider.Settings.Secure.getString(app.getContentResolver(), "voice_recognition_service");
+        return s == null || s.isEmpty() ? null : android.content.ComponentName.unflattenFromString(s);
+    }
+
+    /** What Settings shows: the recognizer in use. */
+    String serviceLabel() {
+        android.content.ComponentName c = chosen();
+        if (c != null) return label(c);
+        android.content.ComponentName d = systemDefault();
+        return d == null ? "系统默认" : "系统默认 · " + label(d);
+    }
+
+    /** Picks the recognizer to listen with: the system's default, or one of those on the phone. */
+    void serviceSheet(Runnable after) {
+        android.app.Dialog sheet = sheets.sheet("语音识别", "识别由手机里的语音识别服务完成，不经过 Claude");
+        android.widget.LinearLayout card = sheets.card(sheet);
+        String kept = chosen() == null ? "" : prefs.getString("voiceService", "");
+        android.content.ComponentName d = systemDefault();
+        sheets.option(card, 0, "系统默认", d == null ? null : label(d), false, () -> {
+            prefs.edit().putString("voiceService", "").apply();
+            sheet.dismiss();
+            after.run();
+        });
+        if (kept.isEmpty()) sheets.check(card);
+        for (android.content.pm.ResolveInfo r : services()) {
+            android.content.ComponentName c = new android.content.ComponentName(r.serviceInfo.packageName, r.serviceInfo.name);
+            String flat = c.flattenToString();
+            sheets.option(card, 0, label(c), c.getPackageName(), false, () -> {
+                cancel();
+                prefs.edit().putString("voiceService", flat).apply();
+                sheet.dismiss();
+                after.run();
+            });
+            if (flat.equals(kept)) sheets.check(card);
+        }
+        sheet.show();
     }
 
     /** The microphone may be used now (asked when the button was first pressed): it listens, till tapped again. */
