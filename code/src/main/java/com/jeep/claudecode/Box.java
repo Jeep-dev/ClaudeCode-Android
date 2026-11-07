@@ -24,6 +24,8 @@ import java.util.Map;
 /** The box the message is written in: the text, the send button, the menu of / commands and the files waiting to be sent. */
 final class Box extends Part {
     private ImageView sendBtn;
+    /** The model and thinking level, in a pill under the text. */
+    private TextView modelChip;
     EditText input;
     /** The files waiting to be sent (a row in a scroll of its own), and the / commands to pick from (a column). */
     private LinearLayout attachments, slashMenu;
@@ -46,7 +48,7 @@ final class Box extends Part {
             card.setBackground(Ui.round(col(R.color.surface), dp(26), dp(1), col(R.color.border)));
             card.setElevation(dp(2));
         }
-        card.setPadding(dp(6), dp(4), dp(6), dp(4));
+        card.setPadding(dp(8), dp(6), dp(8), dp(6));
 
         slashScroll = new ScrollView(app) {
             @Override protected void onMeasure(int w, int h) {
@@ -67,20 +69,15 @@ final class Box extends Part {
         attachScroll.setVisibility(View.GONE);
         card.addView(attachScroll, Ui.fill());
 
-        // One line: + , the text, send (or stop while a reply runs and nothing is typed).
-        LinearLayout row = Ui.row(app);
-        row.setGravity(Gravity.BOTTOM);
-        ImageView attach = Ui.iconButton(app, R.drawable.ic_plus, 40, 22, R.color.text2);
-        attach.setOnClickListener(v -> app.attachments.pickFiles());
-        row.addView(attach, new LinearLayout.LayoutParams(dp(40), dp(40)));
-
+        // The text on top, the buttons in a line below it: + and the model on the left, the mic and send on the right.
         input = new EditText(app);
         input.setBackground(null);
+        input.setHint("回复 Claude…");
         input.setHintTextColor(col(R.color.text3));
         input.setTextColor(col(R.color.text));
-        input.setTextSize(16);
-        input.setPadding(dp(4), dp(9), dp(4), dp(9));
-        input.setMinHeight(dp(40));
+        input.setTextSize(17);
+        input.setPadding(dp(12), dp(10), dp(12), dp(6));
+        input.setMinHeight(dp(44));
         input.setMaxHeight((int) (app.getResources().getDisplayMetrics().heightPixels * 0.34f));
         // The keyboard's Enter sends (its key shows Send); the text still wraps over several lines.
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -112,19 +109,57 @@ final class Box extends Part {
                 if (s.length() > 0) app.sender.warm();
             }
         });
-        row.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(input, Ui.fill());
 
+        LinearLayout row = Ui.row(app);
+        row.setPadding(dp(4), dp(2), dp(4), dp(4));
+        ImageView attach = round(R.drawable.ic_plus, 22);
+        attach.setContentDescription("添加文件");
+        attach.setOnClickListener(v -> app.attachments.pickFiles());
+        row.addView(attach, new LinearLayout.LayoutParams(dp(40), dp(40)));
+
+        // The model and thinking level in use; tapped, both are picked.
+        modelChip = Ui.text(app, "", 14.5f, R.color.text);
+        modelChip.setGravity(Gravity.CENTER);
+        modelChip.setSingleLine(true);
+        modelChip.setEllipsize(TextUtils.TruncateAt.END);
+        modelChip.setPadding(dp(14), 0, dp(14), 0);
+        modelChip.setBackground(Ui.press(app, Ui.round(fill(app), dp(20)), dp(20)));
+        modelChip.setOnClickListener(v -> app.pickers.modelSheet());
+        // As wide as its words, but never pushing the mic and send off the line (a long name is cut short).
+        FrameLayout chipRoom = new FrameLayout(app);
+        chipRoom.addView(modelChip, new FrameLayout.LayoutParams(-2, dp(40), Gravity.START | Gravity.CENTER_VERTICAL));
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(0, dp(40), 1);
+        mp.setMargins(dp(8), 0, dp(8), 0);
+        row.addView(chipRoom, mp);
+
+        ImageView mic = round(R.drawable.ic_mic, 21);
+        app.voice.attach(mic);
+        row.addView(mic, new LinearLayout.LayoutParams(dp(40), dp(40)));
+
+        // Send as it was (the Enter icon, the ringed square to stop), in a ring of its own.
         sendBtn = new ImageView(app);
         sendBtn.setScaleType(ImageView.ScaleType.CENTER_INSIDE);
+        sendBtn.setContentDescription("发送");
         sendBtn.setOnClickListener(v -> app.sender.send());
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(34), dp(34));
-        sp.setMargins(dp(2), 0, dp(2), dp(3));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        sp.setMargins(dp(10), 0, 0, 0);
         row.addView(sendBtn, sp);
         card.addView(row, Ui.fill());
         wrap.addView(card, Ui.fill());
 
         return wrap;
     }
+
+    /** A round button under the text (+, the mic): its icon on a light fill of the text's colour. */
+    private ImageView round(int icon, int iconDp) {
+        ImageView b = Ui.iconButton(app, icon, 40, iconDp, R.color.text);
+        b.setBackground(Ui.press(app, Ui.round(fill(app), dp(20)), dp(20)));
+        return b;
+    }
+
+    /** The round buttons' fill: the text's colour, faint, so it shows on the plain box and on the glass. */
+    static int fill(android.content.Context c) { return Glass.alpha(Ui.color(c, R.color.text), 0.07f); }
 
     private void showMenu() {
         String v = input.getText().toString();
@@ -177,10 +212,11 @@ final class Box extends Part {
         boolean stop = app.current.running && !typed;
         sendBtn.setImageResource(stop ? R.drawable.ic_stop_circle : R.drawable.ic_enter);
         sendBtn.setImageTintList(android.content.res.ColorStateList.valueOf(col(R.color.text)));
-        sendBtn.setBackground(Ui.press(app, null, dp(18)));
+        sendBtn.setBackground(Ui.press(app, Ui.round(0, dp(20), dp(1.2f), col(R.color.borderStrong)), dp(20)));
         sendBtn.setAlpha(stop || canSend ? 1f : 0.35f);
         sendBtn.setEnabled(stop || canSend);
-        sendBtn.setPadding(dp(6), dp(6), dp(6), dp(6));
+        sendBtn.setPadding(dp(9), dp(9), dp(9), dp(9));
+        modelChip.setText(app.pickers.modelLabel());
         renderAttachments();
     }
 

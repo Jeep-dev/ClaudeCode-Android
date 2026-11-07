@@ -518,15 +518,15 @@ final class ChatScreen extends Part {
      * searching the conversation) rather than more buttons; each also a / command where it has one.
      */
     private void moreMenu(View anchor) {
-        int width = dp(212), shade = dp(14); // room around the card for its shadow
+        int shade = dp(14); // room around the card for its shadow
         FrameLayout room = new FrameLayout(app);
         room.setPadding(shade, shade, shade, shade);
         LinearLayout card = Ui.column(app);
         card.setPadding(dp(6), dp(6), dp(6), dp(6));
         card.setBackground(Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.border)));
         card.setElevation(dp(8));
-        room.addView(card, new FrameLayout.LayoutParams(width, -2));
-        android.widget.PopupWindow pop = new android.widget.PopupWindow(room, width + 2 * shade, -2, true);
+        room.addView(card, new FrameLayout.LayoutParams(-2, -2));
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(room, -2, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null, app::openTerminal);
@@ -536,6 +536,11 @@ final class ChatScreen extends Part {
             app.box.input.requestFocus();
             app.box.showKeyboard();
         });
+        // As wide as its rows need, no wider (and not under a finger's width).
+        card.setMinimumWidth(dp(150));
+        room.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        int width = room.getMeasuredWidth() - 2 * shade;
+        pop.setWidth(width + 2 * shade);
         // Its right edge on the button's, a little below it; it grows out of that corner.
         pop.showAsDropDown(anchor, shade, dp(6) - shade, Gravity.END);
         card.setPivotX(width);

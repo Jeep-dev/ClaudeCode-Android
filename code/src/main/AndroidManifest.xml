@@ -7,8 +7,17 @@
     <!-- Phone storage, shared into Claude Code's userland as /sdcard. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- The mic button in the box: speaking instead of typing. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- Settings: ask to be left out of battery optimization. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- The phone's speech recognizer, seen on Android 11 and later. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
 
     <application
         android:name=".App"

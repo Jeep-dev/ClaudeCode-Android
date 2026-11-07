@@ -371,7 +371,8 @@ final class Sheets extends Part {
         row.setBackground(Ui.press(app, null, dp(12)));
         row.addView(Ui.icon(app, icon, 19, R.color.text2));
         TextView l = Ui.text(app, label, 15, R.color.text);
-        l.setPadding(dp(12), 0, 0, 0);
+        l.setPadding(dp(12), 0, command != null ? dp(14) : dp(4), 0);
+        l.setSingleLine(true);
         row.addView(l, new LinearLayout.LayoutParams(0, -2, 1));
         if (command != null) {
             TextView c = Ui.text(app, command, 12.5f, R.color.text3);

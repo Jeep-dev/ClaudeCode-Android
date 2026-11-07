@@ -29,7 +29,7 @@ import org.json.JSONObject;
 /** Claude Code front end: native interface for Claude Code running in this app's own userland behind the bridge. */
 public final class MainActivity extends Activity implements Bridge.Events {
     /** What is asked of another app (a file to attach, a font file) and of the system (the storage permission). */
-    static final int PICK_FILES = 1, PICK_FONT = 2;
+    static final int PICK_FILES = 1, PICK_FONT = 2, VOICE = 3;
     private static final int ASK_STORAGE = 2;
     private static final String STORAGE = android.Manifest.permission.WRITE_EXTERNAL_STORAGE;
 
@@ -61,6 +61,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     McpServers mcp;
     AppPage appPage;
     Pickers pickers;
+    Voice voice;
 
     // state: the conversations, by key and by the session each comes to have
     final Map<String, Chat> chats = new HashMap<>();
@@ -98,6 +99,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
         mcp = new McpServers(this);
         appPage = new AppPage(this);
         pickers = new Pickers(this);
+        voice = new Voice(this);
         md = new Md(talkContext(), this::copy, this::openUrl, this::userFile);
         // The keyboard opens when the box is tapped, never by itself (coming back from the background).
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
@@ -134,6 +136,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     @Override protected void onPause() {
         super.onPause();
         link.pause();
+        voice.cancel();
     }
 
     @Override protected void onDestroy() {
@@ -171,6 +174,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
 
     void switchTo(Chat chat) {
         if (finder.finding()) finder.findEnd();
+        voice.cancel();
         if (current != null) current.draft = box.input.getText().toString();
         current = chat;
         box.input.setText(chat.draft);
@@ -343,6 +347,10 @@ public final class MainActivity extends Activity implements Bridge.Events {
     }
 
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        if (request == Voice.ASK_MIC) {
+            voice.granted(results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED);
+            return;
+        }
         if (request != ASK_STORAGE) return;
         settings.refreshSettings();
         if (!hasStorage()) { toast("没有存储权限：Claude Code 看不到手机里的文件"); return; }
@@ -364,6 +372,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
             look.addFont(data.getData());
             return;
         }
+        if (request == VOICE) { voice.picked(result, data); return; }
         if (request != PICK_FILES || result != RESULT_OK || data == null) return;
         attachments.picked(data);
     }

@@ -54,6 +54,7 @@ final class Sender extends Part {
     Sender(MainActivity app) { super(app); }
 
     void send() {
+        app.voice.cancel(); // what was heard is sent; nothing more comes into the emptied box
         Chat chat = app.current;
         String text = app.box.input.getText().toString().replaceAll("\\s+$", "");
         if (text.trim().isEmpty() && chat.attachments.isEmpty()) {

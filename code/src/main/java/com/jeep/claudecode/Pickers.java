@@ -23,6 +23,50 @@ final class Pickers extends Part {
         return m == null || m.isEmpty() ? "默认模型" : m.replaceAll("(?i)\\[1m\\]$", "");
     }
 
+    /** The model in use and its thinking level, as the box's pill shows them ("Opus 5.5 中等"). */
+    String modelLabel() {
+        String name = null, value = claude.model;
+        if (value.isEmpty()) {
+            // Claude Code's own choice: the model its "default" stands for, by that one's name.
+            String resolved = "";
+            for (int i = 0; i < claude.claudeModels.length(); i++) {
+                JSONObject cm = claude.claudeModels.optJSONObject(i);
+                if (cm != null && cm.optString("value").equals("default")) resolved = cm.optString("resolvedModel");
+            }
+            for (int i = 0; i < claude.claudeModels.length() && name == null; i++) {
+                JSONObject cm = claude.claudeModels.optJSONObject(i);
+                if (cm != null && !cm.optString("value").equals("default") && !resolved.isEmpty()
+                        && resolved.equals(cm.optString("resolvedModel"))) name = listedName(cm);
+            }
+            if (name == null) name = claude.defaultModel.isEmpty() ? "默认模型" : shortModel(claude.defaultModel);
+        } else {
+            for (int i = 0; i < claude.claudeModels.length() && name == null; i++) {
+                JSONObject cm = claude.claudeModels.optJSONObject(i);
+                if (cm != null && cm.optString("value").equals(value)) name = listedName(cm);
+            }
+            if (name == null) name = shortModel(value);
+        }
+        String level = effortName(claude.effortInUse());
+        return level.isEmpty() ? name : name + " " + level;
+    }
+
+    /** A model of Claude Code's list by its name with the version ("Opus 5.5"), as the model menu lists it. */
+    private static String listedName(JSONObject cm) {
+        String desc = cm.optString("description");
+        return desc.contains(" · ") ? desc.substring(0, desc.indexOf(" · ")) : cm.optString("displayName", cm.optString("value"));
+    }
+
+    private static String effortName(String e) {
+        switch (e == null ? "" : e.toLowerCase(Locale.ROOT)) {
+            case "low": return "低";
+            case "medium": return "中等";
+            case "high": return "高";
+            case "xhigh": return "超高";
+            case "max": return "最高";
+            default: return e == null ? "" : e;
+        }
+    }
+
     void folderSheet(String path) {
         String at = path != null ? path : !claude.cwd.isEmpty() ? claude.cwd : claude.defaultCwd;
         bridge.get("/dirs?path=" + Uri.encode(at), (status, d) -> {

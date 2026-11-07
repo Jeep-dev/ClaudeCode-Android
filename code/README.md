@@ -52,7 +52,7 @@ interface is plain Android views (Java), so scrolling and text selection are the
   started) and MCP servers (kept in `~/.ccapp/mcp.json` and passed with `--mcp-config`; pasting
   a README's JSON adds them; servers added with `claude mcp add` are listed with their state);
   storage; keeping it running; and 关于.
-- The top bar's right button (three dots) opens a small menu for what the app adds, kept off the screen otherwise: 终端 and 搜索对话 (which puts `/find ` in the box). 终端 opens a terminal in the userland (`bash -l` as root in `/root`), built on
+- The top bar's right button (three dots) opens a small menu, as wide as its rows, for what the app adds, kept off the screen otherwise: 终端 and 搜索对话 (which puts `/find ` in the box). 终端 opens a terminal in the userland (`bash -l` as root in `/root`), built on
   Termux's terminal emulator and view (Apache 2.0): for commands, `apk add`, and interactive
   programs such as vim or `claude` itself (its `/login` for a Claude subscription). A row of
   keys gives ESC, TAB, CTRL, ALT, arrows, common symbols and paste; pinch changes the text
@@ -112,10 +112,10 @@ interface is plain Android views (Java), so scrolling and text selection are the
 Drawer with the conversation list, each with how long ago its last message was at the end of its folder's
 line (now, 5m, 1h, 2d, 3w, 1mo, 1y, in a column of one width, grey; the time of the transcript's last message, not
 of the file, which Claude Code also writes to when its process ends; Settings → 外观 → 对话时间 hides it; 只显示当前目录 lists only the conversations of the folder new ones start in, not of its subfolders) (swipe right anywhere to open, left to close; long-press a
-conversation to pin it on top or delete it), a one-line composer (+, the text, and a plain Enter icon to send, a ringed square to stop) where the keyboard's Enter (a Send key) or the button sends and the
+conversation to pin it on top or delete it), a composer as the claude.ai app's (the text on top, 回复 Claude… until written; below it + and a pill with the model and thinking level, tapped to change both, and on the right the mic and send: the plain Enter icon, a ringed square to stop, in a thin ring) where the keyboard's Enter (a Send key) or the button sends and the
 keyboard then closes (Shift+Enter on a physical keyboard makes a new line), files from the system picker (pictures go as they are, up to 10 MB, Claude Code scaling them for the model and keeping the originals, whose paths it gives the model; BMP, HEIC, HEIF and AVIF, which the API does not take, and larger ones as JPEG of up to 4096 px; the thread shows a copy of each at the size the model sees it (2000 px on the long edge, as Claude Code scales them, and at most 4784 visual tokens); other
 files are saved into the working folder, never overwriting, and their paths added to the
-message), under the input box the model and thinking level (tap to change both) and the context in use against the model's window as Claude Code reports it (250k/1m), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (asked for summarized, as the API sends it empty otherwise; opened, it scrolls inside a box of at
+message), the mic (the phone's own speech recognizer, `RECORD_AUDIO` asked the first time: tapped, it listens until tapped again, a pause starting the next sentence and two silent ones ending it; held, until let go; the words go in at the cursor as they are heard; with no recognizer service, the system's voice input page), `/model` to pick a model (the models in Claude Code's settings and any model name typed there, remembered; none built in), thinking (asked for summarized, as the API sends it empty otherwise; opened, it scrolls inside a box of at
 most 300 dp, and text selected in it has 翻译 beside 复制, in Google Translate) and tool steps collapsed into rows as in Claude Code's terminal
 (the tool's name in a box, then the step's summary or file, whole when opened; opened, the full command; file edits with a diff, to-do lists), a long
 press on a message for its menu instead of selecting (复制, or 复制文字 and 复制 Markdown for a reply; 选择文字 in a sheet, ending above the system's gesture strip; 编辑重发 for the
