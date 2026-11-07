@@ -133,9 +133,17 @@ final class Voice extends Part {
         return country.isEmpty() ? lang : lang + "-" + country;
     }
 
-    /** The recognizers on the phone (Google's, a voice keyboard's, …). */
+    /**
+     * The recognizers on the phone (Google's, a voice keyboard's, …) that another app can listen with. The
+     * claude.ai app's is left out: its microphone is only ever allowed while in use (Android gives a
+     * microphone no more), so it refuses everyone while that app is not in front.
+     */
     private java.util.List<android.content.pm.ResolveInfo> services() {
-        return app.getPackageManager().queryIntentServices(new Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0);
+        java.util.List<android.content.pm.ResolveInfo> all = app.getPackageManager()
+                .queryIntentServices(new Intent(android.speech.RecognitionService.SERVICE_INTERFACE), 0);
+        java.util.List<android.content.pm.ResolveInfo> out = new ArrayList<>();
+        for (android.content.pm.ResolveInfo r : all) if (!r.serviceInfo.packageName.equals("com.anthropic.claude")) out.add(r);
+        return out;
     }
 
     /** The recognizer picked in Settings, while it is still there; null: the system's default. */
@@ -274,6 +282,9 @@ final class Voice extends Part {
             boolean was = on;
             finish();
             String why = message(error);
+            // Refused by a recognizer picked in Settings: its own microphone, not this app's.
+            if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && chosen() != null)
+                why = "这个语音识别服务在后台用不了麦克风：到 设置 → 对话 → 语音识别 换一个";
             if (was && why != null) toast(why);
         }
     };
