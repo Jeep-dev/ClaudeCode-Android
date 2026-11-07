@@ -131,7 +131,7 @@ public final class MainActivity extends Activity implements Bridge.Events {
     @Override protected void onResume() {
         super.onResume();
         link.resume();
-        if (box.input != null && box.input.hasFocus()) voice.warm();
+        voice.warm(); // the mic listens at once when pressed
     }
 
     @Override protected void onPause() {

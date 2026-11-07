@@ -58,8 +58,13 @@ final class Voice extends Part {
     /** A connection to Claude Code's dictation made ahead of the press (see warm). */
     private VoiceStream spare;
     private final Runnable dropSpare = () -> {
-        ui.removeCallbacks(this.dropSpare);
+        ui.removeCallbacks(this.renewSpare);
         if (spare != null) { spare.cancel(); spare = null; }
+    };
+    /** While the app is in front, the connection made ahead is made again now and then, never left to go stale. */
+    private final Runnable renewSpare = () -> {
+        if (spare != null) { spare.cancel(); spare = null; }
+        warm();
     };
     private int givenUp;
     /** The box is being written by this, not by the user. */
@@ -73,7 +78,6 @@ final class Voice extends Part {
         cancel();
         button = b;
         b.setContentDescription("语音输入");
-        app.box.input.setOnFocusChangeListener((v, has) -> { if (has) warm(); });
         app.box.input.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence t, int a, int c, int d) {}
             @Override public void onTextChanged(CharSequence t, int a, int c, int d) {}
@@ -176,7 +180,7 @@ final class Voice extends Part {
         // The connection made ahead (see warm), else one now: what is said meanwhile waits, not lost.
         VoiceStream st = spare != null && spare.ready() ? spare : null;
         spare = null;
-        ui.removeCallbacks(dropSpare);
+        ui.removeCallbacks(renewSpare);
         if (st == null) {
             String[] why = new String[1];
             String token = VoiceStream.token(userland.rootfs, why);
@@ -222,8 +226,9 @@ final class Voice extends Part {
     }
 
     /**
-     * Connects Claude Code's dictation ahead of the press (the server takes about a second to get ready),
-     * when the box is tapped into and after each use; let go after two minutes unused, or when the app is left.
+     * Connects Claude Code's dictation ahead of the press (the server takes about a second to get ready to
+     * listen): whenever the app comes to the front, and after each use; kept while the app is in front (made
+     * again every few minutes), let go when it is left.
      */
     void warm() {
         if (!claudeCode() || on || (spare != null && spare.ready())) return;
@@ -231,8 +236,8 @@ final class Voice extends Part {
         String token = VoiceStream.token(userland.rootfs, new String[1]);
         if (token == null) return;
         spare = connectNew(token);
-        ui.removeCallbacks(dropSpare);
-        ui.postDelayed(dropSpare, 120_000);
+        ui.removeCallbacks(renewSpare);
+        ui.postDelayed(renewSpare, 4 * 60_000);
     }
 
     /** The app is left: listening ends, and the connection made ahead is let go. */
