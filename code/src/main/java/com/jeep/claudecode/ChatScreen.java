@@ -290,7 +290,7 @@ final class ChatScreen extends Part {
         // The buttons just under the status bar, and the box about as far from the bottom (or
         // just above the keyboard).
         int below = keyboard ? insetBottom + dp(8) : Math.max(insetBottom + dp(8), insetTop - dp(12));
-        composer.setPadding(dp(32), dp(4), dp(32), below);
+        composer.setPadding(dp(16), dp(4), dp(16), below);
         if (app.drawer.drawerPanel != null) app.drawer.drawerPanel.setPadding(0, insetTop, 0, keyboard ? 0 : insetBottom);
         ((FrameLayout.LayoutParams) topButtons.getLayoutParams()).topMargin = insetTop;
         ((FrameLayout.LayoutParams) banner.getLayoutParams()).setMargins(dp(12), insetTop + dp(52), dp(12), 0);
@@ -514,35 +514,35 @@ final class ChatScreen extends Part {
     }
 
     /**
-     * The top bar's menu: a small card under its button, holding what the app adds (the terminal,
-     * searching the conversation) rather than more buttons; each also a / command where it has one.
+     * The top bar's menu, as the claude.ai app's: the conversation's title in grey, then what the app
+     * adds (the terminal, searching the conversation) rather than more buttons.
      */
     private void moreMenu(View anchor) {
         int shade = dp(14); // room around the card for its shadow
         FrameLayout room = new FrameLayout(app);
         room.setPadding(shade, shade, shade, shade);
-        LinearLayout card = Ui.column(app);
-        card.setPadding(dp(6), dp(6), dp(6), dp(6));
-        card.setBackground(Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.border)));
-        card.setElevation(dp(8));
+        LinearLayout card = sheets.menuCard();
         room.addView(card, new FrameLayout.LayoutParams(-2, -2));
         android.widget.PopupWindow pop = new android.widget.PopupWindow(room, -2, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
+        pop.setClippingEnabled(false); // the shadow's room may pass the screen's edge
+        sheets.menuTitle(card, title.getText().toString());
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null, app::openTerminal);
-        sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", "/find", () -> {
+        sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", null, () -> {
             app.box.input.setText("/find ");
             app.box.input.setSelection(app.box.input.length());
             app.box.input.requestFocus();
             app.box.showKeyboard();
         });
-        // As wide as its rows need, no wider (and not under a finger's width).
-        card.setMinimumWidth(dp(150));
+        // As wide as its rows need; its right edge near the screen's, just under the button; it grows out of that corner.
         room.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
         int width = room.getMeasuredWidth() - 2 * shade;
         pop.setWidth(width + 2 * shade);
-        // Its right edge on the button's, a little below it; it grows out of that corner.
-        pop.showAsDropDown(anchor, shade, dp(6) - shade, Gravity.END);
+        int[] at = new int[2];
+        anchor.getLocationOnScreen(at);
+        int screenW = app.getResources().getDisplayMetrics().widthPixels;
+        pop.showAtLocation(anchor, Gravity.NO_GRAVITY, screenW - dp(6) - width - shade, at[1] + anchor.getHeight() + dp(2) - shade);
         card.setPivotX(width);
         card.setPivotY(0);
         card.setAlpha(0f);

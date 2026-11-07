@@ -259,7 +259,7 @@ final class Voice extends Part {
     private void paint() {
         if (button == null) return;
         boolean lit = on && !stopping;
-        button.setBackground(Ui.press(app, Ui.round(lit ? col(R.color.accent) : Box.fill(app), dp(20)), dp(20)));
+        button.setBackground(Ui.press(app, Ui.round(lit ? col(R.color.accent) : Box.fill(app), dp(18)), dp(18)));
         button.setImageTintList(android.content.res.ColorStateList.valueOf(col(lit ? R.color.onAccent : R.color.text)));
         if (!on) button.animate().scaleX(1f).scaleY(1f).setDuration(150).start();
         EditText in = app.box.input;

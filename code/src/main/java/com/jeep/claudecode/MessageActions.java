@@ -111,15 +111,12 @@ final class MessageActions extends Part {
         app.screen.list.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
         Chat chat = app.current;
         boolean user = m.kind == Chat.Msg.USER;
-        int width = dp(196), shade = dp(14);
+        int shade = dp(14);
         FrameLayout room = new FrameLayout(app);
         room.setPadding(shade, shade, shade, shade);
-        LinearLayout card = Ui.column(app);
-        card.setPadding(dp(6), dp(6), dp(6), dp(6));
-        card.setBackground(Ui.round(col(R.color.surface), dp(18), dp(1), col(R.color.borderStrong)));
-        card.setElevation(dp(8));
-        room.addView(card, new FrameLayout.LayoutParams(width, -2));
-        android.widget.PopupWindow pop = new android.widget.PopupWindow(room, width + 2 * shade, -2, true);
+        LinearLayout card = sheets.menuCard();
+        room.addView(card, new FrameLayout.LayoutParams(-2, -2));
+        android.widget.PopupWindow pop = new android.widget.PopupWindow(room, -2, -2, true);
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
         // Selecting is what is done most; it shows the Markdown, so a table's cells can be selected too.
@@ -144,7 +141,7 @@ final class MessageActions extends Part {
         int y = (int) app.screen.touchY + h > screenH - dp(24) ? (int) app.screen.touchY - h : (int) app.screen.touchY;
         pop.showAtLocation(app.screen.list, Gravity.NO_GRAVITY, x, Math.max(0, y));
         // It grows out of the finger.
-        card.setPivotX(Math.max(0, Math.min(width, app.screen.touchX - x - shade)));
+        card.setPivotX(Math.max(0, Math.min(w - 2 * shade, app.screen.touchX - x - shade)));
         card.setPivotY(Math.max(0, Math.min(h - 2 * shade, app.screen.touchY - Math.max(0, y) - shade)));
         card.setAlpha(0f);
         card.setScaleX(0.8f);

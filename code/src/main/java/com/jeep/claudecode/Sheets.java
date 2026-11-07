@@ -364,14 +364,34 @@ final class Sheets extends Part {
         sheet.show();
     }
 
+    /** A small menu's card, as the claude.ai app's: no outline, a soft shadow; as wide as its rows. */
+    LinearLayout menuCard() {
+        LinearLayout card = Ui.column(app);
+        card.setPadding(0, dp(6), 0, dp(6));
+        card.setBackground(Ui.round(col(R.color.surface), dp(16)));
+        card.setElevation(dp(10));
+        card.setMinimumWidth(dp(150));
+        return card;
+    }
+
+    /** A small menu's grey title line, above its rows. */
+    void menuTitle(LinearLayout card, String title) {
+        TextView t = Ui.text(app, title, 14, R.color.text3);
+        t.setSingleLine(true);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        t.setMaxWidth(dp(200));
+        t.setPadding(dp(18), dp(10), dp(18), dp(6));
+        card.addView(t, Ui.fill());
+    }
+
     void menuItem(LinearLayout card, android.widget.PopupWindow pop, int icon, String label, String command, Runnable click) {
         LinearLayout row = Ui.row(app);
-        row.setPadding(dp(12), 0, dp(12), 0);
-        row.setMinimumHeight(dp(46));
-        row.setBackground(Ui.press(app, null, dp(12)));
-        row.addView(Ui.icon(app, icon, 19, R.color.text2));
-        TextView l = Ui.text(app, label, 15, R.color.text);
-        l.setPadding(dp(12), 0, command != null ? dp(14) : dp(4), 0);
+        row.setPadding(dp(18), 0, dp(20), 0);
+        row.setMinimumHeight(dp(48));
+        row.setBackground(Ui.press(app, null, 0));
+        row.addView(Ui.icon(app, icon, 21, R.color.text2));
+        TextView l = Ui.text(app, label, 16, R.color.text);
+        l.setPadding(dp(14), 0, command != null ? dp(14) : 0, 0);
         l.setSingleLine(true);
         row.addView(l, new LinearLayout.LayoutParams(0, -2, 1));
         if (command != null) {
