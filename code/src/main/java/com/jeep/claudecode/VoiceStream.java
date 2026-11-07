@@ -46,7 +46,8 @@ final class VoiceStream {
     private volatile boolean recording, closing, done;
     private volatile Socket socket;
     private OutputStream os;
-    private final Object sendLock = new Object();
+    /** Every write to the socket, and closing it, in order on one thread of its own: never on the main thread. */
+    private final java.util.concurrent.ExecutorService writer = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
 
     VoiceStream(Handler ui, Listener out) {
@@ -93,7 +94,14 @@ final class VoiceStream {
         recording = false;
         closing = true;
         Socket s = socket;
-        if (s != null) try { s.close(); } catch (IOException ignored) { /* closing */ }
+        try {
+            writer.execute(() -> {
+                if (s != null) try { s.close(); } catch (IOException ignored) { /* closing */ }
+            });
+            writer.shutdown();
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // cancelled before
+        }
         end(null);
     }
 
@@ -279,13 +287,17 @@ final class VoiceStream {
         frame[0] = (byte) (0x80 | op);
         System.arraycopy(mask, 0, frame, head, 4);
         for (int i = 0; i < n; i++) frame[head + 4 + i] = (byte) (data[i] ^ mask[i % 4]);
-        synchronized (sendLock) {
-            try {
-                o.write(frame);
-                o.flush();
-            } catch (IOException e) {
-                if (!closing) { end("语音识别断开了：" + e.getMessage()); cancel(); }
-            }
+        try {
+            writer.execute(() -> {
+                try {
+                    o.write(frame);
+                    o.flush();
+                } catch (IOException e) {
+                    if (!closing) { end("语音识别断开了：" + e.getMessage()); cancel(); }
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {
+            // closed: nothing more is sent
         }
     }
 }

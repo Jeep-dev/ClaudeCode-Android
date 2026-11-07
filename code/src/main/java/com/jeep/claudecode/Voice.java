@@ -49,6 +49,15 @@ final class Voice extends Part {
     private final Runnable giveUp = this::finish;
     /** Claude Code's dictation, while it listens with it. */
     private VoiceStream stream;
+    /**
+     * The sentence as last heard (recognizers send it whole each time), and how much of it was given up to
+     * the box: the user edited the box meanwhile, so only what is heard after that goes in, at the cursor
+     * (else words deleted would come back with the next words heard).
+     */
+    private String sentence = "";
+    private int givenUp;
+    /** The box is being written by this, not by the user. */
+    private boolean writing;
 
     Voice(MainActivity app) { super(app); }
 
@@ -58,6 +67,18 @@ final class Voice extends Part {
         cancel();
         button = b;
         b.setContentDescription("语音输入");
+        app.box.input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence t, int a, int c, int d) {}
+            @Override public void onTextChanged(CharSequence t, int a, int c, int d) {}
+            @Override public void afterTextChanged(Editable t) {
+                if (!on || writing) return;
+                // Edited by hand while listening: what is written stays as the user left it; the words
+                // heard next go where the cursor is.
+                givenUp = sentence.length();
+                int at = app.box.input.getSelectionEnd();
+                spanStart = spanEnd = at < 0 ? t.length() : at;
+            }
+        });
         b.setOnTouchListener((v, e) -> {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
@@ -122,6 +143,8 @@ final class Voice extends Part {
         session++;
         held = hold;
         stopping = between = heard = restarted = false;
+        sentence = "";
+        givenUp = 0;
         quiet = 0;
         rec.startListening(listen);
         paint();
@@ -149,7 +172,7 @@ final class Voice extends Part {
         VoiceStream[] self = new VoiceStream[1];
         self[0] = new VoiceStream(ui, new VoiceStream.Listener() {
             @Override public void text(String sentence) { if (stream == self[0]) write(sentence); }
-            @Override public void endpoint() { if (stream == self[0]) spanStart = spanEnd; }
+            @Override public void endpoint() { if (stream == self[0]) nextSentence(); }
             @Override public void level(float rms) {
                 if (stream != self[0] || button == null) return;
                 float l = Math.max(0f, Math.min(1f, rms * 8f));
@@ -169,6 +192,8 @@ final class Voice extends Part {
         session++;
         held = hold;
         stopping = between = heard = restarted = false;
+        sentence = "";
+        givenUp = 0;
         String lang = Locale.getDefault().getLanguage();
         String version = "";
         try { version = app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionName; } catch (PackageManager.NameNotFoundException ignored) { /* ours */ }
@@ -319,7 +344,7 @@ final class Voice extends Part {
         @Override public void onResults(Bundle b) {
             String t = first(b);
             if (t != null && !t.isEmpty()) { write(t); quiet = 0; } else quiet++;
-            spanStart = spanEnd; // this sentence is done: the next one goes after it
+            nextSentence();
             next();
         }
 
@@ -391,16 +416,29 @@ final class Voice extends Part {
     /** Puts what is heard of this sentence in its place in the box, in place of what was heard of it before. */
     private void write(String text) {
         if (app.current != chat) { cancel(); return; }
+        sentence = text;
+        String t = text.substring(Math.min(givenUp, text.length()));
         EditText in = app.box.input;
         Editable e = in.getText();
         int s = Math.min(spanStart, e.length()), end = Math.max(s, Math.min(spanEnd, e.length()));
-        String t = text;
         heard = true;
-        if (s > 0 && spaced(e.charAt(s - 1), t.charAt(0))) t = " " + t;
-        e.replace(s, end, t);
+        if (!t.isEmpty() && s > 0 && spaced(e.charAt(s - 1), t.charAt(0))) t = " " + t;
+        writing = true;
+        try {
+            e.replace(s, end, t);
+        } finally {
+            writing = false;
+        }
         spanStart = s;
         spanEnd = s + t.length();
         in.setSelection(spanEnd);
+    }
+
+    /** A sentence is done: the next one goes after it, whole. */
+    private void nextSentence() {
+        spanStart = spanEnd;
+        sentence = "";
+        givenUp = 0;
     }
 
     /** Words in letters after words in letters are spaced; Chinese is not. */
