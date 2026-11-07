@@ -55,6 +55,12 @@ final class Voice extends Part {
      * (else words deleted would come back with the next words heard).
      */
     private String sentence = "";
+    /** A connection to Claude Code's dictation made ahead of the press (see warm). */
+    private VoiceStream spare;
+    private final Runnable dropSpare = () -> {
+        ui.removeCallbacks(this.dropSpare);
+        if (spare != null) { spare.cancel(); spare = null; }
+    };
     private int givenUp;
     /** The box is being written by this, not by the user. */
     private boolean writing;
@@ -67,6 +73,7 @@ final class Voice extends Part {
         cancel();
         button = b;
         b.setContentDescription("语音输入");
+        app.box.input.setOnFocusChangeListener((v, has) -> { if (has) warm(); });
         app.box.input.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence t, int a, int c, int d) {}
             @Override public void onTextChanged(CharSequence t, int a, int c, int d) {}
@@ -166,39 +173,72 @@ final class Voice extends Part {
     private boolean claudeCode() { return prefs.getString("voice", "claudecode").equals("claudecode"); }
 
     private void startStream(boolean hold) {
-        String[] why = new String[1];
-        String token = VoiceStream.token(userland.rootfs, why);
-        if (token == null) { toast(why[0]); return; }
-        VoiceStream[] self = new VoiceStream[1];
-        self[0] = new VoiceStream(ui, new VoiceStream.Listener() {
-            @Override public void text(String sentence) { if (stream == self[0]) write(sentence); }
-            @Override public void endpoint() { if (stream == self[0]) nextSentence(); }
-            @Override public void level(float rms) {
-                if (stream != self[0] || button == null) return;
-                float l = Math.max(0f, Math.min(1f, rms * 8f));
-                button.animate().scaleX(1f + 0.14f * l).scaleY(1f + 0.14f * l).setDuration(90).start();
-            }
-            @Override public void closed(String error) {
-                if (stream != self[0]) return;
-                boolean said = heard;
-                stream = null;
-                finish();
-                if (error != null) toast(error);
-                else if (!said) toast("没听清，请再说一次");
-            }
-        });
-        stream = self[0];
+        // The connection made ahead (see warm), else one now: what is said meanwhile waits, not lost.
+        VoiceStream st = spare != null && spare.ready() ? spare : null;
+        spare = null;
+        ui.removeCallbacks(dropSpare);
+        if (st == null) {
+            String[] why = new String[1];
+            String token = VoiceStream.token(userland.rootfs, why);
+            if (token == null) { toast(why[0]); return; }
+            st = connectNew(token);
+        }
+        VoiceStream self = st;
+        stream = st;
         on = true;
         session++;
         held = hold;
         stopping = between = heard = restarted = false;
         sentence = "";
         givenUp = 0;
+        st.begin(new VoiceStream.Listener() {
+            @Override public void text(String s) { if (stream == self) write(s); }
+            @Override public void endpoint() { if (stream == self) nextSentence(); }
+            @Override public void level(float rms) {
+                if (stream != self || button == null) return;
+                float l = Math.max(0f, Math.min(1f, rms * 8f));
+                button.animate().scaleX(1f + 0.14f * l).scaleY(1f + 0.14f * l).setDuration(90).start();
+            }
+            @Override public void closed(String error) {
+                if (stream != self) return;
+                boolean said = heard;
+                stream = null;
+                finish();
+                if (error != null) toast(error);
+                else if (!said) toast("没听清，请再说一次");
+                warm(); // the next press, as quick
+            }
+        });
+        paint();
+    }
+
+    private VoiceStream connectNew(String token) {
         String lang = Locale.getDefault().getLanguage();
         String version = "";
         try { version = app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionName; } catch (PackageManager.NameNotFoundException ignored) { /* ours */ }
-        stream.start(token, lang.isEmpty() ? "en" : lang, "ClaudeCode-Android/" + version);
-        paint();
+        VoiceStream st = new VoiceStream(ui);
+        st.connect(token, lang.isEmpty() ? "en" : lang, "ClaudeCode-Android/" + version);
+        return st;
+    }
+
+    /**
+     * Connects Claude Code's dictation ahead of the press (the server takes about a second to get ready),
+     * when the box is tapped into and after each use; let go after two minutes unused, or when the app is left.
+     */
+    void warm() {
+        if (!claudeCode() || on || (spare != null && spare.ready())) return;
+        if (app.checkSelfPermission(MIC) != PackageManager.PERMISSION_GRANTED) return; // asked at the first press
+        String token = VoiceStream.token(userland.rootfs, new String[1]);
+        if (token == null) return;
+        spare = connectNew(token);
+        ui.removeCallbacks(dropSpare);
+        ui.postDelayed(dropSpare, 120_000);
+    }
+
+    /** The app is left: listening ends, and the connection made ahead is let go. */
+    void pause() {
+        cancel();
+        dropSpare.run();
     }
 
     /** The recognizers on the phone (Google's, the claude.ai app's, a voice keyboard's, …). */

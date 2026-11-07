@@ -131,12 +131,13 @@ public final class MainActivity extends Activity implements Bridge.Events {
     @Override protected void onResume() {
         super.onResume();
         link.resume();
+        if (box.input != null && box.input.hasFocus()) voice.warm();
     }
 
     @Override protected void onPause() {
         super.onPause();
         link.pause();
-        voice.cancel();
+        voice.pause();
     }
 
     @Override protected void onDestroy() {

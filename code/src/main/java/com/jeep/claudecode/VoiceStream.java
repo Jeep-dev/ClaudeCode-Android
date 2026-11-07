@@ -42,7 +42,10 @@ final class VoiceStream {
     private static final int RATE = 16000, CHUNK = RATE * 2 / 10; // 100 ms of audio
 
     private final Handler ui;
-    private final Listener out;
+    /** Who hears it: none while it is only connected ahead (see connect). */
+    private volatile Listener out;
+    /** Why it ended, for a listener that comes after it did. */
+    private volatile String endedWith;
     private volatile boolean recording, closing, done;
     /**
      * The microphone starts at the press, not once connected (that takes up to a second or more, and the
@@ -57,9 +60,8 @@ final class VoiceStream {
     private final java.util.concurrent.ExecutorService writer = java.util.concurrent.Executors.newSingleThreadExecutor();
     private final SecureRandom random = new SecureRandom();
 
-    VoiceStream(Handler ui, Listener out) {
+    VoiceStream(Handler ui) {
         this.ui = ui;
-        this.out = out;
     }
 
     /** The OAuth token Claude Code is signed in with, or why there is none. */
@@ -80,11 +82,23 @@ final class VoiceStream {
         }
     }
 
-    /** Connects and starts recording, on threads of its own. */
-    void start(String token, String language, String userAgent) {
+    /**
+     * Connects, on threads of its own, ahead of the press if it can be: the server takes about a second to
+     * get ready to listen, and waits (kept alive) however long it is before anything is said.
+     */
+    void connect(String token, String language, String userAgent) {
+        new Thread(() -> run(token, language, userAgent), "voice-stream").start();
+    }
+
+    /** Not ended and not taken yet: a press can listen with it. */
+    boolean ready() { return !done && !closing && out == null; }
+
+    /** Records into it from now (connected already, or what is said waits until it is). */
+    void begin(Listener l) {
+        out = l;
+        if (done) { String why = endedWith; ui.post(() -> l.closed(why)); return; }
         recording = true;
         new Thread(this::record, "voice-mic").start();
-        new Thread(() -> run(token, language, userAgent), "voice-stream").start();
     }
 
     /** Stops recording; the last words still come, then it closes. */
@@ -115,8 +129,10 @@ final class VoiceStream {
 
     private void end(String error) {
         if (done) return;
+        endedWith = error;
         done = true;
-        ui.post(() -> out.closed(error));
+        Listener l = out;
+        if (l != null) ui.post(() -> l.closed(error));
     }
 
     private void run(String token, String language, String userAgent) {
@@ -218,7 +234,8 @@ final class VoiceStream {
                     sum += (long) v * v;
                 }
                 float rms = (float) Math.sqrt(sum / Math.max(1.0, n / 2.0)) / 32768f;
-                ui.post(() -> out.level(rms));
+                Listener l = out;
+                if (l != null) ui.post(() -> l.level(rms));
                 if (recording) send(2, buf, n);
             }
         } finally {
@@ -262,12 +279,15 @@ final class VoiceStream {
                 case "TranscriptText":
                 case "TranscriptInterim": {
                     String t = m.optString("data");
-                    if (!t.isEmpty()) ui.post(() -> out.text(t));
+                    Listener l = out;
+                    if (!t.isEmpty() && l != null) ui.post(() -> l.text(t));
                     break;
                 }
-                case "TranscriptEndpoint":
-                    ui.post(out::endpoint);
+                case "TranscriptEndpoint": {
+                    Listener l = out;
+                    if (l != null) ui.post(l::endpoint);
                     break;
+                }
                 case "TranscriptError":
                 case "error": {
                     String why = m.optString("description", m.optString("message", m.optString("error_code", "识别出错")));
