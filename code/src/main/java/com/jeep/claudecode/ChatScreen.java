@@ -527,6 +527,7 @@ final class ChatScreen extends Part {
         pop.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
         pop.setOutsideTouchable(true);
         pop.setClippingEnabled(false); // the shadow's room may pass the screen's edge
+        sheets.menuItem(card, pop, R.drawable.ic_chart, "用量", null, app.usage::show);
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null, app::openTerminal);
         sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", null, () -> {
             app.box.input.setText("/find ");

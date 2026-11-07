@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 67  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 68  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -759,6 +759,32 @@ class Chat:
             return None
         return ' '.join(str((response.get('response') or {}).get('title') or '').split())[:80]
 
+    def context_usage(self):
+        """What fills the context window, as Claude Code's /context counts it (get_context_usage): the
+        categories (system prompt, tools, messages, ...) with their tokens, the total and the window.
+        None when no claude runs this conversation, or it did not answer."""
+        proc = self.proc
+        if proc is None or proc.poll() is not None:
+            return None
+        rid = 'context-%s' % uuid.uuid4().hex[:12]
+        slot = {'event': threading.Event()}
+        self.waiting[rid] = slot
+        try:
+            self.write(proc, {'type': 'control_request', 'request_id': rid, 'request': {'subtype': 'get_context_usage'}})
+            slot['event'].wait(15)
+        except OSError:
+            return None
+        finally:
+            self.waiting.pop(rid, None)
+        response = slot.get('response') or {}
+        if response.get('subtype') != 'success':
+            return None
+        u = response.get('response') or {}
+        return {'categories': [{'name': c.get('name'), 'tokens': c.get('tokens'), 'deferred': bool(c.get('isDeferred'))}
+                               for c in u.get('categories') or []],
+                'totalTokens': u.get('totalTokens'), 'maxTokens': u.get('maxTokens'),
+                'percentage': u.get('percentage'), 'model': u.get('model') or ''}
+
     def cancel(self, message_uuid):
         """Takes back a message written while a turn ran, while Claude Code still holds it in its
         queue (the model has not got it): True when taken back, or when the claude that held it is
@@ -883,6 +909,44 @@ def forget_message(mid):
     with chats_lock:
         if mid in seen_messages:
             seen_messages.remove(mid)
+
+
+usage_cache = {'at': 0, 'data': None}
+
+
+def plan_usage():
+    """(status, data) from api.anthropic.com/api/oauth/usage with Claude Code's Claude.ai login (what /usage
+    shows): each limit's share used and when it starts again. Kept 20 s: the sheet may be opened often."""
+    import urllib.error
+    import urllib.request
+    if usage_cache['data'] is not None and time.time() - usage_cache['at'] < 20:
+        return 200, usage_cache['data']
+    try:
+        with open(os.path.join(CLAUDE_DIR, '.credentials.json')) as f:
+            oauth = json.load(f).get('claudeAiOauth') or {}
+    except (OSError, ValueError):
+        oauth = {}
+    token = oauth.get('accessToken')
+    if not token:
+        return 200, {'error': 'login'}
+    req = urllib.request.Request('https://api.anthropic.com/api/oauth/usage', headers={
+        'Authorization': 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20',
+        'User-Agent': 'ClaudeCode-Android-bridge/%d' % VERSION})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            raw = json.load(r)
+    except urllib.error.HTTPError as e:
+        log('usage: HTTP %s' % e.code)
+        return 200, {'error': 'expired' if e.code in (401, 403) else 'http %s' % e.code}
+    except (OSError, ValueError) as e:
+        log('usage: %s' % e)
+        return 200, {'error': 'network'}
+    limits = [{'kind': x.get('kind'), 'group': x.get('group'), 'percent': x.get('percent'),
+               'severity': x.get('severity'), 'resetsAt': x.get('resets_at'), 'scope': x.get('scope')}
+              for x in raw.get('limits') or [] if isinstance(x, dict)]
+    data = {'limits': limits, 'plan': oauth.get('subscriptionType') or ''}
+    usage_cache.update(at=time.time(), data=data)
+    return 200, data
 
 
 def chat_for(key, session_id=None, create=True):
@@ -2160,6 +2224,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(504, {'error': 'Claude Code did not answer'})
         self.reply(200, {'cancelled': cancelled})
 
+    def post_context(self, data):
+        chat = chat_for(data['chat'], data.get('sessionId'), create=False)
+        usage = chat.context_usage() if chat is not None else None
+        self.reply(200, {'context': usage})
+
+    def get_usage(self, q):
+        """The Claude.ai plan's limits (the five-hour session, the week), as Claude Code's /usage reads them,
+        with the account Claude Code is logged in with."""
+        status, data = plan_usage()
+        self.reply(status, data)
+
     def post_stop(self, data):
         chat = chat_for(data['chat'], data.get('sessionId'), create=False)
         self.reply(200, {'ok': True, 'stopped': bool(chat and chat.stop())})
@@ -2340,8 +2415,8 @@ class Handler(BaseHTTPRequestHandler):
     # body (POST). /upload is not here: its body is the file, read as it is streamed to disk.
     GET = {'/health': get_health, '/events': get_events, '/image': get_image, '/sessions': get_sessions,
            '/search': get_search, '/history': get_history, '/config': get_config, '/plugins': get_plugins,
-           '/settings-schema': get_settings_schema, '/launch': get_launch, '/memory': get_memory, '/dirs': get_dirs}
-    POST = {'/send': post_send, '/open': post_open, '/launch': post_launch, '/memory': post_memory, '/mcp': mcp,
+           '/settings-schema': get_settings_schema, '/usage': get_usage, '/launch': get_launch, '/memory': get_memory, '/dirs': get_dirs}
+    POST = {'/context': post_context, '/send': post_send, '/open': post_open, '/launch': post_launch, '/memory': post_memory, '/mcp': mcp,
             '/plugin': plugin, '/cancel': post_cancel, '/stop': post_stop, '/delete': post_delete,
             '/rewind': post_rewind, '/delete-message': post_delete_message, '/title': post_title,
             '/permission': post_permission, '/mkdir': post_mkdir}
