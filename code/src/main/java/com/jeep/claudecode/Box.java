@@ -24,7 +24,7 @@ import java.util.Map;
 /** The box the message is written in: the text, the send button, the menu of / commands and the files waiting to be sent. */
 final class Box extends Part {
     /** The round buttons under the text, and their icons (dp). */
-    static final float BUTTON = 33.4f, ICON = 18.7f;
+    static final float BUTTON = 34f, ICON = 19f;
     private ImageView sendBtn;
     /** The model and thinking level, in a pill under the text. */
     private TextView modelChip;
@@ -50,7 +50,7 @@ final class Box extends Part {
             card.setBackground(Ui.round(col(R.color.surface), dp(26), dp(1), col(R.color.border)));
             card.setElevation(dp(2));
         }
-        card.setPadding(dp(7.35f), dp(6.05f), dp(7.35f), dp(6.7f));
+        card.setPadding(dp(7.5f), dp(6.5f), dp(7.5f), dp(7f));
 
         slashScroll = new ScrollView(app) {
             @Override protected void onMeasure(int w, int h) {
@@ -77,9 +77,9 @@ final class Box extends Part {
         input.setHint("回复 Claude…");
         input.setHintTextColor(col(R.color.text3));
         input.setTextColor(col(R.color.text));
-        input.setTextSize(17.35f);
-        input.setPadding(dp(6.65f), dp(6.7f), dp(6.65f), dp(5.4f));
-        input.setMinHeight(dp(36.1f));
+        input.setTextSize(17.5f);
+        input.setPadding(dp(6.5f), dp(7f), dp(6.5f), dp(6f));
+        input.setMinHeight(dp(37f));
         input.setMaxHeight((int) (app.getResources().getDisplayMetrics().heightPixels * 0.34f));
         // The keyboard's Enter sends (its key shows Send); the text still wraps over several lines.
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
@@ -114,18 +114,18 @@ final class Box extends Part {
         card.addView(input, Ui.fill());
 
         LinearLayout row = Ui.row(app);
-        row.setPadding(0, dp(5.4f), 0, 0);
+        row.setPadding(0, dp(6f), 0, 0);
         ImageView attach = round(R.drawable.ic_plus);
         attach.setContentDescription("添加文件");
         attach.setOnClickListener(v -> app.attachments.pickFiles());
         row.addView(attach, new LinearLayout.LayoutParams(dp(BUTTON), dp(BUTTON)));
 
         // The model and thinking level in use; tapped, both are picked.
-        modelChip = Ui.text(app, "", 14.85f, R.color.text);
+        modelChip = Ui.text(app, "", 15f, R.color.text);
         modelChip.setGravity(Gravity.CENTER);
         modelChip.setSingleLine(true);
         modelChip.setEllipsize(TextUtils.TruncateAt.END);
-        modelChip.setPadding(dp(14.95f), 0, dp(14.95f), 0);
+        modelChip.setPadding(dp(14.5f), 0, dp(14.5f), 0);
         modelChip.setBackground(Ui.press(app, Ui.round(fill(app), dp(BUTTON / 2)), dp(BUTTON / 2)));
         modelChip.setOnClickListener(v -> app.pickers.modelSheet());
         // As wide as its words, but never pushing the mic and send off the line (a long name is cut short).
@@ -145,7 +145,7 @@ final class Box extends Part {
         sendBtn.setContentDescription("发送");
         sendBtn.setOnClickListener(v -> app.sender.send());
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(dp(BUTTON), dp(BUTTON));
-        sp.setMargins(dp(10.7f), 0, 0, 0);
+        sp.setMargins(dp(11f), 0, 0, 0);
         row.addView(sendBtn, sp);
         card.addView(row, Ui.fill());
         wrap.addView(card, Ui.fill());
@@ -221,7 +221,7 @@ final class Box extends Part {
         sendBtn.setImageTintList(android.content.res.ColorStateList.valueOf(live ? col(R.color.bg) : col(R.color.text3)));
         sendBtn.setBackground(Ui.press(app, Ui.round(live ? col(R.color.text) : fill(app), dp(BUTTON / 2)), dp(BUTTON / 2)));
         sendBtn.setEnabled(live);
-        sendBtn.setPadding(dp(7.35f), dp(7.35f), dp(7.35f), dp(7.35f));
+        sendBtn.setPadding(dp(7.5f), dp(7.5f), dp(7.5f), dp(7.5f));
         modelChip.setText(app.pickers.modelLabel());
         renderAttachments();
     }
