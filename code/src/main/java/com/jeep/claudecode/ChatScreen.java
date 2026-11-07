@@ -518,7 +518,7 @@ final class ChatScreen extends Part {
      * conversation) rather than more buttons.
      */
     private void moreMenu(View anchor) {
-        int shade = dp(14); // room around the card for its shadow
+        int shade = dp(24); // room around the card for its whole shadow (less, and the shadow is cut square)
         FrameLayout room = new FrameLayout(app);
         room.setPadding(shade, shade, shade, shade);
         LinearLayout card = sheets.menuCard();

@@ -36,7 +36,7 @@ final class UsageSheet extends Part {
     private static final String[][] KINDS = {
             {"System prompt", "系统提示"}, {"System tools", "系统工具"}, {"MCP tools", "MCP 工具"},
             {"Custom agents", "自定义代理"}, {"Memory files", "记忆文件"}, {"Skills", "技能"},
-            {"Messages", "消息"}};
+            {"Messages", "消息"}, {"MCP server instructions", "MCP 服务说明"}};
 
     UsageSheet(MainActivity app) { super(app); }
 

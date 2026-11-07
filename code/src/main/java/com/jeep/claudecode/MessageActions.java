@@ -111,7 +111,7 @@ final class MessageActions extends Part {
         app.screen.list.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS);
         Chat chat = app.current;
         boolean user = m.kind == Chat.Msg.USER;
-        int shade = dp(14);
+        int shade = dp(24); // room for the card's whole shadow
         FrameLayout room = new FrameLayout(app);
         room.setPadding(shade, shade, shade, shade);
         LinearLayout card = sheets.menuCard();
