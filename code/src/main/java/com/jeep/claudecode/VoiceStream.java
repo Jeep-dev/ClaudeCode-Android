@@ -44,6 +44,13 @@ final class VoiceStream {
     private final Handler ui;
     private final Listener out;
     private volatile boolean recording, closing, done;
+    /**
+     * The microphone starts at the press, not once connected (that takes up to a second or more, and the
+     * first words would be lost): what it hears and anything else to send waits here until the server
+     * takes it, then goes in order.
+     */
+    private final java.util.ArrayList<byte[][]> waiting = new java.util.ArrayList<>();
+    private boolean open; // guarded by waiting
     private volatile Socket socket;
     private OutputStream os;
     /** Every write to the socket, and closing it, in order on one thread of its own: never on the main thread. */
@@ -76,6 +83,7 @@ final class VoiceStream {
     /** Connects and starts recording, on threads of its own. */
     void start(String token, String language, String userAgent) {
         recording = true;
+        new Thread(this::record, "voice-mic").start();
         new Thread(() -> run(token, language, userAgent), "voice-stream").start();
     }
 
@@ -139,11 +147,17 @@ final class VoiceStream {
                 end(status.contains(" 401 ") || status.contains(" 403 ")
                         ? "Claude Code 的登录不能用来语音识别（" + status.trim() + "）：在终端里运行 claude 重新 /login"
                         : "语音识别连不上：" + status.trim());
+                recording = false;
                 return;
             }
-            sendText("{\"type\":\"KeepAlive\"}");
-            Thread mic = new Thread(this::record, "voice-mic");
-            mic.start();
+            // Connected: what was said meanwhile goes first, then all as it comes.
+            synchronized (waiting) {
+                open = true;
+                byte[] keepAlive = "{\"type\":\"KeepAlive\"}".getBytes(StandardCharsets.UTF_8);
+                write(1, keepAlive, keepAlive.length);
+                for (byte[][] w : waiting) write(w[0][0], w[1], w[1].length);
+                waiting.clear();
+            }
             Thread keep = new Thread(() -> {
                 while (!done && !closing) {
                     try { Thread.sleep(8000); } catch (InterruptedException e) { return; }
@@ -153,6 +167,7 @@ final class VoiceStream {
             keep.start();
             read(in);
         } catch (IOException e) {
+            recording = false;
             end(closing ? null : "语音识别断开了：" + e.getMessage());
         }
     }
@@ -275,6 +290,16 @@ final class VoiceStream {
 
     /** One masked frame (a client's frames are masked). */
     private void send(int op, byte[] data, int n) {
+        synchronized (waiting) {
+            if (!open) {
+                if (!done) waiting.add(new byte[][]{{(byte) op}, java.util.Arrays.copyOf(data, n)});
+                return;
+            }
+            write(op, data, n);
+        }
+    }
+
+    private void write(int op, byte[] data, int n) {
         OutputStream o = os;
         if (o == null) return;
         byte[] mask = new byte[4];
