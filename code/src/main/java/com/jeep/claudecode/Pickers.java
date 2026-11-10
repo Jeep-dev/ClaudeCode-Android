@@ -184,6 +184,10 @@ final class Pickers extends Part {
         all.removeAll(listed);
         String inUse = claude.model.isEmpty() ? claude.defaultModel : claude.model;
         LinearLayout card = sheets.card(sheet);
+        // Typed under 其他模型 and nowhere else (not the settings' list nor the default): those a long press may remove.
+        List<String> typed = usedModels();
+        typed.removeAll(claude.models);
+        typed.remove(claude.defaultModel);
         for (String m : all) {
             boolean big = m.toLowerCase(Locale.ROOT).endsWith("[1m]");
             sheets.option(card, 0, shortModel(m), big ? "1M" : null, false, () -> {
@@ -191,6 +195,11 @@ final class Pickers extends Part {
                 prefs.edit().putString("model", claude.model).apply();
                 sheet.dismiss();
                 app.screen.updateChrome();
+            });
+            // One typed under 其他模型 (not from the settings): a long press takes it off the list.
+            if (typed.contains(m)) card.getChildAt(card.getChildCount() - 1).setOnLongClickListener(v -> {
+                removeModelAsk(sheet, m);
+                return true;
             });
             if (m.equals(inUse)) sheets.check(card);
         }
@@ -210,6 +219,27 @@ final class Pickers extends Part {
             }, null);
         });
         sheet.show();
+    }
+
+    /** Asks, then takes a model typed under 其他模型 off the list; if it was the one in use, Claude Code's default is. */
+    private void removeModelAsk(Dialog picker, String m) {
+        Dialog ask = sheets.sheet("移除 " + m + "？", "只是从这个列表里去掉，需要时可以在「其他模型」里再加。");
+        TextView cancel = sheets.button("取消", false, v -> ask.dismiss());
+        TextView ok = sheets.button("移除", true, v -> {
+            ask.dismiss();
+            List<String> used = usedModels();
+            used.remove(m);
+            prefs.edit().putString("usedModels", new JSONArray(used).toString()).apply();
+            if (claude.model.equals(m)) {
+                claude.model = "";
+                prefs.edit().putString("model", "").apply();
+                app.screen.updateChrome();
+            }
+            picker.dismiss();
+            modelSheet();
+        });
+        sheets.actions(ask, cancel, ok);
+        ask.show();
     }
 
     private List<String> usedModels() {

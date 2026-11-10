@@ -6,7 +6,7 @@
     "defaultCwd": "<T>/home/work",
     "home": "<T>/home",
     "ok": true,
-    "version": 68
+    "version": 69
    },
    "req": "GET /health ",
    "status": 200
@@ -312,6 +312,20 @@
    },
    "req": "POST /mkdir {}",
    "status": 400
+  },
+  {
+   "body": {
+    "error": "bad grant"
+   },
+   "req": "POST /reset {\"grant\": \"../x\"}",
+   "status": 400
+  },
+  {
+   "body": {
+    "error": "login"
+   },
+   "req": "POST /reset {\"grant\": \"g1\"}",
+   "status": 200
   },
   {
    "body": {

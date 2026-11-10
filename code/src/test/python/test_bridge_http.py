@@ -219,6 +219,8 @@ def main():
     call('POST', '/mkdir', {'path': os.path.join(tmp, 'new', 'dir')})
     call('POST', '/mkdir', {'path': os.path.join(tmp, 'bin', 'claude', 'x')})
     call('POST', '/mkdir', {})
+    call('POST', '/reset', {'grant': '../x'})  # not a grant id: refused before any request
+    call('POST', '/reset', {'grant': 'g1'})  # no Claude.ai login in the temporary HOME: nothing is sent
     call('POST', '/mcp', {'name': 'srv', 'action': 'set', 'config': {'command': 'x'}})
     call('POST', '/mcp', {'name': 'srv', 'action': 'remove'})
     call('POST', '/mcp', {'name': 'bad', 'action': 'set', 'config': {}})

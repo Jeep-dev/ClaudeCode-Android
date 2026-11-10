@@ -22,7 +22,8 @@ import org.json.JSONObject;
 /**
  * 用量 (the top bar's menu): what fills this conversation's context window, as Claude Code's /context
  * counts it (the bridge's /context: get_context_usage), and the Claude.ai plan's limits, the five-hour
- * session and the week, as its /usage shows them (the bridge's /usage).
+ * session and the week, as its /usage shows them (the bridge's /usage), and the limit resets the account
+ * was given (claude.ai's Settings → Usage → Limit resets), each with a button that spends one (/reset).
  *
  * The context is one segmented bar of the window, a part per kind (system prompt, tools, messages, ...),
  * each kind always in its own colour, with a legend naming them; a limit is a meter whose fill turns to
@@ -38,6 +39,9 @@ final class UsageSheet extends Part {
             {"Custom agents", "自定义代理"}, {"Memory files", "记忆文件"}, {"Skills", "技能"},
             {"Messages", "消息"}, {"MCP server instructions", "MCP 服务说明"}};
 
+    /** A reset being spent: one at a time, so a second tap (the asking sheet is still sliding away) spends none. */
+    private boolean resetting;
+
     UsageSheet(MainActivity app) { super(app); }
 
     void show() {
@@ -51,6 +55,8 @@ final class UsageSheet extends Part {
         label(box, "订阅额度");
         LinearLayout plan = card(box);
         plan.addView(waitingLine("正在读取…"));
+        LinearLayout resets = Ui.column(app); // 额度重置: shown only when the account has some
+        box.addView(resets, Ui.fill());
 
         sheet.show();
 
@@ -61,14 +67,23 @@ final class UsageSheet extends Part {
             if (c == null) context.addView(waitingLine("这个对话的 Claude Code 还没在运行：发一条消息后就能看到"));
             else fillContext(context, c);
         });
+        loadPlan(plan, resets);
+    }
+
+    private void loadPlan(LinearLayout plan, LinearLayout resets) {
         bridge.get("/usage", (status, data) -> {
             plan.removeAllViews();
+            resets.removeAllViews();
+            resets.setPadding(0, 0, 0, 0);
             if (status != 200 || data == null) { plan.addView(waitingLine("读取失败：Claude Code 还没连上")); return; }
             String error = data.optString("error");
             if (error.equals("login")) plan.addView(waitingLine("Claude Code 没有用 Claude.ai 账号登录（用 API Key 时没有这些额度）"));
             else if (error.equals("expired")) plan.addView(waitingLine("Claude Code 的登录已过期：发一条消息让它刷新，再打开"));
             else if (!error.isEmpty()) plan.addView(waitingLine("读取失败（" + error + "）"));
-            else fillPlan(plan, data.optJSONArray("limits"));
+            else {
+                fillPlan(plan, data.optJSONArray("limits"));
+                fillResets(resets, data.optJSONArray("resets"), () -> loadPlan(plan, resets));
+            }
         });
     }
 
@@ -179,7 +194,7 @@ final class UsageSheet extends Part {
             else fill = R.color.accent;
 
             LinearLayout head = Ui.row(app);
-            TextView name = Ui.text(app, limitName(l.optString("kind"), l.optString("group")), 15, R.color.text);
+            TextView name = Ui.text(app, limitName(l), 15, R.color.text);
             name.setTypeface(Ui.MEDIUM);
             head.addView(name, Ui.weight());
             if (state > 0) {
@@ -200,11 +215,22 @@ final class UsageSheet extends Part {
             Ui.margins(meter, app, 0, 7, 0, 5);
 
             String resets = resets(l.optString("resetsAt"));
+            if (!l.isNull("shareOfWeekly")) { // a model's own limit: at most this share of the whole week
+                String share = "最多占每周额度的 " + Math.round(l.optDouble("shareOfWeekly")) + "%";
+                resets = resets.isEmpty() ? share : resets + " · " + share;
+            }
             if (!resets.isEmpty()) card.addView(Ui.text(app, resets, 12.5f, R.color.text3));
         }
     }
 
-    private static String limitName(String kind, String group) {
+    private static String limitName(JSONObject l) {
+        String kind = l.optString("kind"), group = l.optString("group");
+        // A row for one model (weekly_scoped): the bridge names it from its scope.
+        String only = l.isNull("model") ? "" : l.optString("model");
+        if (!only.isEmpty()) {
+            if ("session".equals(group)) return "5 小时额度 · " + only;
+            return "每周额度 · " + only;
+        }
         switch (kind) {
             case "session": return "5 小时额度";
             case "weekly_all": return "每周额度 · 全部模型";
@@ -214,6 +240,118 @@ final class UsageSheet extends Part {
                 if ("weekly".equals(group)) return "每周额度 · " + kind.replace("weekly_", "");
                 if ("session".equals(group)) return "5 小时额度 · " + kind;
                 return kind;
+        }
+    }
+
+    // ---- 额度重置 ----
+
+    /**
+     * The limit resets the account holds (claude.ai's 「Reset for free」): what each gives back, how many
+     * are left and until when, and a button spending one, asked first (it cannot be undone).
+     */
+    private void fillResets(LinearLayout box, JSONArray grants, Runnable reload) {
+        List<JSONObject> held = new ArrayList<>();
+        for (int i = 0; grants != null && i < grants.length(); i++) {
+            JSONObject g = grants.optJSONObject(i);
+            if (g != null && g.optInt("left") > 0) held.add(g);
+        }
+        if (held.isEmpty()) return;
+        box.setPadding(0, dp(14), 0, 0); // label() sees an empty box: the gap above the section is set here
+        label(box, "额度重置");
+        LinearLayout card = card(box);
+        for (int i = 0; i < held.size(); i++) {
+            JSONObject g = held.get(i);
+            if (i > 0) card.addView(new View(app), new LinearLayout.LayoutParams(1, dp(12)));
+            String title = models(g).isEmpty() ? "额度重置" : models(g) + " 重置";
+
+            LinearLayout row = Ui.row(app);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout words = Ui.column(app);
+            TextView name = Ui.text(app, title, 15, R.color.text);
+            name.setTypeface(Ui.MEDIUM);
+            words.addView(name);
+            String left = "剩 " + g.optInt("left") + " 次";
+            String ends = expires(g.optString("endsAt"));
+            TextView sub = Ui.text(app, ends.isEmpty() ? left : left + " · " + ends, 12.5f, R.color.text3);
+            sub.setPadding(0, dp(3), 0, 0);
+            words.addView(sub);
+            row.addView(words, Ui.weight());
+
+            boolean usable = g.optBoolean("usableNow");
+            TextView use = sheets.button(usable ? "免费重置" : "暂不可用", usable, usable ? v -> { if (!resetting) askReset(g, title, reload); } : null);
+            use.setEnabled(usable);
+            if (!usable) use.setAlpha(0.5f);
+            row.addView(use);
+            card.addView(row, Ui.fill());
+
+            TextView what = Ui.text(app, gives(g), 12.5f, R.color.text2);
+            what.setLineSpacing(0, 1.2f);
+            what.setPadding(0, dp(8), 0, 0);
+            card.addView(what);
+        }
+    }
+
+    /** The models a reset gives back the week of (the bridge's, from the limits' scopes), joined; "" for all. */
+    private static String models(JSONObject g) {
+        JSONArray m = g.optJSONArray("models");
+        List<String> names = new ArrayList<>();
+        for (int i = 0; m != null && i < m.length(); i++) if (!m.optString(i).isEmpty()) names.add(m.optString(i));
+        return TextUtils.join(" / ", names);
+    }
+
+    /** What a reset gives back, as the bridge read it from what the server says it clears. */
+    private static String gives(JSONObject g) {
+        String week;
+        switch (g.optString("week")) {
+            case "all": week = "每周额度回满"; break;
+            case "models": week = "退回本周花在 " + models(g) + " 上的额度"; break;
+            case "part": week = "退回部分每周额度"; break;
+            default: week = "";
+        }
+        String five = g.optBoolean("session") ? "5 小时额度回满" : "";
+        if (week.isEmpty()) return five.isEmpty() ? "" : five + "。";
+        return week + (five.isEmpty() ? "" : "，" + five) + "。不会提高上限，用了不能撤销。";
+    }
+
+    private void askReset(JSONObject g, String title, Runnable reload) {
+        Dialog sheet = sheets.sheet("使用一次" + title + "？", gives(g)
+                + "\n\n剩 " + g.optInt("left") + " 次，用后剩 " + (g.optInt("left") - 1) + " 次。");
+        TextView cancel = sheets.button("取消", false, v -> sheet.dismiss());
+        TextView ok = sheets.button("免费重置", true, v -> {
+            if (resetting) return;
+            resetting = true;
+            v.setEnabled(false);
+            sheet.dismiss();
+            bridge.post("/reset", obj("grant", g.optString("id")), (status, data) -> {
+                resetting = false;
+                String result = status == 200 && data != null ? data.optString("result") : "";
+                String error = data != null ? data.optString("error") : "";
+                switch (result) {
+                    case "reset": toast("已重置"); break;
+                    case "already_used": toast("这次重置已经用过了"); break;
+                    case "not_limited": toast("现在还没用到额度，不需要重置"); break;
+                    case "cooldown": toast("刚重置过，稍后再试"); break;
+                    case "ineligible": case "unavailable": toast("这次重置现在用不了"); break;
+                    default:
+                        toast(error.equals("expired") ? "Claude Code 的登录已过期：发一条消息让它刷新，再试"
+                                : "重置失败：" + (error.isEmpty() ? "HTTP " + status : error));
+                }
+                reload.run();
+            });
+        });
+        sheets.actions(sheet, cancel, ok);
+        sheet.show();
+    }
+
+    /** When an offer ends: the day and time it lapses. */
+    private static String expires(String iso) {
+        if (iso == null || iso.isEmpty() || iso.equals("null")) return "";
+        try {
+            java.time.ZonedDateTime local = java.time.OffsetDateTime.parse(iso).atZoneSameInstant(java.time.ZoneId.systemDefault());
+            return String.format(Locale.ROOT, "%d月%d日 %02d:%02d 过期", local.getMonthValue(), local.getDayOfMonth(),
+                    local.getHour(), local.getMinute());
+        } catch (RuntimeException e) {
+            return "";
         }
     }
 

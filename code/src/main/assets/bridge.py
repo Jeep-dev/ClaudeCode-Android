@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 68  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 69  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -914,13 +914,9 @@ def forget_message(mid):
 usage_cache = {'at': 0, 'data': None}
 
 
-def plan_usage():
-    """(status, data) from api.anthropic.com/api/oauth/usage with Claude Code's Claude.ai login (what /usage
-    shows): each limit's share used and when it starts again. Kept 20 s: the sheet may be opened often."""
-    import urllib.error
-    import urllib.request
-    if usage_cache['data'] is not None and time.time() - usage_cache['at'] < 20:
-        return 200, usage_cache['data']
+def plan_oauth():
+    """Claude Code's Claude.ai login: (its oauth block, the request headers), as Claude Code itself sends
+    them: the server shows limit resets (cedar_ember) only to what calls itself Claude Code."""
     try:
         with open(os.path.join(CLAUDE_DIR, '.credentials.json')) as f:
             oauth = json.load(f).get('claudeAiOauth') or {}
@@ -928,25 +924,98 @@ def plan_usage():
         oauth = {}
     token = oauth.get('accessToken')
     if not token:
-        return 200, {'error': 'login'}
-    req = urllib.request.Request('https://api.anthropic.com/api/oauth/usage', headers={
-        'Authorization': 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20',
-        'User-Agent': 'ClaudeCode-Android-bridge/%d' % VERSION})
+        return oauth, None
+    return oauth, {'Authorization': 'Bearer ' + token, 'anthropic-beta': 'oauth-2025-04-20',
+                   'User-Agent': 'claude-cli/%s (external, cli)' % (claude_version or '2.1.321')}
+
+
+def plan_api(path, headers, body=None):
+    """(status, data, error) for a call to api.anthropic.com with Claude Code's login; error is None, 'expired'
+    (401, 403), 'http N' or 'network'."""
+    import urllib.error
+    import urllib.request
+    data = None if body is None else json.dumps(body).encode()
+    req = urllib.request.Request('https://api.anthropic.com' + path, data=data, method='GET' if body is None else 'POST',
+                                 headers=dict(headers, **({'Content-Type': 'application/json'} if body is not None else {})))
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            raw = json.load(r)
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, json.load(r), None
     except urllib.error.HTTPError as e:
-        log('usage: HTTP %s' % e.code)
-        return 200, {'error': 'expired' if e.code in (401, 403) else 'http %s' % e.code}
+        log('%s: HTTP %s' % (path, e.code))
+        return e.code, None, 'expired' if e.code in (401, 403) else 'http %s' % e.code
     except (OSError, ValueError) as e:
-        log('usage: %s' % e)
-        return 200, {'error': 'network'}
+        log('%s: %s' % (path, e))
+        return 0, None, 'network'
+
+
+def scoped_model(row):
+    """The model a limit row is for (its scope's display_name, e.g. 'Fable'), or None for the whole plan."""
+    scope = row.get('scope') if isinstance(row.get('scope'), dict) else {}
+    model = scope.get('model') if isinstance(scope.get('model'), dict) else {}
+    name = model.get('display_name')
+    return name if isinstance(name, str) and name else None
+
+
+def plan_usage():
+    """(status, data) from api.anthropic.com/api/oauth/usage with Claude Code's Claude.ai login (what /usage
+    shows): each limit's share used and when it starts again, and the limit resets given to the account
+    (cedar_ember's grants: Settings → Usage → Limit resets on claude.ai). Kept 20 s: the sheet may be opened often."""
+    if usage_cache['data'] is not None and time.time() - usage_cache['at'] < 20:
+        return 200, usage_cache['data']
+    oauth, headers = plan_oauth()
+    if headers is None:
+        return 200, {'error': 'login'}
+    _, raw, error = plan_api('/api/oauth/usage?cedar_ember=1', headers)
+    if error:
+        return 200, {'error': error}
+    rows = [x for x in raw.get('limits') or [] if isinstance(x, dict)]
+    # A model's own weekly limit (weekly_scoped) may use at most a share of the whole week: weekly_scoped_shares,
+    # by the row's index.
+    shares = {x.get('limit_index'): x.get('allowance_percent_of_weekly')
+              for x in raw.get('weekly_scoped_shares') or [] if isinstance(x, dict)}
     limits = [{'kind': x.get('kind'), 'group': x.get('group'), 'percent': x.get('percent'),
-               'severity': x.get('severity'), 'resetsAt': x.get('resets_at'), 'scope': x.get('scope')}
-              for x in raw.get('limits') or [] if isinstance(x, dict)]
-    data = {'limits': limits, 'plan': oauth.get('subscriptionType') or ''}
+               'severity': x.get('severity'), 'resetsAt': x.get('resets_at'), 'scope': x.get('scope'),
+               'model': scoped_model(x), 'shareOfWeekly': shares.get(i)}
+              for i, x in enumerate(rows)]
+    # The models with a weekly limit of their own: what a reset that gives back the week but not all of it
+    # (it clears no 'seven_day') gives back.
+    scoped = [m for m in (scoped_model(x) for x in rows if x.get('kind') == 'weekly_scoped') if m]
+    ember = raw.get('cedar_ember') if isinstance(raw.get('cedar_ember'), dict) else {}
+    resets = [{'id': g.get('id'), 'label': g.get('label') or '', 'left': g.get('resets_left') or 0,
+               'total': g.get('resets_total') or 0, 'endsAt': g.get('ends_at'), 'usableNow': bool(g.get('usable_now')),
+               'session': 'five_hour' in (g.get('clears') or []),
+               'week': ('all' if 'seven_day' in (g.get('clears') or []) else 'models' if scoped else 'part')
+               if g.get('gives_back_weekly') else None,
+               'models': [] if 'seven_day' in (g.get('clears') or []) else scoped,
+               'unavailable': g.get('unavailable_reason')}
+              for g in ember.get('grants') or [] if isinstance(g, dict) and g.get('id')] if ember.get('eligible') else []
+    data = {'limits': limits, 'resets': resets, 'plan': oauth.get('subscriptionType') or ''}
     usage_cache.update(at=time.time(), data=data)
     return 200, data
+
+
+def use_reset(grant):
+    """Spends one of the account's limit resets (a cedar_ember grant), as claude.ai's 「Reset for free」 and
+    Claude Code's rate-limit menu do: (status, data) with the server's result ('reset' when done; else
+    already_used, not_limited, cooldown, ineligible or unavailable) and the resets left of it."""
+    oauth, headers = plan_oauth()
+    if headers is None:
+        return 200, {'error': 'login'}
+    try:
+        with open(os.path.join(HOME, '.claude.json'), encoding='utf-8') as f:
+            org = (json.load(f).get('oauthAccount') or {}).get('organizationUuid')
+    except (OSError, ValueError, AttributeError):
+        org = None
+    if not org or not re.match(r'^[0-9a-f-]{36}$', org):
+        return 200, {'error': 'login'}
+    _, raw, error = plan_api('/api/organizations/%s/reset_rate_limits' % org, headers,
+                             {'program': 'cedar_ember', 'grant_id': grant, 'request_id': str(uuid.uuid4())})
+    usage_cache.update(at=0, data=None)  # the limits have changed (or may have): read them again
+    if error:
+        return 200, {'error': error}
+    log('reset %s: %s %s' % (grant, raw.get('result'), raw.get('reason') or ''))
+    return 200, {'result': raw.get('result') or 'unavailable', 'reason': raw.get('reason'),
+                 'left': raw.get('resets_left')}
 
 
 def chat_for(key, session_id=None, create=True):
@@ -2235,6 +2304,15 @@ class Handler(BaseHTTPRequestHandler):
         status, data = plan_usage()
         self.reply(status, data)
 
+    def post_reset(self, data):
+        """Spends one of the account's limit resets: {grant} as /usage lists it."""
+        grant = data.get('grant')
+        if not isinstance(grant, str) or not re.match(r'^[A-Za-z0-9_.:-]{1,100}$', grant):
+            self.reply(400, {'error': 'bad grant'})
+            return
+        status, out = use_reset(grant)
+        self.reply(status, out)
+
     def post_stop(self, data):
         chat = chat_for(data['chat'], data.get('sessionId'), create=False)
         self.reply(200, {'ok': True, 'stopped': bool(chat and chat.stop())})
@@ -2419,7 +2497,7 @@ class Handler(BaseHTTPRequestHandler):
     POST = {'/context': post_context, '/send': post_send, '/open': post_open, '/launch': post_launch, '/memory': post_memory, '/mcp': mcp,
             '/plugin': plugin, '/cancel': post_cancel, '/stop': post_stop, '/delete': post_delete,
             '/rewind': post_rewind, '/delete-message': post_delete_message, '/title': post_title,
-            '/permission': post_permission, '/mkdir': post_mkdir}
+            '/permission': post_permission, '/mkdir': post_mkdir, '/reset': post_reset}
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
