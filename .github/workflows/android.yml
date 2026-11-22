@@ -23,6 +23,8 @@ jobs:
         run: |
           mkdir -p userland
           sudo code/runtime/build-rootfs.sh aarch64 userland/rootfs.tar.xz
+          # Built as root: the runner's own, so the published one can be downloaded over it (below).
+          sudo chown -R "$(id -u):$(id -g)" userland
           code/runtime/fetch-proot.sh userland
       - name: Publish the userland (once per userland)
         env:
