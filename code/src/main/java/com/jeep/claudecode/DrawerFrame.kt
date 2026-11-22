@@ -1,5 +1,7 @@
 package com.jeep.claudecode
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.view.MotionEvent
@@ -32,6 +34,8 @@ class DrawerFrame(c: Context, private val main: View, private val drawer: View) 
     private var velocity: VelocityTracker? = null
     private var anim: ValueAnimator? = null
     private var listener: Listener? = null
+    /** Work held back while the drawer moves (the list built again), done once it is still. */
+    private var whenStill: Runnable? = null
 
     init {
         scrim.setBackgroundColor(Ui.color(c, R.color.scrim))
@@ -52,6 +56,17 @@ class DrawerFrame(c: Context, private val main: View, private val drawer: View) 
     val isOpen: Boolean get() = offset > 0.5f
 
     fun open() = animateTo(1f)
+
+    /** Runs [r] now, or once the drawer stops moving under the finger or by itself: a frame that long would stop it. */
+    fun whenStill(r: Runnable) {
+        if (dragging || anim?.isRunning == true) whenStill = r else r.run()
+    }
+
+    private fun still() {
+        val r = whenStill ?: return
+        whenStill = null
+        r.run()
+    }
 
     fun close() = animateTo(0f)
 
@@ -85,6 +100,12 @@ class DrawerFrame(c: Context, private val main: View, private val drawer: View) 
             duration = (Motion.PAGE * max(0.35f, abs(target - offset))).toLong()
             interpolator = Motion.EMPHASIZED
             addUpdateListener { a -> apply(a.animatedValue as Float) }
+            addListener(object : AnimatorListenerAdapter() {
+                // Not when it was cut short by another move or by the finger: that one ends it.
+                override fun onAnimationEnd(a: Animator) {
+                    if (anim === a && !dragging) still()
+                }
+            })
             start()
         }
         if (opening) listener?.opened()
