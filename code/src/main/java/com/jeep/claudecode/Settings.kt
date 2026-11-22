@@ -118,7 +118,7 @@ class Settings(app: MainActivity) : Part(app) {
         Motion.pop(app.findViewById(android.R.id.content), settingsStage) { d.dismiss() }
     }
 
-    private fun settingsOpen(page: String) {
+    private fun settingsOpen(page: String?) {
         if (settingsPage == null || !settingsMoving()) return
         settingsGo(page)
     }

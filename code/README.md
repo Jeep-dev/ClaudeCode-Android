@@ -3,7 +3,7 @@
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
 interface is plain Android views, so scrolling and text selection are the system's own. Written in
-Kotlin (the tests partly still in Java).
+Kotlin, the tests too.
 Content with no text to select may be drawn with Jetpack Compose inside the app's own windows
 (`ComposeHost`: the window carries the lifecycle Compose needs, one for the window, MainActivity being a
 plain Activity): 用量 (`UsageSheet`, what it says read in `Usage`) and Settings' pages 外观, 存储, 后台 and
