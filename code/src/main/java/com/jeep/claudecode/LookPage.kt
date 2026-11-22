@@ -2,147 +2,137 @@ package com.jeep.claudecode
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.res.ColorStateList
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.view.Gravity
+import android.view.View
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Locale
 
-/**
- * Settings → 外观: the colours (a palette each, light, dark or the system's), what is shown, the text.
- * The page is drawn with Compose (Tiles) inside Settings' views; the font sheets stay views, each font's
- * name shown in that font.
- */
+/** Settings → 外观: the colours (a palette each, light, dark or the system's), what is shown, the text. */
 class LookPage(app: MainActivity) : Part(app) {
     /** Which sheet a font file is imported from, to return to it. */
     private var fontCjk = true
 
     fun fillLook(box: LinearLayout) {
-        val c = AppColors(app)
-        // What the page shows, read as it is filled (each change fills it again).
+        app.settings.section(box, "主题")
+        val themes = app.settings.card(box)
+        // As RikkaHub has them: four to a row, all as wide, the last row's gaps kept.
+        val grid = Ui.column(app)
+        grid.setPadding(dp(8f), dp(12f), dp(8f), dp(12f))
         val now = Themes.current(app).id
-        val dark = c.dark
-        val crab = Themes.crabStyle(app)
-        val footer = prefs.getString("footer", "") ?: ""
-        composeIn(app.settings.settingsPage!!, box) {
-            Column(Modifier.fillMaxWidth()) {
-                Section(c, "主题", afterGroup = false)
-                Tiles(c) {
-                    custom { shape -> Swatches(c, shape, now, dark) }
-                    choice("深色模式", Themes.MODES.toList(), Themes.mode(app)) { m ->
-                        Themes.setMode(app, m)
-                        app.restyle()
-                    }
-                    toggle("纯黑背景", "深色时页面用纯黑", Themes.pureBlack(app)) { on ->
-                        Themes.setPureBlack(app, on)
-                        if (Themes.dark(app)) app.restyle()
-                    }
-                }
-
-                Section(c, "显示", afterGroup = true)
-                Tiles(c) {
-                    toggle("沉浸式", "对话延伸到状态栏下，按钮和输入框是玻璃效果", Themes.immersive(app)) { on ->
-                        Themes.setImmersive(app, on)
-                        app.restyle()
-                    }
-                    toggle("标题", "在对话上方显示它的标题", Themes.showTitle(app)) { on ->
-                        Themes.setShowTitle(app, on)
-                        app.restyle()
-                    }
-                    toggle("思考", "显示模型的思考过程", Themes.showThinking(app)) { on ->
-                        Themes.setShowThinking(app, on)
-                        refresh()
-                        app.renderNow()
-                    }
-                    toggle("对话时间", "侧栏里显示每个对话多久以前用过", prefs.getBoolean("drawerTimes", true)) { on ->
-                        prefs.edit().putBoolean("drawerTimes", on).apply()
-                        refresh()
-                        app.drawer.renderSessions()
-                    }
-                    toggle("只显示当前目录", "侧栏只列出当前工作目录里的对话", app.drawer.onlyHere()) { on ->
-                        prefs.edit().putBoolean("drawerOnlyHere", on).apply()
-                        refresh()
-                        app.drawer.renderSessions()
-                    }
-                    option(0, "底部文字", footer.ifEmpty { "不显示" }) {
-                        sheets.textSheet("底部文字", footer, "", false, { t, done ->
-                            prefs.edit().putString("footer", t.trim()).apply()
-                            app.drawer.shownLink = null
-                            app.drawer.updateLink()
-                            done.run()
-                        }, app.settings::refreshSettings)
-                    }
-                }
-
-                Section(c, "螃蟹", afterGroup = true)
-                Tiles(c) {
-                    custom { shape -> Crabs(c, shape, crab) }
-                }
-
-                Section(c, "文字", afterGroup = true)
-                Tiles(c) {
-                    choice("大小", Fonts.SIZES.toList(), Fonts.size(app)) { i ->
-                        Fonts.setSize(app, i)
-                        app.restyle()
-                    }
-                    option(0, "中文字体", Fonts.name(Fonts.cjk(app))) { fontSheet(true) }
-                    option(0, "英文字体", Fonts.name(Fonts.latin(app))) { fontSheet(false) }
-                }
+        val dark = Themes.dark(app)
+        for ((r, row) in Themes.ALL.toList().chunked(4).withIndex()) {
+            val line = Ui.row(app)
+            line.gravity = Gravity.TOP
+            grid.addView(line, Ui.fill())
+            if (r > 0) Ui.margins(line, app, 0, 8, 0, 0)
+            for (i in 0 until 4) {
+                val t = row.getOrNull(i)
+                line.addView(if (t == null) View(app) else swatch(t, t.id == now, dark), LinearLayout.LayoutParams(0, if (t == null) 1 else -2, 1f))
+                if (i > 0) Ui.margins(line.getChildAt(i), app, 4, 0, 0, 0)
             }
         }
+        themes.addView(grid, Ui.fill())
+        sheets.choice(themes, "深色模式", Themes.MODES, Themes.mode(app)) { m ->
+            Themes.setMode(app, m)
+            app.restyle()
+        }
+        sheets.toggle(themes, "纯黑背景", "深色时页面用纯黑", Themes.pureBlack(app)) { on ->
+            Themes.setPureBlack(app, on)
+            if (Themes.dark(app)) app.restyle()
+        }
+
+        app.settings.section(box, "显示")
+        val show = app.settings.card(box)
+        sheets.toggle(show, "沉浸式", "对话延伸到状态栏下，按钮和输入框是玻璃效果", Themes.immersive(app)) { on ->
+            Themes.setImmersive(app, on)
+            app.restyle()
+        }
+        sheets.toggle(show, "标题", "在对话上方显示它的标题", Themes.showTitle(app)) { on ->
+            Themes.setShowTitle(app, on)
+            app.restyle()
+        }
+        sheets.toggle(show, "思考", "显示模型的思考过程", Themes.showThinking(app)) { on ->
+            Themes.setShowThinking(app, on)
+            refresh()
+            app.renderNow()
+        }
+        sheets.toggle(show, "对话时间", "侧栏里显示每个对话多久以前用过", prefs.getBoolean("drawerTimes", true)) { on ->
+            prefs.edit().putBoolean("drawerTimes", on).apply()
+            refresh()
+            app.drawer.renderSessions()
+        }
+        sheets.toggle(show, "只显示当前目录", "侧栏只列出当前工作目录里的对话", app.drawer.onlyHere()) { on ->
+            prefs.edit().putBoolean("drawerOnlyHere", on).apply()
+            refresh()
+            app.drawer.renderSessions()
+        }
+        val footer = prefs.getString("footer", "") ?: ""
+        sheets.option(show, 0, "底部文字", footer.ifEmpty { "不显示" }, false) {
+            sheets.textSheet("底部文字", footer, "", false, { t, done ->
+                prefs.edit().putString("footer", t.trim()).apply()
+                app.drawer.shownLink = null
+                app.drawer.updateLink()
+                done.run()
+            }, app.settings::refreshSettings)
+        }
+
+        app.settings.section(box, "螃蟹")
+        val crabs = app.settings.card(box)
+        val styles = Ui.column(app)
+        styles.setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
+        for (row in Crab.NAMES.indices.chunked(3)) {
+            val line = Ui.row(app)
+            styles.addView(line, Ui.fill())
+            for (style in row) line.addView(crabCell(style), LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        crabs.addView(styles, Ui.fill())
+
+        app.settings.section(box, "文字")
+        val text = app.settings.card(box)
+        sheets.choice(text, "大小", Fonts.SIZES, Fonts.size(app)) { i ->
+            Fonts.setSize(app, i)
+            app.restyle()
+        }
+        sheets.option(text, 0, "中文字体", Fonts.name(Fonts.cjk(app)), false) { fontSheet(true) }
+        sheets.option(text, 0, "英文字体", Fonts.name(Fonts.latin(app)), false) { fontSheet(false) }
     }
 
     private fun refresh() = app.settings.fillSettings(app.settings.launchCache)
 
     // ---- 主题、螃蟹 ----
 
-    /** The palettes, as RikkaHub has them: four to a row, all as wide, the last row's gaps kept. */
-    @Composable
-    private fun Swatches(c: AppColors, shape: Shape, now: String, dark: Boolean) {
-        Column(
-            Modifier.fillMaxWidth().clip(shape).background(c.surface).padding(horizontal = 8.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Themes.ALL.toList().chunked(4).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    for (t in row) Box(Modifier.weight(1f)) { Swatch(c, t, t.id == now, dark) }
-                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
-                }
-            }
+    /** One of the crab's styles, wearing it, the chosen one marked. */
+    private fun crabCell(style: Int): View {
+        val chosen = Themes.crabStyle(app) == style
+        val cell = Ui.column(app)
+        cell.gravity = Gravity.CENTER_HORIZONTAL
+        cell.setPadding(0, dp(6f), 0, dp(8f))
+        cell.background = Ui.press(app, null, dp(16f))
+        cell.addView(Crab(app, style, true), LinearLayout.LayoutParams(-2, -2))
+        val name = Ui.text(app, Crab.NAMES[style], 12.5f, if (chosen) R.color.accentPress else R.color.text2)
+        if (chosen) name.typeface = Ui.MEDIUM
+        name.setPadding(0, dp(2f), 0, 0)
+        cell.addView(name)
+        cell.isSelected = chosen
+        cell.setOnClickListener {
+            if (chosen) return@setOnClickListener
+            Themes.setCrabStyle(app, style)
+            app.restyle()
         }
+        return cell
     }
 
     /**
@@ -150,61 +140,53 @@ class LookPage(app: MainActivity) : Part(app) {
      * container (left half), the secondary's (top right) and the tertiary's (bottom right), its
      * primary in the middle, larger and ticked when chosen; its name below in its primary.
      */
-    @Composable
-    private fun Swatch(c: AppColors, t: Themes.Theme, chosen: Boolean, dark: Boolean) {
-        val s = t.swatch(dark).map { Color(it) } // primary, its container, the secondary's, the tertiary's, on primary
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                .pressable(c, role = Role.RadioButton) {
-                    if (chosen) return@pressable
-                    Themes.set(app, t.id)
-                    app.restyle()
-                }
-                .semantics { selected = chosen }
-                .padding(vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.size(48.dp)) {
-                    drawArc(s[1], 90f, 180f, true)
-                    drawArc(s[2], 270f, 90f, true)
-                    drawArc(s[3], 0f, 90f, true)
-                    drawCircle(s[0], (if (chosen) 12 else 8).dp.toPx(), Offset(size.width / 2, size.height / 2))
-                }
-                if (chosen) Image(painterResource(R.drawable.ic_check), null, Modifier.size(16.dp), colorFilter = ColorFilter.tint(s[4]))
-            }
-            Words(t.name, 12.5.sp, s[0], Modifier.padding(top = 6.dp), medium = true, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
+    private fun swatch(t: Themes.Theme, chosen: Boolean, dark: Boolean): View {
+        val c = t.swatch(dark) // primary, its container, the secondary's, the tertiary's, on primary
+        val cell = Ui.column(app)
+        cell.gravity = Gravity.CENTER_HORIZONTAL
+        cell.setPadding(0, dp(8f), 0, dp(8f))
+        cell.background = Ui.press(app, null, dp(16f))
+        val disc = FrameLayout(app)
+        val middle = dp(if (chosen) 12f else 8f).toFloat()
+        val circle = object : View(app) {
+            private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+            private val oval = RectF()
 
-    /** The crab's styles, three to a row, each worn by it (its own view, standing still), the chosen one marked. */
-    @Composable
-    private fun Crabs(c: AppColors, shape: Shape, chosen: Int) {
-        Column(Modifier.fillMaxWidth().clip(shape).background(c.surface).padding(8.dp)) {
-            Crab.NAMES.indices.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth()) {
-                    for (style in row) Box(Modifier.weight(1f)) { CrabCell(c, style, style == chosen) }
-                }
+            override fun onDraw(canvas: Canvas) {
+                val w = width.toFloat()
+                oval.set(0f, 0f, w, w)
+                p.color = c[1]
+                canvas.drawArc(oval, 90f, 180f, true, p)
+                p.color = c[2]
+                canvas.drawArc(oval, 270f, 90f, true, p)
+                p.color = c[3]
+                canvas.drawArc(oval, 0f, 90f, true, p)
+                p.color = c[0]
+                canvas.drawCircle(w / 2f, w / 2f, middle, p)
             }
         }
-    }
-
-    @Composable
-    private fun CrabCell(c: AppColors, style: Int, chosen: Boolean) {
-        Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                .pressable(c, role = Role.RadioButton) {
-                    if (chosen) return@pressable
-                    Themes.setCrabStyle(app, style)
-                    app.restyle()
-                }
-                .semantics { selected = chosen }
-                .padding(top = 6.dp, bottom = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            AndroidView({ Crab(it, style, true) })
-            Words(Crab.NAMES[style], 12.5.sp, if (chosen) c.accentPress else c.text2, Modifier.padding(top = 2.dp), medium = chosen)
+        disc.addView(circle, FrameLayout.LayoutParams(dp(48f), dp(48f)))
+        if (chosen) {
+            val tick = ImageView(app)
+            tick.setImageResource(R.drawable.ic_check)
+            tick.imageTintList = ColorStateList.valueOf(c[4])
+            disc.addView(tick, FrameLayout.LayoutParams(dp(16f), dp(16f), Gravity.CENTER))
         }
+        cell.addView(disc, LinearLayout.LayoutParams(dp(48f), dp(48f)))
+        val name = Ui.text(app, t.name, 12.5f, R.color.text)
+        name.setTextColor(c[0])
+        name.typeface = Ui.MEDIUM
+        name.setPadding(0, dp(6f), 0, 0)
+        name.isSingleLine = true
+        name.ellipsize = android.text.TextUtils.TruncateAt.END
+        cell.addView(name)
+        cell.isSelected = chosen
+        cell.setOnClickListener {
+            if (chosen) return@setOnClickListener
+            Themes.set(app, t.id)
+            app.restyle()
+        }
+        return cell
     }
 
     // ---- fonts ----

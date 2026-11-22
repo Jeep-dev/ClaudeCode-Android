@@ -1,4 +1,4 @@
-# R8 for the release: unused code gone and the rest optimized (Compose above all is far slower without),
+# R8 for the release: unused code gone and the rest optimized,
 # names kept as they are, so a crash's stack and the system's trace still read as the code.
 -dontobfuscate
 -keepattributes SourceFile,LineNumberTable

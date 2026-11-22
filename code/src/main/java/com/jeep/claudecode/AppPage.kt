@@ -9,20 +9,10 @@ import android.provider.Settings as AndroidSettings
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import java.io.File
 import org.json.JSONArray
 
-/**
- * Settings → 存储, 后台 and 关于: what is taken up, keeping the app running, the version and the logs.
- * The pages are drawn with Compose (Tiles) inside Settings' views; the sheets they open are the app's own.
- */
+/** Settings → 存储, 后台 and 关于: what is taken up, keeping the app running, the version and the logs. */
 class AppPage(app: MainActivity) : Part(app) {
     /** Sizes in the userland, measured when the page opens: conversations, work, temporary files, all. */
     private var storage: LongArray? = null
@@ -30,14 +20,6 @@ class AppPage(app: MainActivity) : Part(app) {
     /** How keeping alive was found (KeepAlive's states), UNKNOWN until checked in this run. */
     @JvmField var keepAlive = UNKNOWN
     private var keepChecking = false
-
-    /** A page's content, drawn with Compose, under the page's title Settings has put in the box. */
-    private fun page(box: LinearLayout, content: @Composable (AppColors) -> Unit) {
-        val colors = AppColors(app)
-        composeIn(app.settings.settingsPage!!, box) {
-            Column(Modifier.fillMaxWidth()) { content(colors) }
-        }
-    }
 
     /** Settings is on this page: it is drawn again with what changed. */
     private fun refresh(page: String) {
@@ -70,29 +52,25 @@ class AppPage(app: MainActivity) : Part(app) {
     fun fillStorage(box: LinearLayout) {
         val s = storage
         fun size(n: Long) = if (s == null) "…" else Ui.size(n)
-        page(box) { c ->
-            Tiles(c) {
-                option(R.drawable.ic_compose, "对话记录", size(s?.get(0) ?: 0))
-                option(R.drawable.ic_folder, "工作目录", size(s?.get(1) ?: 0))
-                option(R.drawable.ic_file, "临时文件", size(s?.get(2) ?: 0))
-                option(R.drawable.ic_terminal, "运行环境", size(if (s == null) 0 else maxOf(0, s[3] - s[0] - s[1] - s[2])))
+        val sizes = app.settings.card(box)
+        sheets.option(sizes, R.drawable.ic_compose, "对话记录", size(s?.get(0) ?: 0), false, null)
+        sheets.option(sizes, R.drawable.ic_folder, "工作目录", size(s?.get(1) ?: 0), false, null)
+        sheets.option(sizes, R.drawable.ic_file, "临时文件", size(s?.get(2) ?: 0), false, null)
+        sheets.option(sizes, R.drawable.ic_terminal, "运行环境", size(if (s == null) 0 else maxOf(0, s[3] - s[0] - s[1] - s[2])), false, null)
+        val clean = app.settings.card(box)
+        Ui.margins(clean, app, 0, 12, 0, 0)
+        sheets.option(clean, R.drawable.ic_trash, "清理临时文件", null, false) {
+            confirm("清理临时文件", "删除 /tmp 和 ~/.cache 里的文件", false) {
+                clear(userland.file("/tmp"))
+                clear(userland.file(Userland.HOME + "/.cache"))
             }
-            Spacer(Modifier.height(12.dp))
-            Tiles(c) {
-                option(R.drawable.ic_trash, "清理临时文件") {
-                    confirm("清理临时文件", "删除 /tmp 和 ~/.cache 里的文件", false) {
-                        clear(userland.file("/tmp"))
-                        clear(userland.file(Userland.HOME + "/.cache"))
-                    }
-                }
-                option(R.drawable.ic_trash, "清空对话记录", danger = true) {
-                    confirm("清空对话记录", "所有对话都会被删除，不能恢复", true) {
-                        clear(userland.file(Userland.HOME + "/.claude/projects"))
-                        ui.post {
-                            app.drawer.keepSessions(JSONArray())
-                            app.drawer.loadSessions()
-                        }
-                    }
+        }
+        sheets.option(clean, R.drawable.ic_trash, "清空对话记录", null, true) {
+            confirm("清空对话记录", "所有对话都会被删除，不能恢复", true) {
+                clear(userland.file(Userland.HOME + "/.claude/projects"))
+                ui.post {
+                    app.drawer.keepSessions(JSONArray())
+                    app.drawer.loadSessions()
                 }
             }
         }
@@ -156,18 +134,15 @@ class AppPage(app: MainActivity) : Part(app) {
             keepAlive == KeepAlive.OFF -> "没能开启，点此重试"
             else -> "需要 Shizuku，点此重试"
         }
-        page(box) { c ->
-            Tiles(c) {
-                if (!storage) option(R.drawable.ic_folder, "允许访问存储") { app.requestStorage() }
-                if (!battery) option(R.drawable.ic_check, "关闭电池优化") {
-                    open(Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + app.packageName)), "系统不支持这个设置")
-                }
-                option(R.drawable.ic_gear, "应用信息") {
-                    open(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + app.packageName)), "打不开应用信息")
-                }
-                option(R.drawable.ic_check, "后台保活", state) { keepAlive(true) }
-            }
+        val keep = app.settings.card(box)
+        if (!storage) sheets.option(keep, R.drawable.ic_folder, "允许访问存储", null, false) { app.requestStorage() }
+        if (!battery) sheets.option(keep, R.drawable.ic_check, "关闭电池优化", null, false) {
+            open(Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + app.packageName)), "系统不支持这个设置")
         }
+        sheets.option(keep, R.drawable.ic_gear, "应用信息", null, false) {
+            open(Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + app.packageName)), "打不开应用信息")
+        }
+        sheets.option(keep, R.drawable.ic_check, "后台保活", state, false) { keepAlive(true) }
     }
 
     private fun open(intent: Intent, failed: String) {
@@ -187,22 +162,16 @@ class AppPage(app: MainActivity) : Part(app) {
     }
 
     fun fillAbout(box: LinearLayout) {
-        val version = "v" + appVersion()
-        val claudeVersion = claude.claudeVersion
-        page(box) { c ->
-            Tiles(c) {
-                option(0, "应用", version)
-                option(0, "Claude Code", claudeVersion)
-            }
-            Spacer(Modifier.height(12.dp))
-            Tiles(c) {
-                option(R.drawable.ic_list, "日志") { logSheet() }
-                option(R.drawable.ic_terminal, "终端") { app.openTerminal() }
-            }
-        }
+        val about = app.settings.card(box)
+        sheets.option(about, 0, "应用", "v" + appVersion(), false, null)
+        sheets.option(about, 0, "Claude Code", claude.claudeVersion, false, null)
+        val tools = app.settings.card(box)
+        Ui.margins(tools, app, 0, 12, 0, 0)
+        sheets.option(tools, R.drawable.ic_list, "日志", null, false) { logSheet() }
+        sheets.option(tools, R.drawable.ic_terminal, "终端", null, false) { app.openTerminal() }
     }
 
-    /** The logs, as text to select and copy: views (Compose's selection is not the system's). */
+    /** The logs, as text to select and copy. */
     fun logSheet() {
         val bridgeLog = Userland.tail(userland.file(Userland.HOME + "/.ccapp/bridge.log"), 16_000)
         val runLog = Userland.tail(userland.log, 8_000)

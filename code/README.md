@@ -1,14 +1,10 @@
-# Claude Code for Android (v0.4.158)
+# Claude Code for Android (v0.4.161)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
 interface is plain Android views, so scrolling and text selection are the system's own. Written in
-Kotlin, the tests too.
-Content with no text to select may be drawn with Jetpack Compose inside the app's own windows
-(`ComposeHost`: the window carries the lifecycle Compose needs, one for the window, MainActivity being a
-plain Activity): 用量 (`UsageSheet`, what it says read in `Usage`) and Settings' pages 外观, 存储, 后台 and
-关于, built from `ComposeKit`'s tiles, which look as the views' (`Sheets`, `Settings.tile`, `Toggle`). The
-sheets they open, the conversation, Markdown and the terminal stay views.
+Kotlin, the tests too. The release is built with R8 (names kept). The app's own main-thread work is named in
+the system's trace (`traced`): `atrace -a com.jeep.claudecode view gfx` shows a stop as the code it is in.
 
 ## How it works
 
