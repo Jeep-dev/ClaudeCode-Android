@@ -48,7 +48,7 @@ class SettingsPagesTest {
 
     /** The page in front's Compose content (one: the page being left is gone once filled again). */
     private fun page(a: MainActivity): ComposeView {
-        val views = composeViews(a.settings.settingsPage.window!!.decorView).filter { it.isAttachedToWindow }
+        val views = composeViews(a.settings.settingsPage!!.window!!.decorView).filter { it.isAttachedToWindow }
         assertEquals("one page's content", 1, views.size)
         return views[0]
     }

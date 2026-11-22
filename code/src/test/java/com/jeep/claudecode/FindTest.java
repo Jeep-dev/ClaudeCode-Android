@@ -32,7 +32,7 @@ public class FindTest {
     };
 
     private final Application app = RuntimeEnvironment.getApplication();
-    private final Md md = new Md(app, s -> { }, s -> { }, s -> null);
+    private final Md md = new Md(app, s -> kotlin.Unit.INSTANCE, s -> kotlin.Unit.INSTANCE, s -> null);
 
     private static int count(List<String> texts, String query) {
         int n = 0;

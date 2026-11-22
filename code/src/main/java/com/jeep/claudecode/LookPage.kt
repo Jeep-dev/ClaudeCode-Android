@@ -57,7 +57,7 @@ class LookPage(app: MainActivity) : Part(app) {
         val dark = c.dark
         val crab = Themes.crabStyle(app)
         val footer = prefs.getString("footer", "") ?: ""
-        composeIn(app.settings.settingsPage, box) {
+        composeIn(app.settings.settingsPage!!, box) {
             Column(Modifier.fillMaxWidth()) {
                 Section(c, "主题", afterGroup = false)
                 Tiles(c) {

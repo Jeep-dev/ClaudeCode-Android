@@ -34,7 +34,7 @@ class AppPage(app: MainActivity) : Part(app) {
     /** A page's content, drawn with Compose, under the page's title Settings has put in the box. */
     private fun page(box: LinearLayout, content: @Composable (AppColors) -> Unit) {
         val colors = AppColors(app)
-        composeIn(app.settings.settingsPage, box) {
+        composeIn(app.settings.settingsPage!!, box) {
             Column(Modifier.fillMaxWidth()) { content(colors) }
         }
     }
