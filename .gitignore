@@ -9,3 +9,6 @@ code/src/main/assets/runtime/
 
 # Python bytecode (from running bridge.py locally)
 __pycache__/
+
+# Kotlin 2 build caches
+.kotlin/

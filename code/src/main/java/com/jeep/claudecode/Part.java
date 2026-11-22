@@ -14,7 +14,7 @@ import org.json.JSONObject;
  * conversations) and is made of parts, each a piece of the interface or of what it does. A part is built for
  * the activity (app), reaches the others through it, and has by name what nearly all of them use.
  */
-abstract class Part {
+public abstract class Part {
     final MainActivity app;
     final Bridge bridge;
     final Userland userland;
