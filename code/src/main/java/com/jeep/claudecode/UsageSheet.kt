@@ -267,7 +267,7 @@ class UsageSheet(app: MainActivity) : Part(app) {
                 }
                 SheetButton(c, if (r.usable) "免费重置" else "暂不可用", accent = r.usable, enabled = r.usable) { onReset(r) }
             }
-            if (r.gives.isNotEmpty()) Words(r.gives, 12.5.sp, c.text2, Modifier.padding(top = 8.dp), lineHeight = 1.4.em)
+            if (r.gives.isNotEmpty()) Words(r.gives, 12.5.sp, c.text2, Modifier.padding(top = 8.dp), lineHeight = 1.7.em)
         }
     }
 
@@ -288,7 +288,7 @@ class UsageSheet(app: MainActivity) : Part(app) {
     }
 
     @Composable
-    private fun Waiting(c: AppColors, text: String) = Words(text, 14.sp, c.text2, lineHeight = 1.4.em)
+    private fun Waiting(c: AppColors, text: String) = Words(text, 14.sp, c.text2, lineHeight = 1.7.em)
 
     /**
      * One whole split into parts, left to right: each part as wide as its share, a 2 dp gap of the surface

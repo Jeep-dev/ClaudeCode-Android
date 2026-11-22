@@ -233,8 +233,9 @@ private fun TileRow(
         }
         Column(Modifier.weight(1f)) {
             Words(label, 16.5.sp, if (danger) c.danger else c.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            // Line height: the views' 1.15 times the font's own (measured off their screenshots, CJK).
             if (!value.isNullOrEmpty()) {
-                Words(value, 13.5.sp, c.text2, Modifier.padding(top = 5.dp), lineHeight = 1.35.em, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Words(value, 13.5.sp, c.text2, Modifier.padding(top = 5.dp), lineHeight = 1.63.em, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }
         end()
