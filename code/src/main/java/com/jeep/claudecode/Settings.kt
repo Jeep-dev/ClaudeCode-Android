@@ -169,36 +169,38 @@ class Settings(app: MainActivity) : Part(app) {
 
     /** Settings' contents; the launch options only with the bridge running (null launch). */
     fun fillSettings(launch: JSONObject?) {
-        if (settingsPage == null) return
-        val box = settingsBox
-        box.removeAllViews()
-        val at = settingsAt
-        val name = PAGES.lastOrNull { it[0] == at }?.get(1) ?: "设置"
-        // The list of pages has its name beside the back button; a page, big above its contents.
-        settingsTitle.text = if (at == null) name else ""
-        if (at != null) {
-            val big = Ui.text(app, name, 34, R.color.text)
-            big.typeface = Ui.SERIF
-            big.setPadding(dp(6), dp(10), 0, dp(14))
-            box.addView(big)
-        }
-        sheets.tiled = true
-        try {
-            when (at) {
-                null -> fillPages(box)
-                "look" -> app.look.fillLook(box)
-                "talk" -> fillTalk(box, launch)
-                "model" -> fillModel(box)
-                "claude" -> app.claudePage.fillClaude(box)
-                "ext" -> app.ext.fillExt(box, launch)
-                "storage" -> app.appPage.fillStorage(box)
-                "keep" -> app.appPage.fillKeep(box)
-                else -> app.appPage.fillAbout(box)
+        traced("cc settings") {
+            if (settingsPage == null) return
+            val box = settingsBox
+            box.removeAllViews()
+            val at = settingsAt
+            val name = PAGES.lastOrNull { it[0] == at }?.get(1) ?: "设置"
+            // The list of pages has its name beside the back button; a page, big above its contents.
+            settingsTitle.text = if (at == null) name else ""
+            if (at != null) {
+                val big = Ui.text(app, name, 34, R.color.text)
+                big.typeface = Ui.SERIF
+                big.setPadding(dp(6), dp(10), 0, dp(14))
+                box.addView(big)
             }
-        } finally {
-            sheets.tiled = false
+            sheets.tiled = true
+            try {
+                when (at) {
+                    null -> fillPages(box)
+                    "look" -> app.look.fillLook(box)
+                    "talk" -> fillTalk(box, launch)
+                    "model" -> fillModel(box)
+                    "claude" -> app.claudePage.fillClaude(box)
+                    "ext" -> app.ext.fillExt(box, launch)
+                    "storage" -> app.appPage.fillStorage(box)
+                    "keep" -> app.appPage.fillKeep(box)
+                    else -> app.appPage.fillAbout(box)
+                }
+            } finally {
+                sheets.tiled = false
+            }
+            tile(box)
         }
-        tile(box)
     }
 
     /** Each card's rows as tiles one under another: the group's outer corners round, its inner ones nearly square. */

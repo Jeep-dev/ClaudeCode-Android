@@ -98,13 +98,15 @@ class UsageSheet(app: MainActivity) : Part(app) {
 
     /** The sheet shown, both cards still reading (a test fills them itself). */
     internal fun open(): Cards {
-        val cards = Cards(sheets.sheet("用量", null))
-        val colors = AppColors(app)
-        composeIn(cards.sheet, sheets.content(cards.sheet)) {
-            Sheet(colors, cards.window.value, cards.plan.value) { r -> if (!resetting) askReset(r, cards.plan) }
+        return traced("cc usage") {
+            val cards = Cards(sheets.sheet("用量", null))
+            val colors = AppColors(app)
+            composeIn(cards.sheet, sheets.content(cards.sheet)) {
+                Sheet(colors, cards.window.value, cards.plan.value) { r -> if (!resetting) askReset(r, cards.plan) }
+            }
+            cards.sheet.show()
+            return cards
         }
-        cards.sheet.show()
-        return cards
     }
 
     /** Reads the limits (again, after a reset): what was shown stays until they come. */

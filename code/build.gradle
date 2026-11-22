@@ -13,8 +13,8 @@ android {
         // 28: Claude Code and the userland's programs run from this app's files, which Android
         // allows only to apps targeting 28 or lower (as Termux does).
         targetSdk 28
-        versionCode 187
-        versionName '0.4.159'
+        versionCode 188
+        versionName '0.4.160'
         manifestPlaceholders = [appLabel: '@string/app_name']
         // A build of a branch (CI sets CLAUDE_PREVIEW): installed beside the app as one of its own,
         // its own files and bridge, so a change can be tried while the app keeps working.
@@ -35,7 +35,8 @@ android {
     buildTypes {
         release {
             signingConfig signingConfigs.release
-            minifyEnabled false
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
     testOptions {

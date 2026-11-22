@@ -209,13 +209,15 @@ class MainActivity : Activity(), Bridge.Events {
     }
 
     fun renderNow() {
-        screen.adapter.show(current, false)
-        val empty = current.messages.isEmpty() && !current.running
-        screen.emptyView.visibility = if (empty) View.VISIBLE else View.GONE
-        if (empty) screen.fillEmpty()
-        if (screen.stick) screen.scrollToEnd(false)
-        screen.updateChrome()
-        drawer.updateLink()
+        traced("cc renderNow") {
+            screen.adapter.show(current, false)
+            val empty = current.messages.isEmpty() && !current.running
+            screen.emptyView.visibility = if (empty) View.VISIBLE else View.GONE
+            if (empty) screen.fillEmpty()
+            if (screen.stick) screen.scrollToEnd(false)
+            screen.updateChrome()
+            drawer.updateLink()
+        }
     }
 
     /** A path as Claude Code means it (absolute, ~/…, or from this conversation's folder) as a file here. */
@@ -252,12 +254,14 @@ class MainActivity : Activity(), Bridge.Events {
     }
 
     override fun events(batch: List<JSONObject>) {
-        for (ev in batch) onEvent(ev)
-        for (ch in ArrayList(chats.values)) sender.sendQueued(ch)
-        render()
-        // Events come many times a second while a reply streams: the list is built again only when
-        // what it shows of the live conversations changed.
-        if (frame.isOpen && drawer.drawerState() != drawer.drawnState) drawer.renderSessions()
+        traced("cc events") {
+            for (ev in batch) onEvent(ev)
+            for (ch in ArrayList(chats.values)) sender.sendQueued(ch)
+            render()
+            // Events come many times a second while a reply streams: the list is built again only when
+            // what it shows of the live conversations changed.
+            if (frame.isOpen && drawer.drawerState() != drawer.drawnState) drawer.renderSessions()
+        }
     }
 
     /** A conversation deleted: it and its session are forgotten, and what its claude still says is let go (see chatFor). */
@@ -411,40 +415,42 @@ class MainActivity : Activity(), Bridge.Events {
 
     /** The colours or text size changed: the screen is built again around the same conversations. */
     fun restyle() {
-        val at = settings.settingsAt
-        val page = settings.settingsPage
-        val open = page != null
-        val scrolled = if (open) settings.settingsScroll().scrollY else 0
-        if (page != null) {
-            // Its dismissal is told later: Settings is let go of now, to be opened again below.
-            page.dismiss()
-            settings.settingsPage = null
-        }
-        // The drawer (Settings is opened from it) and a /find are as they were, in the new screen.
-        val drawerOpen = frame.isOpen
-        val finding = if (finder.finding()) finder.findQuery else null
-        val foundAt = finder.findAt
-        val chat = current
-        chat.draft = box.input.text.toString()
-        shown = null
-        md = newMd()
-        build()
-        if (drawerOpen) frame.openNow()
-        switchTo(chat)
-        if (finding != null) screen.list.post {
-            finder.find(finding)
-            if (finder.finding()) finder.findGo(foundAt)
-        }
-        drawer.renderSessions()
-        drawer.updateLink()
-        if (open) {
-            settings.settingsAt = at
-            settings.settingsInstant = true
-            settings.settingsSheet()
-            settings.settingsInstant = false
-            // Where it was, not back at its top.
-            val again = settings.settingsScroll()
-            again.post { again.scrollTo(0, scrolled) }
+        traced("cc restyle") {
+            val at = settings.settingsAt
+            val page = settings.settingsPage
+            val open = page != null
+            val scrolled = if (open) settings.settingsScroll().scrollY else 0
+            if (page != null) {
+                // Its dismissal is told later: Settings is let go of now, to be opened again below.
+                page.dismiss()
+                settings.settingsPage = null
+            }
+            // The drawer (Settings is opened from it) and a /find are as they were, in the new screen.
+            val drawerOpen = frame.isOpen
+            val finding = if (finder.finding()) finder.findQuery else null
+            val foundAt = finder.findAt
+            val chat = current
+            chat.draft = box.input.text.toString()
+            shown = null
+            md = newMd()
+            build()
+            if (drawerOpen) frame.openNow()
+            switchTo(chat)
+            if (finding != null) screen.list.post {
+                finder.find(finding)
+                if (finder.finding()) finder.findGo(foundAt)
+            }
+            drawer.renderSessions()
+            drawer.updateLink()
+            if (open) {
+                settings.settingsAt = at
+                settings.settingsInstant = true
+                settings.settingsSheet()
+                settings.settingsInstant = false
+                // Where it was, not back at its top.
+                val again = settings.settingsScroll()
+                again.post { again.scrollTo(0, scrolled) }
+            }
         }
     }
 

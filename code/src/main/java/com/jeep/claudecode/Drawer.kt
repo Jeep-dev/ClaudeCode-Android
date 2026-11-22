@@ -256,116 +256,118 @@ class Drawer(app: MainActivity) : Part(app) {
      * building every row anew, on the main thread, stopped the drawer for a tenth of a second as it opened.
      */
     fun renderSessions() {
-        val box = sessionsBox ?: return
-        drawnState = drawerState()
-        val q = search.trim().lowercase(Locale.ROOT)
-        // Only the working folder's (Settings → 外观 → 只显示当前目录): new conversations' folder, not its subfolders.
-        val trailing = Regex("/+$")
-        val here = if (onlyHere()) claude.workFolder().replace(trailing, "") else ""
-        val times = prefs.getBoolean("drawerTimes", true)
-        // Pinned ones first, under their own heading.
-        val pins = pinned()
-        val rows = ArrayList<Row>()
-        for (pass in 0..1) {
-            for (i in 0 until sessions.length()) {
-                val s = sessions.optJSONObject(i) ?: continue
-                val id = s.optString("id")
-                if (pins.contains(id) != (pass == 0)) continue
-                val titleText = s.optString("title").ifEmpty { "新对话" }
-                val folder = s.optString("cwd")
-                if (here.isNotEmpty() && folder.replace(trailing, "") != here) continue
-                val byName = titleText.lowercase(Locale.ROOT).contains(q) || folder.lowercase(Locale.ROOT).contains(q)
-                if (q.isNotEmpty() && !byName && !hits.containsKey(id)) continue
-                val mtime = s.optDouble("mtime")
-                rows.add(Row(id, titleText, folder, if (pass == 0) "置顶" else group(mtime),
-                    app.chats[keyOf(id)]?.running ?: s.optBoolean("running"), id == app.current.sessionId,
-                    if (q.isNotEmpty() && !byName) hits[id] ?: "" else null, mtime))
+        traced("cc drawer list") {
+            val box = sessionsBox ?: return
+            drawnState = drawerState()
+            val q = search.trim().lowercase(Locale.ROOT)
+            // Only the working folder's (Settings → 外观 → 只显示当前目录): new conversations' folder, not its subfolders.
+            val trailing = Regex("/+$")
+            val here = if (onlyHere()) claude.workFolder().replace(trailing, "") else ""
+            val times = prefs.getBoolean("drawerTimes", true)
+            // Pinned ones first, under their own heading.
+            val pins = pinned()
+            val rows = ArrayList<Row>()
+            for (pass in 0..1) {
+                for (i in 0 until sessions.length()) {
+                    val s = sessions.optJSONObject(i) ?: continue
+                    val id = s.optString("id")
+                    if (pins.contains(id) != (pass == 0)) continue
+                    val titleText = s.optString("title").ifEmpty { "新对话" }
+                    val folder = s.optString("cwd")
+                    if (here.isNotEmpty() && folder.replace(trailing, "") != here) continue
+                    val byName = titleText.lowercase(Locale.ROOT).contains(q) || folder.lowercase(Locale.ROOT).contains(q)
+                    if (q.isNotEmpty() && !byName && !hits.containsKey(id)) continue
+                    val mtime = s.optDouble("mtime")
+                    rows.add(Row(id, titleText, folder, if (pass == 0) "置顶" else group(mtime),
+                        app.chats[keyOf(id)]?.running ?: s.optBoolean("running"), id == app.current.sessionId,
+                        if (q.isNotEmpty() && !byName) hits[id] ?: "" else null, mtime))
+                }
             }
-        }
-        val shows = buildString {
-            append(q).append('\n').append(here).append('\n').append(times).append(app.link.linked).append('\n')
-            for (r in rows) append(r.id).append('\t').append(r.title).append('\t').append(r.folder).append('\t').append(r.group)
-                .append('\t').append(r.live).append(r.active).append('\t').append(r.snippet).append('\n')
-        }
-        if (box === drawnIn && shows == drawnRows) {
-            for ((i, whenText) in drawnTimes.withIndex()) {
-                val t = ago(rows[i].mtime)
-                if (whenText.text.toString() != t) whenText.text = t
+            val shows = buildString {
+                append(q).append('\n').append(here).append('\n').append(times).append(app.link.linked).append('\n')
+                for (r in rows) append(r.id).append('\t').append(r.title).append('\t').append(r.folder).append('\t').append(r.group)
+                    .append('\t').append(r.live).append(r.active).append('\t').append(r.snippet).append('\n')
             }
-            return
-        }
-        drawnIn = box
-        drawnRows = shows
-        drawnTimes.clear()
-        box.removeAllViews()
-        var group = ""
-        for (r in rows) {
-            if (r.group != group) {
-                group = r.group
-                // As Settings' headings: the accent, close under the search, apart from a group above.
-                val label = Ui.text(app, r.group, 14, R.color.accent)
-                label.typeface = Ui.MEDIUM
-                label.setPadding(dp(12), dp(if (box.childCount == 0) 8 else 20), dp(12), dp(8))
-                box.addView(label)
+            if (box === drawnIn && shows == drawnRows) {
+                for ((i, whenText) in drawnTimes.withIndex()) {
+                    val t = ago(rows[i].mtime)
+                    if (whenText.text.toString() != t) whenText.text = t
+                }
+                return
             }
-            val item = Ui.column(app)
-            item.setPadding(dp(12), dp(10), dp(12), dp(10))
-            // The open one on a pale round of the accent, as what is chosen in Settings.
-            item.background = Ui.press(app, if (r.active) Ui.round(col(R.color.accentSoft), dp(20)) else null, dp(20))
-            val line = Ui.row(app)
-            if (r.live) {
-                val dot = View(app)
-                dot.background = Ui.round(col(R.color.accent), dp(4))
-                line.addView(dot, LinearLayout.LayoutParams(dp(7), dp(7)))
-                Ui.margins(dot, app, 0, 0, 6, 0)
+            drawnIn = box
+            drawnRows = shows
+            drawnTimes.clear()
+            box.removeAllViews()
+            var group = ""
+            for (r in rows) {
+                if (r.group != group) {
+                    group = r.group
+                    // As Settings' headings: the accent, close under the search, apart from a group above.
+                    val label = Ui.text(app, r.group, 14, R.color.accent)
+                    label.typeface = Ui.MEDIUM
+                    label.setPadding(dp(12), dp(if (box.childCount == 0) 8 else 20), dp(12), dp(8))
+                    box.addView(label)
+                }
+                val item = Ui.column(app)
+                item.setPadding(dp(12), dp(10), dp(12), dp(10))
+                // The open one on a pale round of the accent, as what is chosen in Settings.
+                item.background = Ui.press(app, if (r.active) Ui.round(col(R.color.accentSoft), dp(20)) else null, dp(20))
+                val line = Ui.row(app)
+                if (r.live) {
+                    val dot = View(app)
+                    dot.background = Ui.round(col(R.color.accent), dp(4))
+                    line.addView(dot, LinearLayout.LayoutParams(dp(7), dp(7)))
+                    Ui.margins(dot, app, 0, 0, 6, 0)
+                }
+                val t = Ui.text(app, r.title, 15, R.color.text)
+                t.isSingleLine = true
+                t.ellipsize = TextUtils.TruncateAt.END
+                line.addView(t, Ui.weight())
+                item.addView(line, Ui.fill())
+                val meta = Ui.text(app, Ui.base(r.folder), 12.5f, R.color.text3)
+                meta.setPadding(0, dp(3), 0, 0)
+                meta.isSingleLine = true
+                if (r.snippet != null) { // found in what was said: show where
+                    val sb = SpannableStringBuilder(r.snippet)
+                    val at = r.snippet.lowercase(Locale.ROOT).indexOf(q)
+                    if (at >= 0) sb.setSpan(ForegroundColorSpan(col(R.color.text)), at, at + q.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    meta.text = sb
+                    meta.ellipsize = TextUtils.TruncateAt.END
+                }
+                // How long ago, in a column of one width at the end of the folder's line, its text from the
+                // column's start: 55m, 1h and 3d begin at one place.
+                // Shown unless turned off (Settings → 外观 → 对话时间).
+                val under = Ui.row(app)
+                under.addView(meta, Ui.weight())
+                if (times) {
+                    val whenText = Ui.text(app, ago(r.mtime), 11.5f, R.color.text3)
+                    whenText.fontFeatureSettings = "tnum"
+                    whenText.isSingleLine = true
+                    whenText.setPadding(0, dp(3), 0, 0)
+                    val column = ceil(whenText.paint.measureText("88mo").toDouble()).toInt()
+                    under.addView(whenText, LinearLayout.LayoutParams(column + dp(2), -2))
+                    Ui.margins(whenText, app, 10, 0, 0, 0)
+                    drawnTimes.add(whenText)
+                }
+                item.addView(under, Ui.fill())
+                item.setOnClickListener { openSession(r.id, r.title, r.folder) }
+                item.setOnLongClickListener {
+                    sessionActions(r.id, r.title)
+                    true
+                }
+                box.addView(item, Ui.fill())
             }
-            val t = Ui.text(app, r.title, 15, R.color.text)
-            t.isSingleLine = true
-            t.ellipsize = TextUtils.TruncateAt.END
-            line.addView(t, Ui.weight())
-            item.addView(line, Ui.fill())
-            val meta = Ui.text(app, Ui.base(r.folder), 12.5f, R.color.text3)
-            meta.setPadding(0, dp(3), 0, 0)
-            meta.isSingleLine = true
-            if (r.snippet != null) { // found in what was said: show where
-                val sb = SpannableStringBuilder(r.snippet)
-                val at = r.snippet.lowercase(Locale.ROOT).indexOf(q)
-                if (at >= 0) sb.setSpan(ForegroundColorSpan(col(R.color.text)), at, at + q.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                meta.text = sb
-                meta.ellipsize = TextUtils.TruncateAt.END
+            if (rows.isEmpty()) {
+                val none = if (q.isNotEmpty()) "没有匹配的对话" else if (here.isEmpty()) "还没有对话" else Ui.base(here) + " 里还没有对话"
+                val empty = Ui.column(app)
+                empty.gravity = Gravity.CENTER_HORIZONTAL
+                empty.setPadding(dp(16), dp(48), dp(16), dp(28))
+                val words = Ui.text(app, if (app.link.linked) none else "连接后显示历史对话", 14, R.color.text3)
+                words.gravity = Gravity.CENTER
+                empty.addView(words)
+                box.addView(empty, Ui.fill())
             }
-            // How long ago, in a column of one width at the end of the folder's line, its text from the
-            // column's start: 55m, 1h and 3d begin at one place.
-            // Shown unless turned off (Settings → 外观 → 对话时间).
-            val under = Ui.row(app)
-            under.addView(meta, Ui.weight())
-            if (times) {
-                val whenText = Ui.text(app, ago(r.mtime), 11.5f, R.color.text3)
-                whenText.fontFeatureSettings = "tnum"
-                whenText.isSingleLine = true
-                whenText.setPadding(0, dp(3), 0, 0)
-                val column = ceil(whenText.paint.measureText("88mo").toDouble()).toInt()
-                under.addView(whenText, LinearLayout.LayoutParams(column + dp(2), -2))
-                Ui.margins(whenText, app, 10, 0, 0, 0)
-                drawnTimes.add(whenText)
-            }
-            item.addView(under, Ui.fill())
-            item.setOnClickListener { openSession(r.id, r.title, r.folder) }
-            item.setOnLongClickListener {
-                sessionActions(r.id, r.title)
-                true
-            }
-            box.addView(item, Ui.fill())
-        }
-        if (rows.isEmpty()) {
-            val none = if (q.isNotEmpty()) "没有匹配的对话" else if (here.isEmpty()) "还没有对话" else Ui.base(here) + " 里还没有对话"
-            val empty = Ui.column(app)
-            empty.gravity = Gravity.CENTER_HORIZONTAL
-            empty.setPadding(dp(16), dp(48), dp(16), dp(28))
-            val words = Ui.text(app, if (app.link.linked) none else "连接后显示历史对话", 14, R.color.text3)
-            words.gravity = Gravity.CENTER
-            empty.addView(words)
-            box.addView(empty, Ui.fill())
         }
     }
 

@@ -78,16 +78,16 @@ class Bridge(context: Context, private val listener: Events) {
     fun post(path: String, body: JSONObject, reply: Reply?) = request("POST", path, body.toString(), reply)
 
     private fun request(method: String, path: String, body: String?, reply: Reply?) {
-        pool.execute { answer(exchange(method, path, body), reply) }
+        pool.execute { answer(exchange(method, path, body), "$method ${path.substringBefore('?')}", reply) }
     }
 
-    private fun answer(r: Result, reply: Reply?) {
+    private fun answer(r: Result, route: String, reply: Reply?) {
         val data = try {
             JSONObject(r.body)
         } catch (e: JSONException) {
             JSONObject()
         }
-        if (reply != null) ui.post { reply.done(r.status, data) }
+        if (reply != null) ui.post { traced("cc bridge $route") { reply.done(r.status, data) } }
     }
 
     /**
@@ -121,11 +121,11 @@ class Bridge(context: Context, private val listener: Events) {
                 answer(exchange("POST", path, "application/octet-stream", length) { out ->
                     val input = if (from != null) FileInputStream(from) else resolver.openInputStream(uri)
                     (input ?: throw IOException("unreadable")).use { Userland.copy(it, out) }
-                }, reply)
+                }, "POST /upload", reply)
             } catch (e: IOException) {
-                answer(Result(400, JSONObject().put("error", "读不了这个文件").toString()), reply)
+                answer(Result(400, JSONObject().put("error", "读不了这个文件").toString()), "POST /upload", reply)
             } catch (e: RuntimeException) {
-                answer(Result(400, JSONObject().put("error", "读不了这个文件").toString()), reply)
+                answer(Result(400, JSONObject().put("error", "读不了这个文件").toString()), "POST /upload", reply)
             } finally {
                 spool?.delete()
             }
@@ -380,7 +380,7 @@ class Bridge(context: Context, private val listener: Events) {
                 pending.clear()
                 flushQueued = false
             }
-            listener.events(batch)
+            traced("cc bridge events ${batch.size}") { listener.events(batch) }
         }, 33)
     }
 

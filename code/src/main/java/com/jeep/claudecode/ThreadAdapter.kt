@@ -97,23 +97,25 @@ class ThreadAdapter(
 
     /** Rebuilds the rows for the chat and updates only what changed. */
     fun show(chat: Chat, reset: Boolean) {
-        this.chat = chat
-        val next = flatten(chat, Themes.showThinking(c))
-        if (reset) {
-            opened = null
+        traced("cc show") {
+            this.chat = chat
+            val next = flatten(chat, Themes.showThinking(c))
+            if (reset) {
+                opened = null
+                items = next
+                notifyDataSetChanged()
+                return
+            }
+            val prev = items
+            val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+                override fun getOldListSize(): Int = prev.size
+                override fun getNewListSize(): Int = next.size
+                override fun areItemsTheSame(o: Int, n: Int): Boolean = prev[o].id == next[n].id
+                override fun areContentsTheSame(o: Int, n: Int): Boolean = prev[o].sig == next[n].sig && prev[o].gap == next[n].gap
+            }, false)
             items = next
-            notifyDataSetChanged()
-            return
+            diff.dispatchUpdatesTo(this)
         }
-        val prev = items
-        val diff = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
-            override fun getOldListSize(): Int = prev.size
-            override fun getNewListSize(): Int = next.size
-            override fun areItemsTheSame(o: Int, n: Int): Boolean = prev[o].id == next[n].id
-            override fun areContentsTheSame(o: Int, n: Int): Boolean = prev[o].sig == next[n].sig && prev[o].gap == next[n].gap
-        }, false)
-        items = next
-        diff.dispatchUpdatesTo(this)
     }
 
     /** Whether /find looks in a row: the user's messages and the replies' text, not the rest. */

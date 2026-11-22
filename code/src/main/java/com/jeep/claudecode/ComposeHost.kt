@@ -26,14 +26,16 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
  * it first found, so a page filled again (its content made anew) must not end it.
  */
 internal fun composeIn(window: Dialog, parent: ViewGroup, content: @Composable () -> Unit): ComposeView {
-    val decor = window.window!!.decorView
-    if (decor.findViewTreeLifecycleOwner() !is WindowOwner) WindowOwner(decor)
-    val view = ComposeView(window.context)
-    // Let go when the page it is on is filled again or the window goes.
-    view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
-    view.setContent(content)
-    parent.addView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-    return view
+    return traced("cc compose") {
+        val decor = window.window!!.decorView
+        if (decor.findViewTreeLifecycleOwner() !is WindowOwner) WindowOwner(decor)
+        val view = ComposeView(window.context)
+        // Let go when the page it is on is filled again or the window goes.
+        view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        view.setContent { traced("cc composition") { content() } }
+        parent.addView(view, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return view
+    }
 }
 
 /** A window's lifecycle: on its root, where Compose looks for it (from the content's root up, not down). */
