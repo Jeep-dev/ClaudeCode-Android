@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 69  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 70  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -931,7 +931,7 @@ def plan_oauth():
 
 def plan_api(path, headers, body=None):
     """(status, data, error) for a call to api.anthropic.com with Claude Code's login; error is None, 'expired'
-    (401, 403), 'http N' or 'network'."""
+    (401, 403), 'http N', 'bad reply' (not a JSON object) or 'network'."""
     import urllib.error
     import urllib.request
     data = None if body is None else json.dumps(body).encode()
@@ -939,7 +939,11 @@ def plan_api(path, headers, body=None):
                                  headers=dict(headers, **({'Content-Type': 'application/json'} if body is not None else {})))
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
-            return r.status, json.load(r), None
+            out = json.load(r)
+        if not isinstance(out, dict):
+            log('%s: not an object' % path)
+            return r.status, None, 'bad reply'
+        return r.status, out, None
     except urllib.error.HTTPError as e:
         log('%s: HTTP %s' % (path, e.code))
         return e.code, None, 'expired' if e.code in (401, 403) else 'http %s' % e.code
@@ -968,7 +972,10 @@ def plan_usage():
     _, raw, error = plan_api('/api/oauth/usage?cedar_ember=1', headers)
     if error:
         return 200, {'error': error}
-    rows = [x for x in raw.get('limits') or [] if isinstance(x, dict)]
+    # Each row with its index in the server's list (what weekly_scoped_shares counts by).
+    listed = raw.get('limits') if isinstance(raw.get('limits'), list) else []
+    indexed = [(i, x) for i, x in enumerate(listed) if isinstance(x, dict)]
+    rows = [x for _, x in indexed]
     # A model's own weekly limit (weekly_scoped) may use at most a share of the whole week: weekly_scoped_shares,
     # by the row's index.
     shares = {x.get('limit_index'): x.get('allowance_percent_of_weekly')
@@ -976,7 +983,7 @@ def plan_usage():
     limits = [{'kind': x.get('kind'), 'group': x.get('group'), 'percent': x.get('percent'),
                'severity': x.get('severity'), 'resetsAt': x.get('resets_at'), 'scope': x.get('scope'),
                'model': scoped_model(x), 'shareOfWeekly': shares.get(i)}
-              for i, x in enumerate(rows)]
+              for i, x in indexed]
     # The models with a weekly limit of their own: what a reset that gives back the week but not all of it
     # (it clears no 'seven_day') gives back.
     scoped = [m for m in (scoped_model(x) for x in rows if x.get('kind') == 'weekly_scoped') if m]
