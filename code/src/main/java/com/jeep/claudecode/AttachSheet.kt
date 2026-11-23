@@ -72,14 +72,20 @@ class AttachSheet(app: MainActivity) : Part(app) {
 
     private val storage: File get() = Environment.getExternalStorageDirectory()
 
+    private lateinit var pull: PullSheet
+    private lateinit var grab: View
+    private lateinit var sheetBg: android.graphics.drawable.GradientDrawable
+    /** In the head while the sheet is whole and the page has no back of its own: back down to half. */
+    private var lower: View? = null
+    private var whole = 0f
+
     fun show() {
-        val box = SheetBox(app)
-        dialog = sheets.rising(box)
-        val bg = Ui.round(col(R.color.bg), 0)
-        val r = dp(22).toFloat()
-        bg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-        box.background = bg
-        val grab = View(app)
+        pull = PullSheet(app)
+        val box = Ui.column(app)
+        sheetBg = Ui.round(col(R.color.bg), 0)
+        box.background = sheetBg
+        box.isClickable = true // touches on the sheet stay on it
+        grab = View(app)
         grab.background = Ui.round(col(R.color.borderStrong), dp(2))
         val gp = LinearLayout.LayoutParams(dp(38), dp(4))
         gp.gravity = Gravity.CENTER_HORIZONTAL
@@ -87,13 +93,14 @@ class AttachSheet(app: MainActivity) : Part(app) {
         box.addView(grab, gp)
         head = FrameLayout(app)
         box.addView(head, LinearLayout.LayoutParams(-1, dp(56)))
+        body = FrameLayout(app)
+        box.addView(body, LinearLayout.LayoutParams(-1, 0, 1f))
+        pull.sheet = box
+        pull.addView(box, FrameLayout.LayoutParams(-1, -1))
 
         fileAdapter = FileKit.Adapter(app, { e -> number("f:" + e.file.path) }, { e -> tapFile(e) }, null)
 
-        // The page, and over its foot the bars, the list passing under them.
-        val holder = FrameLayout(app)
-        body = FrameLayout(app)
-        holder.addView(body, FrameLayout.LayoutParams(-1, -1))
+        // The bars stay at the screen's foot, the list passing under them, whatever the sheet's height.
         val bars = FrameLayout(app)
         tabBar = tabs()
         bars.addView(tabBar, FrameLayout.LayoutParams(-1, dp(64)))
@@ -102,26 +109,55 @@ class AttachSheet(app: MainActivity) : Part(app) {
         bars.addView(addBar, FrameLayout.LayoutParams(-1, dp(64)))
         val bp = FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM)
         bp.setMargins(dp(12), 0, dp(12), dp(12))
-        holder.addView(bars, bp)
-        box.addView(holder, LinearLayout.LayoutParams(-1, 0, 1f))
+        pull.addView(bars, bp)
 
-        val height = (app.resources.displayMetrics.heightPixels * 0.82f).toInt()
-        dialog.setContentView(box, ViewGroup.LayoutParams(-1, height))
+        pull.onMoved = { at ->
+            whole = at
+            // Whole: square at the top, no handle, the way back down in the head.
+            val r = dp(22) * (1 - at.coerceIn(0f, 1f))
+            sheetBg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            grab.alpha = 1 - at.coerceIn(0f, 1f)
+            lower?.let {
+                it.alpha = ((at - 0.5f) * 2).coerceIn(0f, 1f)
+                it.visibility = if (at > 0.5f) View.VISIBLE else View.GONE
+            }
+            // On the way out the bars go down with the sheet.
+            bars.translationY = if (at < 0) -at * (bars.height + dp(12)) else 0f
+        }
+
+        dialog = object : Dialog(app, R.style.Sheet) {
+            private var leaving = false
+
+            override fun dismiss() {
+                if (leaving) return
+                if (!isShowing || app.isFinishing || app.isDestroyed || pull.height == 0) {
+                    super.dismiss()
+                    return
+                }
+                leaving = true
+                pull.close { super.dismiss() }
+            }
+        }
+        dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        pull.onClose = Runnable { dialog.cancel() }
+        dialog.setContentView(pull, ViewGroup.LayoutParams(-1, -1))
         dialog.window?.let { w ->
-            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            w.setGravity(Gravity.BOTTOM)
+            w.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
             w.setWindowAnimations(0)
             w.setDimAmount(0f)
             w.setBackgroundDrawable(ColorDrawable(0))
         }
-        dialog.setCanceledOnTouchOutside(true)
         dialog.setOnKeyListener { _, code, e ->
-            if (code != KeyEvent.KEYCODE_BACK || tab != 2 || dir == null) return@setOnKeyListener false
-            if (e.action == KeyEvent.ACTION_UP && !e.isCanceled) up()
+            if (code != KeyEvent.KEYCODE_BACK) return@setOnKeyListener false
+            val inFolder = tab == 2 && dir != null
+            if (!inFolder && !pull.expanded) return@setOnKeyListener false
+            if (e.action == KeyEvent.ACTION_UP && !e.isCanceled) if (inFolder) up() else pull.collapse()
             true
         }
         showTab(if (prefs.getInt("attachTab", 0) == 2) 2 else 0, false)
+        pull.sheet.translationY = app.resources.displayMetrics.heightPixels.toFloat()
         dialog.show()
+        pull.open()
     }
 
     // ---- the bars at the foot ----
@@ -136,11 +172,13 @@ class AttachSheet(app: MainActivity) : Part(app) {
         for ((i, d) in defs.withIndex()) {
             val item = Ui.column(app)
             item.gravity = Gravity.CENTER
-            val icon = Ui.icon(app, d.first, 22, R.color.text2)
+            val icon = Ui.icon(app, d.first, 24, R.color.text2)
             item.addView(icon)
-            val label = Ui.text(app, d.second, 12, R.color.text2)
+            val label = Ui.text(app, d.second, 12.5f, R.color.text2)
+            label.gravity = Gravity.CENTER
+            label.isSingleLine = true
             label.setPadding(0, dp(4), 0, 0)
-            item.addView(label)
+            item.addView(label, Ui.wrap())
             item.setOnClickListener {
                 if (i == 1) {
                     dialog.dismiss()
@@ -296,6 +334,7 @@ class AttachSheet(app: MainActivity) : Part(app) {
         icon.background = Ui.round(col(R.color.accentSoft), dp(36))
         col.addView(icon)
         val t = Ui.text(app, "允许访问照片和文件", 18, R.color.text)
+        t.gravity = Gravity.CENTER
         t.typeface = Ui.MEDIUM
         t.setPadding(0, dp(20), 0, dp(8))
         col.addView(t)
@@ -324,7 +363,22 @@ class AttachSheet(app: MainActivity) : Part(app) {
     private fun setHead(title: String, sub: String?, back: Runnable?, tapTitle: ((View) -> Unit)? = null) {
         head.removeAllViews()
         val row = Ui.row(app)
-        row.setPadding(dp(if (back != null) 6 else 18), 0, dp(18), 0)
+        row.setPadding(dp(6), 0, dp(18), 0)
+        lower = null
+        if (back == null) {
+            // Shown only while the sheet is whole: down to half.
+            val b = Ui.iconButton(app, R.drawable.ic_chevron_down, 44, 22, R.color.text)
+            b.background = Ui.press(app, null, dp(22))
+            b.contentDescription = "收起"
+            b.setOnClickListener { pull.collapse() }
+            row.addView(b, LinearLayout.LayoutParams(dp(44), dp(44)))
+            lower = b
+            b.alpha = ((whole - 0.5f) * 2).coerceIn(0f, 1f)
+            b.visibility = if (whole > 0.5f) View.VISIBLE else View.GONE
+            val gap = View(app)
+            row.addView(gap, LinearLayout.LayoutParams(dp(12), 1))
+            b.tag = gap
+        }
         if (back != null) {
             val b = Ui.iconButton(app, R.drawable.ic_back, 44, 22, R.color.text)
             b.background = Ui.press(app, null, dp(22))
@@ -333,7 +387,7 @@ class AttachSheet(app: MainActivity) : Part(app) {
         }
         val words = Ui.column(app)
         val titleRow = Ui.row(app)
-        val t = Ui.text(app, title, 19, R.color.text)
+        val t = Ui.text(app, title, 17.5f, R.color.text)
         t.typeface = Ui.MEDIUM
         t.isSingleLine = true
         t.ellipsize = TextUtils.TruncateAt.END
@@ -370,11 +424,11 @@ class AttachSheet(app: MainActivity) : Part(app) {
         list.layoutManager = GridLayoutManager(app, columns)
         list.addItemDecoration(object : RecyclerView.ItemDecoration() {
             override fun getItemOffsets(out: Rect, v: View, parent: RecyclerView, state: RecyclerView.State) {
-                val g = dp(1.5f)
+                val g = dp(1f)
                 out.set(g, g, g, g)
             }
         })
-        list.setPadding(dp(4.5f), 0, dp(4.5f), dp(92))
+        list.setPadding(dp(3f), 0, dp(3f), dp(96))
         list.clipToPadding = false
         list.itemAnimator = null
         list.adapter = gridAdapter
@@ -528,17 +582,17 @@ class AttachSheet(app: MainActivity) : Part(app) {
         private inner class Cell(v: View) : RecyclerView.ViewHolder(v)
 
         override fun onCreateViewHolder(parent: ViewGroup, type: Int): RecyclerView.ViewHolder {
-            val size = (parent.width - parent.paddingLeft - parent.paddingRight) / columns - dp(3)
+            val size = (parent.width - parent.paddingLeft - parent.paddingRight) / columns - dp(2)
             val cell = FrameLayout(app)
             cell.layoutParams = RecyclerView.LayoutParams(-1, max(size, dp(80)))
             if (type == 0) {
-                cell.background = Ui.press(app, Ui.round(col(R.color.surface2), dp(10)), dp(10))
+                cell.background = Ui.press(app, Ui.round(col(R.color.surface2), 0), 0)
                 val inner = Ui.column(app)
                 inner.gravity = Gravity.CENTER
                 inner.addView(Ui.icon(app, R.drawable.ic_camera, 30, R.color.text2))
                 val t = Ui.text(app, "拍照", 13, R.color.text2)
                 t.setPadding(0, dp(8), 0, 0)
-                inner.addView(t)
+                inner.addView(t, Ui.wrap())
                 cell.addView(inner, FrameLayout.LayoutParams(-1, -1))
                 cell.setOnClickListener {
                     dialog.dismiss()
@@ -549,7 +603,6 @@ class AttachSheet(app: MainActivity) : Part(app) {
             val photo = ImageView(app)
             photo.scaleType = ImageView.ScaleType.CENTER_CROP
             photo.setBackgroundColor(col(R.color.surface2))
-            FileKit.rounded(photo, dp(10).toFloat())
             cell.addView(photo, FrameLayout.LayoutParams(-1, -1))
             val length = Ui.row(app)
             length.setPadding(dp(5), dp(2), dp(7), dp(2))
@@ -566,8 +619,8 @@ class AttachSheet(app: MainActivity) : Part(app) {
             lp.setMargins(dp(6), 0, 0, dp(6))
             cell.addView(length, lp)
             val mark = FileKit.PickMark(app, true)
-            val mp = FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP or Gravity.END)
-            mp.setMargins(0, dp(6), dp(6), 0)
+            val mp = FrameLayout.LayoutParams(dp(26), dp(26), Gravity.TOP or Gravity.END)
+            mp.setMargins(0, dp(7), dp(7), 0)
             // A bigger target than the mark itself, as Telegram's.
             val hit = FrameLayout(app)
             hit.addView(mark, mp)
@@ -611,7 +664,7 @@ class AttachSheet(app: MainActivity) : Part(app) {
         /** A picked picture sits a little smaller in its cell, its number on it. */
         private fun marked(photo: ImageView, mark: FileKit.PickMark, n: Int, animate: Boolean) {
             mark.number = n
-            val s = if (n > 0) 0.86f else 1f
+            val s = if (n > 0) 0.88f else 1f
             if (animate) photo.animate().scaleX(s).scaleY(s).setDuration(200).setInterpolator(Motion.EMPHASIZED).start()
             else {
                 photo.scaleX = s
