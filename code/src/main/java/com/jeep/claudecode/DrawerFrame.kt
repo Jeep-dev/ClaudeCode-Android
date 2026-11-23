@@ -74,6 +74,7 @@ class DrawerFrame(c: Context, private val main: View, private val drawer: View) 
     fun openNow() {
         anim?.cancel()
         apply(1f)
+        still() // the move cut short does not run what waited for it
     }
 
     private fun width(): Int = drawer.width.takeIf { it > 0 } ?: resources.displayMetrics.widthPixels
@@ -101,9 +102,17 @@ class DrawerFrame(c: Context, private val main: View, private val drawer: View) 
             interpolator = Motion.EMPHASIZED
             addUpdateListener { a -> apply(a.animatedValue as Float) }
             addListener(object : AnimatorListenerAdapter() {
-                // Not when it was cut short by another move or by the finger: that one ends it.
+                // Not when it was cut short by another move or by the finger: that one ends it. A cancel
+                // calls onAnimationEnd at once, before the next move is set up or the drag noted, so it is
+                // told apart here, not by anim or dragging.
+                private var cut = false
+
+                override fun onAnimationCancel(a: Animator) {
+                    cut = true
+                }
+
                 override fun onAnimationEnd(a: Animator) {
-                    if (anim === a && !dragging) still()
+                    if (!cut && !dragging) still()
                 }
             })
             start()

@@ -12,6 +12,8 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
+import java.util.concurrent.TimeUnit
 
 /** The drawer's list is built again only when what it shows changed; its times are read again in place. */
 @RunWith(RobolectricTestRunner::class)
@@ -45,5 +47,17 @@ class DrawerListTest {
         a.drawer.sessions = sessions(now, 300, "改了名")
         a.drawer.renderSessions()
         assertNotSame("a new name: built again", title, shown(a, "改了名"))
+    }
+
+    @Test fun whatWaitsForTheDrawerRunsOnlyOnceItIsStill() {
+        val a = Robolectric.buildActivity(MainActivity::class.java).setup().get()
+        var ran = 0
+        a.frame.open()
+        a.frame.whenStill { ran++ }
+        assertEquals("not while it opens", 0, ran)
+        a.frame.close() // the opening cut short by the closing: not at its start either
+        assertEquals("not as the next move begins", 0, ran)
+        ShadowLooper.idleMainLooper(2, TimeUnit.SECONDS)
+        assertEquals("once it is still", 1, ran)
     }
 }

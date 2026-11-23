@@ -53,6 +53,7 @@ class UsageSheet(app: MainActivity) : Part(app) {
         fun plan(s: Shown<Usage.Plan>) {
             plan.removeAllViews()
             resets.removeAllViews()
+            resets.setPadding(0, 0, 0, 0) // its gap goes with it (fillResets sets it when there are some)
             when (s) {
                 is Shown.Waiting -> plan.addView(waitingLine("正在读取…"))
                 is Shown.Note -> plan.addView(waitingLine(s.text))
