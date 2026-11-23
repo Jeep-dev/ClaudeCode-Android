@@ -8,7 +8,10 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Writes a crash, with where it happened, to the run log that 日志 shows; then crashes as before. */
+/**
+ * Writes a crash, with where it happened, to the run log that 日志 shows; then crashes as before.
+ * The main thread stopped a second or more is written there too (Watchdog).
+ */
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
@@ -26,5 +29,6 @@ class App : Application() {
             }
             before?.uncaughtException(thread, e)
         }
+        Watchdog.start(log)
     }
 }

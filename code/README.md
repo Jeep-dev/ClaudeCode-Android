@@ -1,10 +1,12 @@
-# Claude Code for Android (v0.4.161)
+# Claude Code for Android (v0.4.162)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
 interface is plain Android views, so scrolling and text selection are the system's own. Written in
 Kotlin, the tests too. The release is built with R8 (names kept). The app's own main-thread work is named in
 the system's trace (`traced`): `atrace -a com.jeep.claudecode view gfx` shows a stop as the code it is in.
+A main thread stopped a second or more is written to the run log (日志 → 启动) as it happens, with where
+it stood and in which `traced` stretch (`Watchdog`): stops that come only now and then are caught too.
 
 ## How it works
 

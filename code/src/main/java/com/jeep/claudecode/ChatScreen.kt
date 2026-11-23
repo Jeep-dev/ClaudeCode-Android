@@ -298,9 +298,10 @@ class ChatScreen(app: MainActivity) : Part(app) {
     fun placeImmersive() {
         val composer = composer
         if (!immersive || composer == null) return
-        // The buttons just under the status bar, and the box about as far from the bottom (or
-        // just above the keyboard).
-        val below = if (keyboard) insetBottom + dp(8) else max(insetBottom + dp(8), insetTop - dp(12))
+        // The buttons just under the status bar; the box where the usual layout has it, as far above the
+        // navigation bar (none, with gestures), or just above the keyboard. Not as far from the bottom as
+        // the buttons from the top: a tall status bar put it higher than in the usual layout.
+        val below = insetBottom + dp(if (keyboard) 8 else 16)
         composer.setPadding(dp(16), dp(4), dp(16), below)
         app.drawer.drawerPanel?.setPadding(0, insetTop, 0, if (keyboard) 0 else insetBottom)
         (topButtons.layoutParams as FrameLayout.LayoutParams).topMargin = insetTop
