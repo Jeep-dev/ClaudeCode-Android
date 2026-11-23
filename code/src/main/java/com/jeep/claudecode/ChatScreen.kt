@@ -548,6 +548,7 @@ class ChatScreen(app: MainActivity) : Part(app) {
         pop.elevation = 0f // the window's own shadow is square: only the card's, round, is drawn
         pop.isClippingEnabled = false // the shadow's room may pass the screen's edge
         sheets.menuItem(card, pop, R.drawable.ic_chart, "用量", null) { app.usage.show() }
+        sheets.menuItem(card, pop, R.drawable.ic_folder, "文件", null) { app.files.open() }
         sheets.menuItem(card, pop, R.drawable.ic_terminal, "终端", null) { app.openTerminal() }
         sheets.menuItem(card, pop, R.drawable.ic_search, "搜索对话", null) {
             app.box.input.setText("/find ")

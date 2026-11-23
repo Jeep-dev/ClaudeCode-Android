@@ -55,6 +55,7 @@ class MainActivity : Activity(), Bridge.Events {
     lateinit var pickers: Pickers
     lateinit var voice: Voice
     lateinit var usage: UsageSheet
+    lateinit var files: FilesPage
 
     /** Claude and Sheets are made: the other parts may be (Part checks it). */
     val hasClaude: Boolean get() = ::claude.isInitialized
@@ -103,6 +104,7 @@ class MainActivity : Activity(), Bridge.Events {
         pickers = Pickers(this)
         voice = Voice(this)
         usage = UsageSheet(this)
+        files = FilesPage(this)
         md = newMd()
         // The keyboard opens when the box is tapped, never by itself (coming back from the background).
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
@@ -370,6 +372,9 @@ class MainActivity : Activity(), Bridge.Events {
 
     fun hasStorage(): Boolean = checkSelfPermission(STORAGE) == PackageManager.PERMISSION_GRANTED
 
+    /** What asked for storage last (the attach sheet), told when the answer comes. */
+    @JvmField var storageAsked: Runnable? = null
+
     fun requestStorage() {
         requestPermissions(arrayOf(STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE), ASK_STORAGE)
     }
@@ -381,6 +386,8 @@ class MainActivity : Activity(), Bridge.Events {
         }
         if (request != ASK_STORAGE) return
         settings.refreshSettings()
+        storageAsked?.run()
+        storageAsked = null
         if (!hasStorage()) {
             toast("没有存储权限：Claude Code 看不到手机里的文件")
             return
@@ -407,6 +414,10 @@ class MainActivity : Activity(), Bridge.Events {
         }
         if (request == VOICE) {
             voice.picked(result, data)
+            return
+        }
+        if (request == CAMERA) {
+            attachments.shot(result == RESULT_OK)
             return
         }
         if (request != PICK_FILES || result != RESULT_OK || data == null) return
@@ -504,6 +515,7 @@ class MainActivity : Activity(), Bridge.Events {
         const val PICK_FILES = 1
         const val PICK_FONT = 2
         const val VOICE = 3
+        const val CAMERA = 4
         private const val ASK_STORAGE = 2
         private const val STORAGE = Manifest.permission.WRITE_EXTERNAL_STORAGE
     }

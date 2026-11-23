@@ -25,8 +25,8 @@ class Sheets(app: MainActivity) : Part(app) {
     /** Settings is being filled: cards and options are made as its tiles, not as in a sheet. */
     @JvmField var tiled = false
 
-    fun sheet(titleText: String, sub: String?): Dialog {
-        val box = SheetBox(app)
+    /** A dialog holding [box] at the bottom of the screen, rising into view as it shows and sinking as it goes, the dim with it. */
+    fun rising(box: SheetBox): Dialog {
         val d = object : Dialog(app, R.style.Sheet) {
             private var leaving = false
 
@@ -57,6 +57,12 @@ class Sheets(app: MainActivity) : Part(app) {
         }
         d.requestWindowFeature(Window.FEATURE_NO_TITLE)
         box.close = Runnable { d.cancel() }
+        return d
+    }
+
+    fun sheet(titleText: String, sub: String?): Dialog {
+        val box = SheetBox(app)
+        val d = rising(box)
         val bg = Ui.round(col(R.color.bg), 0)
         val r = dp(22).toFloat()
         bg.cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)

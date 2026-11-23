@@ -49,5 +49,11 @@
             android:name=".BridgeService"
             android:exported="false"
             android:stopWithTask="true" />
+        <!-- The files page lends a file of the userland to another app (打开方式, 分享), read only, by a grant. -->
+        <provider
+            android:name=".FileShare"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

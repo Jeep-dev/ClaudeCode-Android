@@ -1,6 +1,8 @@
 package com.jeep.claudecode
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -8,10 +10,17 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import android.util.Base64
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -20,7 +29,17 @@ import kotlin.math.roundToInt
 /** Files picked for a message: read here (a picture brought down to what the model takes, a file only checked), put in the box by Box. */
 class Attachments(app: MainActivity) : Part(app) {
 
-    fun pickFiles() {
+    /** The most files one pick puts in the box. */
+    val most = 8
+
+    /** A thing picked in the attach sheet: where it is, and what is known of it already (else asked of its provider). */
+    class Pick(@JvmField val uri: Uri, @JvmField val name: String?, @JvmField val type: String?, @JvmField val size: Long)
+
+    /** The + button: the app's own attach sheet (the gallery, the camera, the phone's files). */
+    fun pickFiles() = AttachSheet(app).show()
+
+    /** The system's picker, for what the app does not reach itself (cloud drives, other apps' documents). */
+    fun systemPicker() {
         val pick = Intent(Intent.ACTION_GET_CONTENT)
             .addCategory(Intent.CATEGORY_OPENABLE)
             .setType("*/*")
@@ -32,7 +51,7 @@ class Attachments(app: MainActivity) : Part(app) {
         }
     }
 
-    /** Files picked (the result of pickFiles): each is read off the main thread, then put in the box of the conversation open now. */
+    /** Files picked (the result of systemPicker): each is read off the main thread, then put in the box of the conversation open now. */
     fun picked(data: Intent) {
         val uris = ArrayList<Uri>()
         val clip = data.clipData
@@ -41,23 +60,83 @@ class Attachments(app: MainActivity) : Part(app) {
         } else {
             data.data?.let { uris.add(it) }
         }
+        attach(uris.map { Pick(it, null, null, -1) })
+    }
+
+    /** Puts what was picked in the box of the conversation open now, each read off the main thread, in the order picked. */
+    fun attach(picks: List<Pick>) {
         val chat = app.current
-        for (uri in uris.take(8)) {
+        val read = arrayOfNulls<Chat.Attachment>(picks.size.coerceAtMost(most))
+        var left = read.size
+        for ((i, p) in picks.take(most).withIndex()) {
             work.execute {
-                val attached = readAttachment(uri)
+                val attached = readAttachment(p.uri, p.name, p.type, p.size)
                 ui.post {
-                    if (attached == null) return@post
-                    chat.attachments.add(attached)
+                    read[i] = attached
+                    if (--left > 0) return@post
+                    for (a in read) if (a != null) chat.attachments.add(a)
                     app.screen.updateChrome()
                 }
             }
         }
     }
 
-    private fun readAttachment(uri: Uri): Chat.Attachment? {
-        var name = "file"
-        var size = -1L
+    /** Where the camera is writing the picture it takes (a new row of the gallery), until it answers. */
+    private var shooting: Uri? = null
+
+    /** Takes a picture with the phone's camera app, into the gallery (Pictures/Claude Code), and puts it in the box. */
+    fun camera() {
+        val name = "IMG_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.ROOT).format(Date()) + ".jpg"
+        val v = ContentValues()
+        v.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        v.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT >= 29) {
+            v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Claude Code")
+        } else {
+            @Suppress("DEPRECATION")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Claude Code")
+            dir.mkdirs()
+            @Suppress("DEPRECATION")
+            v.put(MediaStore.MediaColumns.DATA, File(dir, name).path)
+        }
+        val uri = try {
+            app.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v)
+        } catch (e: RuntimeException) {
+            null
+        }
+        if (uri == null) {
+            toast("没法新建照片：需要存储权限")
+            return
+        }
+        val shoot = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            .putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        shoot.clipData = ClipData.newRawUri("", uri)
         try {
+            shooting = uri
+            app.startActivityForResult(shoot, MainActivity.CAMERA)
+        } catch (e: ActivityNotFoundException) {
+            shooting = null
+            app.contentResolver.delete(uri, null, null)
+            toast("没有可用的相机应用")
+        }
+    }
+
+    /** The camera answered: the picture goes in the box, or its empty row out of the gallery. */
+    fun shot(ok: Boolean) {
+        val uri = shooting ?: return
+        shooting = null
+        if (!ok) {
+            work.execute { try { app.contentResolver.delete(uri, null, null) } catch (ignored: RuntimeException) {} }
+            return
+        }
+        attach(listOf(Pick(uri, null, "image/jpeg", -1)))
+    }
+
+    private fun readAttachment(uri: Uri, knownName: String?, knownType: String?, knownSize: Long): Chat.Attachment? {
+        var name = knownName ?: "file"
+        var size = knownSize
+        if (knownName == null) try {
             app.contentResolver.query(uri, null, null, null, null)?.use { c ->
                 if (c.moveToFirst()) {
                     val n = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -69,7 +148,7 @@ class Attachments(app: MainActivity) : Part(app) {
         } catch (ignored: RuntimeException) {
             // name stays "file"
         }
-        val type = app.contentResolver.getType(uri)
+        val type = knownType ?: app.contentResolver.getType(uri) ?: FileKit.mime(name)
         try {
             if (type != null && type.matches(Regex("image/(png|jpe?g|gif|webp|bmp|heic|heif|avif)"))) {
                 // Claude Code scales a picture for the model itself and keeps the original, whose path,
