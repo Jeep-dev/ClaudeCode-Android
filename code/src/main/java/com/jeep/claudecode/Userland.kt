@@ -236,14 +236,14 @@ class Userland(context: Context) {
     @Throws(IOException::class)
     fun command(vararg args: String): List<String> {
         prepare()
-        return if (native()) nativeCommand(args) else prootCommand(args)
+        return if (useChroot()) nativeCommand(args) else prootCommand(args)
     }
 
     /**
      * Answers whether root is there, asking for it the first time (the manager shows its prompt
      * then) and again after a refusal, not within the minute.
      */
-    private fun native(): Boolean {
+    private fun useChroot(): Boolean {
         if (rootState == 1) return true
         synchronized(rootLock) {
             if (rootState == 1) return true
@@ -251,15 +251,19 @@ class Userland(context: Context) {
             val su = probeRoot()
             if (su != null) {
                 suPath = su
-                rootState = 1
-                nativeMode = true
-                appendLog("root: granted, the userland runs as a chroot")
-                return true
+                val (works, why) = chrootWorks(su)
+                if (works) {
+                    rootState = 1
+                    nativeMode = true
+                    appendLog("root: granted, the userland runs as a chroot")
+                    return true
+                }
+                appendLog("root: granted but the chroot did not start; using proot" + if (why.isEmpty()) "" else ": $why")
             }
             rootState = 2
             rootFailedAt = SystemClock.elapsedRealtime()
             nativeMode = false
-            appendLog("root: not given, the userland runs under proot")
+            if (su == null) appendLog("root: not given, the userland runs under proot")
             return false
         }
     }
@@ -275,29 +279,14 @@ class Userland(context: Context) {
                 env["PATH"] = "/system/bin:/system/xbin"
                 val p = pb.start()
                 val out = StringBuilder()
-                val reader = Thread {
-                    try {
-                        InputStreamReader(p.inputStream, Charsets.UTF_8).use { input ->
-                            val buf = CharArray(4096)
-                            while (true) {
-                                val n = input.read(buf)
-                                if (n <= 0) break
-                                out.append(buf, 0, n)
-                            }
-                        }
-                    } catch (ignored: IOException) {
-                        // what was read
-                    }
-                }
-                reader.isDaemon = true
-                reader.start()
+                val reader = drain(p.inputStream, out)
                 if (!p.waitFor(45, TimeUnit.SECONDS)) {
                     p.destroy()
                     return null // asked, and left unanswered: not root this time
                 }
                 reader.join(2000)
                 // The su ran: a refusal is an answer, not a reason to try another path.
-                return if (out.contains("uid=0(")) path else null
+                return if (out.contains("uid=0")) path else null
             } catch (e: IOException) {
                 // no su at this path: the next one
             } catch (e: InterruptedException) {
@@ -306,6 +295,58 @@ class Userland(context: Context) {
             }
         }
         return null
+    }
+
+    /**
+     * Runs `/bin/busybox true` through the whole native start (unshare, the mounts, chroot,
+     * setpriv) once: root being there says nothing of whether this Android lets a chroot be made.
+     * False, with what it printed, when it does not, so proot is used instead of a bridge that
+     * never starts.
+     */
+    private fun chrootWorks(su: String): Pair<Boolean, String> {
+        val line = shQuote(nativeScript.path) + " " + shQuote("/bin/busybox") + " " + shQuote("true")
+        return try {
+            val pb = ProcessBuilder(su, "-c", line)
+            pb.redirectErrorStream(true)
+            val env = pb.environment()
+            env.clear()
+            env["PATH"] = "/system/bin:/system/xbin"
+            val p = pb.start()
+            val out = StringBuilder()
+            val reader = drain(p.inputStream, out)
+            val ended = p.waitFor(30, TimeUnit.SECONDS)
+            if (!ended) p.destroy()
+            reader.join(1000)
+            val text = out.toString().trim()
+            val ok = ended && p.exitValue() == 0
+            Pair(ok, if (ok) "" else text.substring(max(0, text.length - 300)))
+        } catch (e: IOException) {
+            Pair(false, e.message ?: e.toString())
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            Pair(false, "interrupted")
+        }
+    }
+
+    /** Reads a process's output on a thread of its own, into out; joined by the caller. */
+    private fun drain(input: InputStream, out: StringBuilder): Thread {
+        val reader = Thread {
+            try {
+                InputStreamReader(input, Charsets.UTF_8).use { source ->
+                    val buf = CharArray(4096)
+                    while (true) {
+                        val n = source.read(buf)
+                        if (n <= 0) break
+                        out.append(buf, 0, n)
+                    }
+                }
+            } catch (ignored: IOException) {
+                // what was read
+            }
+        }
+        reader.isDaemon = true
+        reader.start()
+        return reader
     }
 
     /** The root shell running the native chroot script with args. */
