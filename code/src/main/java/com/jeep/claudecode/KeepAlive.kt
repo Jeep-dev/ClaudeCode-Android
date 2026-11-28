@@ -56,8 +56,9 @@ object KeepAlive {
     private fun rish(userland: Userland, script: String): String? {
         var out: File? = null
         return try {
-            val pb = ProcessBuilder(userland.command("/usr/local/bin/rish", "-c", script))
-            userland.env(pb)
+            // As this app's uid, under proot: Shizuku knows the app by its uid, not root's.
+            val pb = ProcessBuilder(userland.commandAsApp("/usr/local/bin/rish", "-c", script))
+            userland.appEnv(pb)
             pb.directory(userland.base)
             pb.redirectErrorStream(true)
             out = File.createTempFile("rish", null, userland.tmp)

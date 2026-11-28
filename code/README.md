@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.169)
+# Claude Code for Android (v0.4.170)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -20,16 +20,19 @@ it stood and in which `traced` stretch (`Watchdog`): stops that come only now an
 - On a rooted phone the userland runs as a native chroot, as root, instead of under proot: the
   app asks `su`, the root shell makes a private mount namespace (`unshare -m`) and mounts
   `/proc`, `/sys`, `/dev`, Android's own `/system`, `/apex`, `/vendor`, `/product`,
-  `/system_ext`, `/odm`, `/data` and storage in, then `chroot`s with toybox and runs the
-  command as root -- the phone's root, which is what a terminal in it, `apk add` and Claude
-  Code's tools get. A keeper beside it, started by the same script, gives back to the app's
-  uid what the app reads and writes (~/.claude, ~/.ccapp, ~/work): a root's 0600 transcript
-  would otherwise not be the app's to read. The keeper also ends the command when the app
-  goes, since the app cannot signal a process of root's, and `bridge.py` chowns the bridge's
-  socket to the app. `IS_SANDBOX=1` lets Claude Code skip permission prompts as root, and
-  `GIT_CONFIG_*` marks the conversation folders safe for git (root's, the app's uid's). When
-  root is not given (no root, or refused in the manager) the app runs it under proot, as
-  before; the run log says which (`native chroot` or `proot`).
+  `/system_ext`, `/odm`, `/data` and storage in (`--rbind` for those whose submounts matter,
+  as `/apex`'s modules and `/data/user/0`; a plain bind when that is not there), then
+  `chroot`s with toybox and runs the command as root -- the phone's root, which is what a
+  terminal in it, `apk add` and Claude Code's tools get. A keeper beside it, started by the
+  same script, gives the whole home back to the app's uid every second, so the app reads what
+  root writes (a root's 0600 transcript would otherwise not be the app's to read); `.ssh` and
+  `.gnupg` stay root's own. The keeper also ends the command when the app goes, since the app
+  cannot signal a process of root's, and `bridge.py` chowns the bridge's socket to the app.
+  `IS_SANDBOX=1` lets Claude Code skip permission prompts as root, and `GIT_CONFIG_*` marks
+  the conversation folders safe for git (root's, the app's uid's); `rish`, which Shizuku knows
+  by the app's uid, runs under proot as the app rather than as root. When root is not given
+  (no root, or refused in the manager) the app runs it under proot, as before; the run log
+  says which (`native chroot` or `proot`).
 - `BridgeService`, a foreground service holding a wake lock it never releases (until the app is
   swiped away from the recent apps: the service stops with its task and is not started again), runs
   `assets/bridge.py` in the userland (as root in a native chroot, as its root under proot;

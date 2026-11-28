@@ -243,6 +243,16 @@ class Userland(context: Context) {
     }
 
     /**
+     * The proot command running args as this app's own uid, whatever the userland runs as: rish
+     * is Shizuku's, which knows this app by its uid and not root's. Its environment is [appEnv].
+     */
+    @Throws(IOException::class)
+    fun commandAsApp(vararg args: String): List<String> {
+        prepare()
+        return prootCommand(args)
+    }
+
+    /**
      * Answers whether root is there, asking for it the first time (the manager shows its prompt
      * then) and again after a refusal, not within the minute.
      */
@@ -411,8 +421,17 @@ class Userland(context: Context) {
     fun env(): Array<String> = if (nativeMode) {
         arrayOf("PATH=/system/bin:/system/xbin", "HOME=" + base.path)
     } else {
-        arrayOf("PROOT_TMP_DIR=" + tmp.path, "PROOT_LOADER=" + File(bin, "loader").path,
-            "LD_LIBRARY_PATH=" + bin.path, "PATH=/system/bin", "HOME=" + base.path)
+        appEnv()
+    }
+
+    /** proot's own environment, as KEY=value (what [commandAsApp] runs with). */
+    fun appEnv(): Array<String> = arrayOf("PROOT_TMP_DIR=" + tmp.path, "PROOT_LOADER=" + File(bin, "loader").path,
+        "LD_LIBRARY_PATH=" + bin.path, "PATH=/system/bin", "HOME=" + base.path)
+
+    /** As [env], for [commandAsApp]. */
+    fun appEnv(pb: ProcessBuilder) {
+        pb.environment().clear()
+        for (kv in appEnv()) pb.environment()[kv.substring(0, kv.indexOf('='))] = kv.substring(kv.indexOf('=') + 1)
     }
 
     /**
@@ -592,24 +611,24 @@ class Userland(context: Context) {
         sb.append("fi\n")
         for (d in ANDROID_DIRS) {
             val name = d.substring(1)
-            sb.append("[ -d ").append(d).append(" ] && \$T mount --bind ").append(d).append(" \"\$R/").append(name).append("\" 2>/dev/null\n")
+            sb.append("[ -d ").append(d).append(" ] && { \$T mount --rbind ").append(d).append(" \"\$R/").append(name)
+                .append("\" 2>/dev/null || \$T mount --bind ").append(d).append(" \"\$R/").append(name).append("\" 2>/dev/null; }\n")
         }
         if (storage() != null) {
             sb.append("[ -d /sdcard ] && \$T mount --bind /sdcard \"\$R/sdcard\" 2>/dev/null\n")
-            sb.append("[ -d /storage ] && \$T mount --bind /storage \"\$R/storage\" 2>/dev/null\n")
+            sb.append("[ -d /storage ] && { \$T mount --rbind /storage \"\$R/storage\" 2>/dev/null || \$T mount --bind /storage \"\$R/storage\" 2>/dev/null; }\n")
         }
         sb.append("cd \"\$R/root\" || cd \"\$R\" || exit 1\n")
         // Root writes as root: give its files back to the app's uid, and stop the command when
         // this app does (the app cannot send a signal to a process of root's).
         sb.append("main=\$\$\n")
         sb.append("( while kill -0 \"\$main\" 2>/dev/null && kill -0 ").append(appPid).append(" 2>/dev/null; do\n")
-        // What the app reads and writes itself: transcripts, settings, skills, its state, the
-        // conversation folders. The rest of /root (.ssh, .gitconfig) stays root's own.
-        sb.append("    /system/bin/toybox chown -R ").append(uid).append(':').append(gid)
-            .append(" \"\$R/root/.claude\" \"\$R/root/.ccapp\" \"\$R/root/work\" 2>/dev/null\n")
-        sb.append("    /system/bin/toybox chown ").append(uid).append(':').append(gid)
-            .append(" \"\$R/root\" \"\$R/root/.claude.json\" 2>/dev/null\n")
-        sb.append("    sleep 2\n")
+        // Everything under the home the app may read or write (transcripts, settings, skills,
+        // its state, the conversation folders), wherever a conversation runs; root's own keys
+        // and secrets stay root's, since ssh and gpg refuse ones someone else owns.
+        sb.append("    /system/bin/toybox chown -R ").append(uid).append(':').append(gid).append(" \"\$R/root\" 2>/dev/null\n")
+        sb.append("    /system/bin/toybox chown -R 0:0 \"\$R/root/.ssh\" \"\$R/root/.gnupg\" 2>/dev/null\n")
+        sb.append("    sleep 1\n")
         sb.append("  done\n")
         sb.append("  kill -0 \"\$main\" 2>/dev/null && { kill -TERM \"\$main\" 2>/dev/null; sleep 3; kill -0 \"\$main\" 2>/dev/null && kill -KILL \"\$main\" 2>/dev/null; }\n")
         sb.append(") &\n")
@@ -662,7 +681,8 @@ class Userland(context: Context) {
                 Os.kill(pid, 0)
                 pid
             } catch (e: ErrnoException) {
-                if (e.errno == OsConstants.EPERM) pid else 0 // EPERM: there, not ours
+                // EPERM/EACCES: there, but not this app's to signal (root's).
+                if (e.errno == OsConstants.EPERM || e.errno == OsConstants.EACCES) pid else 0
             }
         }
     } catch (e: IOException) {

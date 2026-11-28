@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 71  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 72  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -2657,11 +2657,13 @@ def main():
     parser.add_argument('--reason', default='')
     args = parser.parse_args()
     replace_running_bridge()
+    chown_app(PID_FILE)  # the app reads it to find this bridge
     try:
         os.remove(STOP_FILE)  # left by the app to stop the bridge before this one
     except OSError:
         pass
     log('start pid %d version %d (%s)' % (os.getpid(), VERSION, args.reason or 'started by hand'))
+    chown_app(LOG_FILE)  # and shows this, in the run log
     os.makedirs(DEFAULT_CWD, exist_ok=True)
 
     signal.signal(signal.SIGTERM, stop_by_signal)
