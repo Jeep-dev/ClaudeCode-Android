@@ -41,9 +41,9 @@ import org.tukaani.xz.XZInputStream
 
 /**
  * The Linux userland Claude Code runs in, inside this app: Alpine (with Claude Code, Python and
- * git). When the phone is rooted the userland runs as a native chroot (mounts made by the root
- * shell, then setpriv down to this app's uid, so the files and the bridge's socket stay the
- * app's own); otherwise it runs under Termux's proot, as before. Built by the scripts in
+ * git). When the phone is rooted the userland runs as a native chroot, as root (mounts made by
+ * the root shell; a keeper gives what it writes back to this app's uid, and the bridge's socket
+ * is its too); otherwise it runs under Termux's proot, as before. Built by the scripts in
  * code/runtime in CI; proot comes in the APK, the userland (rootfs.tar.xz) is downloaded from
  * where CI published it (assets/runtime/rootfs.url), once per userland, unless the APK carries
  * it (a build of its own).
@@ -232,8 +232,9 @@ class Userland(context: Context) {
     // ---- running ----
 
     /**
-     * The command running args in the userland (as the app's uid, in /root): the root shell and
-     * a chroot when root is given, proot otherwise. The environment for it is in [env].
+     * The command running args in the userland (as root in a native chroot, as the app's uid
+     * under proot, in /root): the root shell and a chroot when root is given, proot otherwise.
+     * The environment for it is in [env].
      */
     @Throws(IOException::class)
     fun command(vararg args: String): List<String> {
@@ -315,8 +316,8 @@ class Userland(context: Context) {
     }
 
     /**
-     * Runs `/bin/busybox true` through the whole native start (unshare, the mounts, chroot,
-     * setpriv) once: root being there says nothing of whether this Android lets a chroot be made.
+     * Runs `/bin/busybox true` through the whole native start (unshare, the mounts, chroot) once:
+     * root being there says nothing of whether this Android lets a chroot be made.
      * False, with what it printed, when it does not, so proot is used instead of a bridge that
      * never starts.
      */
@@ -554,27 +555,18 @@ class Userland(context: Context) {
         }
     }
 
-    /** This process's supplementary groups, as /proc/self/status lists them (none when unread). */
-    private fun processGroups(): IntArray = try {
-        val status = read(FileInputStream("/proc/self/status"))
-        val line = status.lineSequence().firstOrNull { it.startsWith("Groups:") }
-        if (line == null) IntArray(0) else line.removePrefix("Groups:").trim().split(Regex("\\s+"))
-            .mapNotNull { it.toIntOrNull() }.toIntArray()
-    } catch (e: IOException) {
-        IntArray(0)
-    }
-
     /**
      * Writes the script the root shell runs: a private mount namespace (when unshare works), the
-     * Android side mounted in (/proc, /sys, /dev, /system and the rest, storage), the chroot, then
-     * setpriv down to the app's own uid and gid so what the userland writes stays the app's (the
-     * bridge's socket is 0600 and must be this app's to connect to). Generated before each start:
-     * the uid, the groups and whether storage is shared may have changed.
+     * Android side mounted in (/proc, /sys, /dev, /system and the rest, storage), then the chroot
+     * and the command as root -- the phone's root is the point. A keeper beside it gives what the
+     * userland writes back to this app's uid (transcripts, settings: the app reads them), and ends
+     * the command when the app does, since the app cannot signal a process of root's. Generated
+     * before each start: the uid and whether storage is shared may have changed.
      */
     private fun writeNativeScript() {
         val uid = Os.getuid()
         val gid = Os.getgid()
-        val groups = processGroups()
+        val appPid = android.os.Process.myPid()
         val sb = StringBuilder()
         sb.append("#!/system/bin/sh\n")
         sb.append("# Written by ClaudeCode-Android: the userland as a native chroot (the phone is rooted).\n")
@@ -607,15 +599,25 @@ class Userland(context: Context) {
             sb.append("[ -d /storage ] && \$T mount --bind /storage \"\$R/storage\" 2>/dev/null\n")
         }
         sb.append("cd \"\$R/root\" || cd \"\$R\" || exit 1\n")
-        sb.append("exec /system/bin/toybox chroot \"\$R\" /bin/setpriv")
-        sb.append(" --reuid=").append(uid).append(" --regid=").append(gid)
-        val extra = groups.filter { it != gid }
-        if (extra.isEmpty()) sb.append(" --clear-groups")
-        else sb.append(" --groups=").append(extra.joinToString(","))
-        // No capability flags: util-linux may drop root before touching them, and a non-setuid
-        // exec at a nonzero uid clears them anyway.
-        sb.append(" /usr/bin/env -i")
+        // Root writes as root: give its files back to the app's uid, and stop the command when
+        // this app does (the app cannot send a signal to a process of root's).
+        sb.append("main=\$\$\n")
+        sb.append("( while kill -0 \"\$main\" 2>/dev/null && kill -0 ").append(appPid).append(" 2>/dev/null; do\n")
+        // What the app reads and writes itself: transcripts, settings, skills, its state, the
+        // conversation folders. The rest of /root (.ssh, .gitconfig) stays root's own.
+        sb.append("    /system/bin/toybox chown -R ").append(uid).append(':').append(gid)
+            .append(" \"\$R/root/.claude\" \"\$R/root/.ccapp\" \"\$R/root/work\" 2>/dev/null\n")
+        sb.append("    /system/bin/toybox chown ").append(uid).append(':').append(gid)
+            .append(" \"\$R/root\" \"\$R/root/.claude.json\" 2>/dev/null\n")
+        sb.append("    sleep 2\n")
+        sb.append("  done\n")
+        sb.append("  kill -0 \"\$main\" 2>/dev/null && { kill -TERM \"\$main\" 2>/dev/null; sleep 3; kill -0 \"\$main\" 2>/dev/null && kill -KILL \"\$main\" 2>/dev/null; }\n")
+        sb.append(") &\n")
+        sb.append("exec /system/bin/toybox chroot \"\$R\" /usr/bin/env -i")
         for (kv in CHROOT_ENV) sb.append(' ').append(shQuote(kv))
+        sb.append(' ').append(shQuote("CCAPP_UID=$uid"))
+        sb.append(' ').append(shQuote("CCAPP_GID=$gid"))
+        sb.append(' ').append(shQuote("CCAPP_APP_PID=$appPid"))
         sb.append(" \"\$@\"\n")
         replace(nativeScript, sb.toString())
         try {
@@ -649,8 +651,20 @@ class Userland(context: Context) {
     /** The running bridge's pid (it writes it), or 0: none, or a process that got its pid since. */
     fun bridgePid(): Int = try {
         val pid = read(FileInputStream(file("$HOME/.ccapp/bridge.pid"))).trim().toInt()
-        val cmd = read(FileInputStream("/proc/$pid/cmdline"))
-        if (cmd.contains("bridge.py")) pid else 0
+        val cmd = try {
+            read(FileInputStream("/proc/$pid/cmdline"))
+        } catch (e: IOException) {
+            null // a process of root's is hidden from this app's: ask the kernel instead
+        }
+        when {
+            cmd != null -> if (cmd.contains("bridge.py")) pid else 0
+            else -> try {
+                Os.kill(pid, 0)
+                pid
+            } catch (e: ErrnoException) {
+                if (e.errno == OsConstants.EPERM) pid else 0 // EPERM: there, not ours
+            }
+        }
     } catch (e: IOException) {
         0
     } catch (e: NumberFormatException) {
@@ -671,8 +685,11 @@ class Userland(context: Context) {
         private val CHROOT_ENV = arrayOf(
             "HOME=/root", "USER=root", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin",
             "SHELL=/bin/bash", "LANG=C.UTF-8", "TERM=xterm-256color", "TMPDIR=/tmp",
-            // The userland's own uid is the app's, not root: let Claude Code skip prompts as it did.
+            // Root in the userland: IS_SANDBOX lets Claude Code skip permission prompts as root.
             "IS_SANDBOX=1",
+            // The conversation folders are the app's uid's (the keeper); git run as root would
+            // call them someone else's.
+            "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_CONFIG_VALUE_0=*",
             // Claude Code changes only when claude-update is run.
             "DISABLE_AUTOUPDATER=1", "USE_BUILTIN_RIPGREP=0")
         /** Shizuku's app: its APK carries the dex rish runs. */

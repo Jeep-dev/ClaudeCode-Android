@@ -1,7 +1,7 @@
 """Claude Code bridge for the Claude Code app.
 
-Runs inside the app's own Linux userland (Alpine under proot, started by the app's foreground
-service) and lets the app talk to Claude Code: each conversation is a `claude -p` process in stream-json mode, kept
+Runs inside the app's own Linux userland (Alpine, as a native chroot on a rooted phone or under
+proot otherwise, started by the app's foreground service) and lets the app talk to Claude Code: each conversation is a `claude -p` process in stream-json mode, kept
 alive between turns and resumed from its saved session when needed. Listens on a Unix socket in
 the app's own files (SOCKET_FILE): no other app can reach it, so requests need no token.
 
@@ -30,7 +30,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
-VERSION = 70  # Bridge.VERSION in the app: an app update replaces an older running bridge
+VERSION = 71  # Bridge.VERSION in the app: an app update replaces an older running bridge
 HOME = os.path.expanduser('~')
 CLAUDE_DIR = os.path.join(HOME, '.claude')
 PROJECTS = os.path.join(CLAUDE_DIR, 'projects')
@@ -38,6 +38,7 @@ STATE_DIR = os.path.join(HOME, '.ccapp')
 PID_FILE = os.path.join(STATE_DIR, 'bridge.pid')
 LOCK_FILE = os.path.join(STATE_DIR, 'bridge.lock')
 SOCKET_FILE = os.path.join(STATE_DIR, 'bridge.sock')  # Bridge.SOCKET in the app
+STOP_FILE = os.path.join(STATE_DIR, 'bridge.stop')  # the app's way to stop a bridge it cannot signal
 DEFAULT_CWD = os.path.join(HOME, 'work')
 LOG_FILE = os.path.join(STATE_DIR, 'bridge.log')
 LAUNCH_FILE = os.path.join(STATE_DIR, 'launch.json')
@@ -2590,38 +2591,81 @@ def log(text):
         pass
 
 
+def chown_app(path):
+    """Gives path to the app's uid. A native chroot runs as root, whose files (transcripts, the
+    socket) this app could not read or connect to; root keeps access whatever the owner."""
+    if os.geteuid() != 0:
+        return
+    try:
+        uid = int(os.environ.get('CCAPP_UID', ''))
+        gid = int(os.environ.get('CCAPP_GID', ''))
+    except ValueError:
+        return
+    try:
+        os.chown(path, uid, gid)
+    except OSError:
+        pass
+
+
+def end(why):
+    """Ends the bridge: closes each claude's input, gives them 3 s, then exits this process."""
+    log('stop pid %d: %s' % (os.getpid(), why))
+    procs = [chat.proc for chat in list(chats.values()) if chat.proc is not None]
+    if spare.proc is not None:
+        procs.append(spare.proc)
+    for proc in procs:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+    limit = time.time() + 3
+    for proc in procs:
+        try:
+            proc.wait(max(0.1, limit - time.time()))
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
+    os._exit(0)
+
+
+def stop_by_signal(signum, _frame):
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    end('signal %d' % signum)
+
+
+def watch_stop_file():
+    """Ends the bridge when the app writes bridge.stop: a bridge running as root cannot be
+    signalled by the app, which is this app's uid."""
+    while True:
+        try:
+            if os.path.exists(STOP_FILE):
+                try:
+                    os.remove(STOP_FILE)
+                except OSError:
+                    pass
+                end('stop file')
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--socket', default=SOCKET_FILE)
     parser.add_argument('--reason', default='')
     args = parser.parse_args()
     replace_running_bridge()
+    try:
+        os.remove(STOP_FILE)  # left by the app to stop the bridge before this one
+    except OSError:
+        pass
     log('start pid %d version %d (%s)' % (os.getpid(), VERSION, args.reason or 'started by hand'))
     os.makedirs(DEFAULT_CWD, exist_ok=True)
 
-    def shutdown(signum, _frame):
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        log('stop pid %d: signal %d' % (os.getpid(), signum))
-        procs = [chat.proc for chat in list(chats.values()) if chat.proc is not None]
-        if spare.proc is not None:
-            procs.append(spare.proc)
-        for proc in procs:
-            try:
-                proc.stdin.close()
-            except OSError:
-                pass
-        end = time.time() + 3
-        for proc in procs:
-            try:
-                proc.wait(max(0.1, end - time.time()))
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                except OSError:
-                    pass
-        os._exit(0)
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, stop_by_signal)
+    signal.signal(signal.SIGINT, stop_by_signal)
     signal.signal(signal.SIGHUP, signal.SIG_IGN)
 
     def crashed(kind, value, tb):
@@ -2635,6 +2679,9 @@ def main():
     except OSError as e:
         log('exit pid %d: cannot listen on %s: %s' % (os.getpid(), args.socket, e))
         sys.exit('cannot listen on %s: %s' % (args.socket, e))
+    chown_app(STATE_DIR)  # the app writes the stop file there
+    chown_app(args.socket)  # and connects to the socket
+    threading.Thread(target=watch_stop_file, daemon=True).start()
     threading.Thread(target=reaper, daemon=True).start()
     tunnels.start()  # before any claude: its environment names them
     threading.Thread(target=spare.fill, daemon=True).start()  # ready for the first new conversation

@@ -1,4 +1,4 @@
-# Claude Code for Android (v0.4.168)
+# Claude Code for Android (v0.4.169)
 
 Claude Code on the phone in one app, no Termux needed. Separate from the claude.ai app in
 `app/`: its own application id (`com.jeep.claudecode`), name and icon. No WebView: the
@@ -17,24 +17,29 @@ it stood and in which `traced` stretch (`Watchdog`): stops that come only now an
   launch, or after an update that brings a new userland, the app unpacks it into its files
   (over what is there: `/root` and packages added with `apk add` stay). targetSdk is 28 so the
   app may run programs from its own files, as Termux does.
-- On a rooted phone the userland runs as a native chroot instead of under proot: the app asks
-  `su`, the root shell makes a private mount namespace (`unshare -m`) and mounts `/proc`,
-  `/sys`, `/dev`, Android's own `/system`, `/apex`, `/vendor`, `/product`, `/system_ext`,
-  `/odm`, `/data` and storage in, then `chroot`s with toybox's and `setpriv`s down to the
-  app's uid and gid (`/bin/setpriv`, in the userland) before it runs anything. Dropping to
-  the app's uid keeps what the userland writes the app's own, as under proot: files it can
-  read, and the bridge's socket, 0600, which the app connects to. `IS_SANDBOX=1` stays. When
+- On a rooted phone the userland runs as a native chroot, as root, instead of under proot: the
+  app asks `su`, the root shell makes a private mount namespace (`unshare -m`) and mounts
+  `/proc`, `/sys`, `/dev`, Android's own `/system`, `/apex`, `/vendor`, `/product`,
+  `/system_ext`, `/odm`, `/data` and storage in, then `chroot`s with toybox and runs the
+  command as root -- the phone's root, which is what a terminal in it, `apk add` and Claude
+  Code's tools get. A keeper beside it, started by the same script, gives back to the app's
+  uid what the app reads and writes (~/.claude, ~/.ccapp, ~/work): a root's 0600 transcript
+  would otherwise not be the app's to read. The keeper also ends the command when the app
+  goes, since the app cannot signal a process of root's, and `bridge.py` chowns the bridge's
+  socket to the app. `IS_SANDBOX=1` lets Claude Code skip permission prompts as root, and
+  `GIT_CONFIG_*` marks the conversation folders safe for git (root's, the app's uid's). When
   root is not given (no root, or refused in the manager) the app runs it under proot, as
   before; the run log says which (`native chroot` or `proot`).
 - `BridgeService`, a foreground service holding a wake lock it never releases (until the app is
   swiped away from the recent apps: the service stops with its task and is not started again), runs
-  `assets/bridge.py` in the userland (as its root under proot, as the app's own uid in a native
-  chroot; `IS_SANDBOX=1` lets Claude Code skip permission prompts either way); it listens on a Unix socket, `~/.ccapp/bridge.sock` in the
+  `assets/bridge.py` in the userland (as root in a native chroot, as its root under proot;
+  `IS_SANDBOX=1` lets Claude Code skip permission prompts either way); it listens on a Unix socket, `~/.ccapp/bridge.sock` in the
   userland (in this app's own files, mode 0600), not on a port: no other app can reach it, so
   requests carry no token. The app speaks HTTP to it over a `LocalSocket`. The service starts it again
-  when it dies on its own (at most three times a minute). To stop or replace it, the service sends SIGTERM to the bridge
-  itself (proot ignores SIGTERM): the bridge ends its conversations and exits, and proot then
-  ends what is left under it. Phone storage is shared in as
+  when it dies on its own (at most three times a minute). To stop or replace it, the service
+  writes `~/.ccapp/bridge.stop`: the bridge (root's in a native chroot, which the app cannot
+  signal) watches it, ends its conversations and exits, and the root shell or proot then ends
+  what is left under it. The keeper also ends it when the app's process goes. Phone storage is shared in as
   `/sdcard` once the app may read it; DNS servers come from the current network.
 - The app checks the bridge (nothing listening and no bridge process, as after the app was killed
   with it: started at once; no answer: three tries, so a busy one is not taken for dead), has the service start it when it is gone or of another

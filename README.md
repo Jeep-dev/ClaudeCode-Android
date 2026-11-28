@@ -2,7 +2,7 @@
 
 在 Android 手机上直接用 [Claude Code](https://docs.anthropic.com/claude-code) 的 App，不需要 Termux。
 
-App 自带一个小型 Linux 环境（Alpine）：手机有 root 时用原生 chroot（更快），没有就自动改用 proot；Claude Code 就跑在里面。界面是原生 Android 控件，不是 WebView，滚动和选字都是系统自己的。
+App 自带一个小型 Linux 环境（Alpine）：手机有 root 时用原生 chroot，环境里就是真 root（`apk add`、挂载、改系统都可以），没有就自动改用 proot；Claude Code 就跑在里面。界面是原生 Android 控件，不是 WebView，滚动和选字都是系统自己的。
 
 <p>
   <img src="docs/screenshots/claude-chat.png" width="24%" alt="Claude 配色">
@@ -27,7 +27,7 @@ App 自带一个小型 Linux 环境（Alpine）：手机有 root 时用原生 ch
 
 ## 安装
 
-- 要求：Android 8.0 及以上，arm64 设备。有 root（KernelSU、SukiSU、Magisk 等，能用 `su`）时自动用原生 chroot，没有则用 proot。
+- 要求：Android 8.0 及以上，arm64 设备。有 root（KernelSU、SukiSU、Magisk 等，能用 `su`）时运行环境是原生 chroot，环境里就是真 root；没有则用 proot。
 - 在 [Releases](../../releases) 下载最新的 `ClaudeCode-v*.apk` 安装。
 - 第一次打开会下载并解压运行环境（约半分钟），然后填 API 地址和 Key；也可以从 Termux 导入原来的配置，或者在终端里用 `claude` 的 `/login` 登录 Claude 订阅。
 

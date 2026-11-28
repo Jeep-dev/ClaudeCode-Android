@@ -24,8 +24,9 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Keeps the bridge (and so Claude Code) running in this app's own process tree: a foreground
- * service holding a wake lock that is never released, which starts the bridge under proot when
- * asked and again when it dies on its own.
+ * service holding a wake lock that is never released, which starts the bridge in the userland
+ * (as root in a native chroot, under proot otherwise) when asked and again when it dies on its
+ * own.
  */
 class BridgeService : Service() {
     private val worker = Executors.newSingleThreadExecutor()
@@ -82,8 +83,13 @@ class BridgeService : Service() {
         worker.shutdownNow()
         val p = proc
         proc = null // its watcher must not start another on the stopped worker
-        val pid = userland.bridgePid()
-        if (pid > 0) android.os.Process.sendSignal(pid, 15) // proot ignores SIGTERM: the bridge is told
+        // A bridge running as root (native chroot) cannot be signalled by this app: it watches
+        // this file. proot's, this app's uid, would still take the signal.
+        try {
+            Userland.write(userland.file(Userland.HOME + "/.ccapp/bridge.stop"), "stop\n")
+        } catch (e: IOException) {
+            log("could not write the bridge stop file: $e")
+        }
         p?.destroy()
         wake?.let { if (it.isHeld) it.release() }
         super.onDestroy()
@@ -119,19 +125,21 @@ class BridgeService : Service() {
     }
 
     /**
-     * Stops the running bridge. proot ignores SIGTERM, so the bridge itself is told: it ends its
-     * conversations and exits, and proot then ends whatever is left under it and exits too.
+     * Stops the running bridge. A bridge running as root in a native chroot cannot be signalled by
+     * this app, so the bridge is told by a file it watches: it ends its conversations and exits,
+     * and the chroot's root shell (or proot) then ends with it.
      */
     private fun stopBridge() {
         val p = proc
         proc = null
-        val pid = userland.bridgePid()
-        if (pid > 0) android.os.Process.sendSignal(pid, 15)
+        try {
+            Userland.write(userland.file(Userland.HOME + "/.ccapp/bridge.stop"), "stop\n")
+        } catch (e: IOException) {
+            log("could not write the bridge stop file: $e")
+        }
         if (p == null) return
         try {
-            if (p.waitFor(6, TimeUnit.SECONDS)) return
-            if (pid > 0) android.os.Process.sendSignal(pid, 9)
-            if (!p.waitFor(2, TimeUnit.SECONDS)) p.destroyForcibly()
+            if (!p.waitFor(6, TimeUnit.SECONDS)) log("the bridge did not stop within 6 s")
         } catch (ignored: InterruptedException) {
             Thread.currentThread().interrupt()
         }
