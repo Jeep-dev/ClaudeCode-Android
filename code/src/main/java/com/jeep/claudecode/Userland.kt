@@ -29,6 +29,8 @@ import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
@@ -248,6 +250,12 @@ class Userland(context: Context) {
         synchronized(rootLock) {
             if (rootState == 1) return true
             if (rootState == 2 && SystemClock.elapsedRealtime() - rootFailedAt < 60_000) return false
+            val version = try {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            } catch (e: Exception) {
+                "?"
+            }
+            appendLog("app $version (uid " + Os.getuid() + "): asking for root")
             val su = probeRoot()
             if (su != null) {
                 suPath = su
@@ -268,27 +276,36 @@ class Userland(context: Context) {
         }
     }
 
-    /** The su path that gave root, trying the usual ones; null when none does. */
+    /**
+     * The su path that gave root, trying the usual ones; null when none does. Each try is written
+     * to the run log with its exit code and what it printed: which path failed, and how, is what
+     * tells a missing su from one the manager refused.
+     */
     private fun probeRoot(): String? {
         for (path in SU_PATHS) {
             try {
                 val pb = ProcessBuilder(path, "-c", "id")
                 pb.redirectErrorStream(true)
-                val env = pb.environment()
-                env.clear()
-                env["PATH"] = "/system/bin:/system/xbin"
+                // The app's own environment, with a PATH su's `id` is found through.
+                pb.environment()["PATH"] = "/system/bin:/system/xbin"
                 val p = pb.start()
                 val out = StringBuilder()
                 val reader = drain(p.inputStream, out)
-                if (!p.waitFor(45, TimeUnit.SECONDS)) {
+                if (!p.waitFor(20, TimeUnit.SECONDS)) {
                     p.destroy()
+                    appendLog("su $path: no answer in 20 s")
                     return null // asked, and left unanswered: not root this time
                 }
-                reader.join(2000)
-                // The su ran: a refusal is an answer, not a reason to try another path.
-                return if (out.contains("uid=0")) path else null
+                reader.join(1000)
+                val text = out.toString().trim().replace('\n', ' ')
+                val code = p.exitValue()
+                if (text.contains("uid=0")) {
+                    appendLog("su $path: root (exit $code)")
+                    return path
+                }
+                appendLog("su $path: exit $code" + if (text.isEmpty()) "" else ": " + text.takeLast(240))
             } catch (e: IOException) {
-                // no su at this path: the next one
+                appendLog("su $path: " + (e.message ?: e.toString()))
             } catch (e: InterruptedException) {
                 Thread.currentThread().interrupt()
                 return null
@@ -614,7 +631,8 @@ class Userland(context: Context) {
     /** A line for the run log (what root was, or was not, given), appended on the calling thread. */
     private fun appendLog(text: String) {
         try {
-            FileOutputStream(log, true).use { it.write(("[app] " + text + "\n").toByteArray()) }
+            val stamp = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date())
+            FileOutputStream(log, true).use { it.write(("[app] $stamp $text\n").toByteArray()) }
         } catch (ignored: IOException) {
             // no log
         }
@@ -643,7 +661,8 @@ class Userland(context: Context) {
         const val HOME = "/root"
         private val PROOT_FILES = arrayOf("proot", "loader", "libtalloc.so.2", "libandroid-shmem.so")
         /** Where a rooted phone's su usually is; /system/bin/su is KernelSU's, made by its hook. */
-        private val SU_PATHS = arrayOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su", "/debug_ramdisk/su")
+        private val SU_PATHS = arrayOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su",
+            "/debug_ramdisk/su", "/data/adb/ksu/bin/su", "/data/adb/magisk/su", "/data/adb/ap/bin/su")
         private val ANDROID_DIRS = arrayOf("/system", "/apex", "/vendor", "/product", "/system_ext", "/odm", "/data")
         /** Folders inside the userland that mounts go over (made before each chroot). */
         private val MOUNT_DIRS = arrayOf("proc", "sys", "dev", "dev/pts", "tmp", "sdcard", "storage",
