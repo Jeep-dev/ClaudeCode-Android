@@ -106,7 +106,7 @@ class BridgeService : Service() {
             pb.redirectErrorStream(true)
             if (userland.log.length() > 300_000) userland.log.delete()
             pb.redirectOutput(ProcessBuilder.Redirect.appendTo(userland.log))
-            log("starting the bridge ($reason)")
+            log("starting the bridge ($reason, " + (if (userland.nativeMode) "native chroot" else "proot") + ")")
             val p = pb.start()
             proc = p
             Thread({ watch(p) }, "bridge-watch").apply {

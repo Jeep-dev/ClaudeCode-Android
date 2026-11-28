@@ -30,6 +30,7 @@ import java.nio.file.attribute.BasicFileAttributes
 import java.security.MessageDigest
 import java.security.NoSuchAlgorithmException
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 import java.util.zip.ZipFile
 import kotlin.math.max
@@ -38,9 +39,12 @@ import org.tukaani.xz.XZInputStream
 
 /**
  * The Linux userland Claude Code runs in, inside this app: Alpine (with Claude Code, Python and
- * git) run under Termux's proot. Built by the scripts in code/runtime in CI; proot comes in the APK, the
- * userland (rootfs.tar.xz) is downloaded from where CI published it (assets/runtime/rootfs.url),
- * once per userland, unless the APK carries it (a build of its own).
+ * git). When the phone is rooted the userland runs as a native chroot (mounts made by the root
+ * shell, then setpriv down to this app's uid, so the files and the bridge's socket stay the
+ * app's own); otherwise it runs under Termux's proot, as before. Built by the scripts in
+ * code/runtime in CI; proot comes in the APK, the userland (rootfs.tar.xz) is downloaded from
+ * where CI published it (assets/runtime/rootfs.url), once per userland, unless the APK carries
+ * it (a build of its own).
  */
 class Userland(context: Context) {
     private val context: Context = context.applicationContext
@@ -49,6 +53,16 @@ class Userland(context: Context) {
     @JvmField val bin = File(base, "proot")
     @JvmField val tmp = File(base, "tmp")
     @JvmField val log = File(base, "runtime.log")
+    /** The script the root shell runs for a native chroot start (written before each use). */
+    private val nativeScript = File(base, "native.sh")
+    /** True once root was granted and the userland runs as a chroot; false for proot. */
+    @JvmField @Volatile var nativeMode = false
+    /** The su that gave root, once found. */
+    @Volatile private var suPath: String? = null
+    /** 0: not looked at, 1: root, 2: not (asked again after a while). */
+    @Volatile private var rootState = 0
+    private var rootFailedAt = 0L
+    private val rootLock = Any()
 
     /** The id of the userland in this APK; null when the APK carries none (a local build). */
     fun bundled(): String? = try {
@@ -216,12 +230,93 @@ class Userland(context: Context) {
     // ---- running ----
 
     /**
-     * The proot command running args (inside the userland, as root in /root); the environment
-     * for it is in [env].
+     * The command running args in the userland (as the app's uid, in /root): the root shell and
+     * a chroot when root is given, proot otherwise. The environment for it is in [env].
      */
     @Throws(IOException::class)
     fun command(vararg args: String): List<String> {
         prepare()
+        return if (native()) nativeCommand(args) else prootCommand(args)
+    }
+
+    /**
+     * Answers whether root is there, asking for it the first time (the manager shows its prompt
+     * then) and again after a refusal, not within the minute.
+     */
+    private fun native(): Boolean {
+        if (rootState == 1) return true
+        synchronized(rootLock) {
+            if (rootState == 1) return true
+            if (rootState == 2 && SystemClock.elapsedRealtime() - rootFailedAt < 60_000) return false
+            val su = probeRoot()
+            if (su != null) {
+                suPath = su
+                rootState = 1
+                nativeMode = true
+                appendLog("root: granted, the userland runs as a chroot")
+                return true
+            }
+            rootState = 2
+            rootFailedAt = SystemClock.elapsedRealtime()
+            nativeMode = false
+            appendLog("root: not given, the userland runs under proot")
+            return false
+        }
+    }
+
+    /** The su path that gave root, trying the usual ones; null when none does. */
+    private fun probeRoot(): String? {
+        for (path in SU_PATHS) {
+            try {
+                val pb = ProcessBuilder(path, "-c", "id")
+                pb.redirectErrorStream(true)
+                val env = pb.environment()
+                env.clear()
+                env["PATH"] = "/system/bin:/system/xbin"
+                val p = pb.start()
+                val out = StringBuilder()
+                val reader = Thread {
+                    try {
+                        InputStreamReader(p.inputStream, Charsets.UTF_8).use { input ->
+                            val buf = CharArray(4096)
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n <= 0) break
+                                out.append(buf, 0, n)
+                            }
+                        }
+                    } catch (ignored: IOException) {
+                        // what was read
+                    }
+                }
+                reader.isDaemon = true
+                reader.start()
+                if (!p.waitFor(45, TimeUnit.SECONDS)) {
+                    p.destroy()
+                    return null // asked, and left unanswered: not root this time
+                }
+                reader.join(2000)
+                // The su ran: a refusal is an answer, not a reason to try another path.
+                return if (out.contains("uid=0(")) path else null
+            } catch (e: IOException) {
+                // no su at this path: the next one
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return null
+            }
+        }
+        return null
+    }
+
+    /** The root shell running the native chroot script with args. */
+    private fun nativeCommand(args: Array<out String>): List<String> {
+        val line = StringBuilder(shQuote(nativeScript.path))
+        for (a in args) line.append(' ').append(shQuote(a))
+        return listOf(suPath ?: SU_PATHS[0], "-c", line.toString())
+    }
+
+    /** The proot command running args (inside the userland, as root in /root). */
+    private fun prootCommand(args: Array<out String>): List<String> {
         val c = ArrayList<String>()
         c += File(bin, "proot").path
         c += listOf("--kill-on-exit", "--link2symlink", "-0", "-r", rootfs.path)
@@ -253,9 +348,13 @@ class Userland(context: Context) {
         for (kv in env()) pb.environment()[kv.substring(0, kv.indexOf('='))] = kv.substring(kv.indexOf('=') + 1)
     }
 
-    /** proot's own environment, as KEY=value. */
-    fun env(): Array<String> = arrayOf("PROOT_TMP_DIR=" + tmp.path, "PROOT_LOADER=" + File(bin, "loader").path,
-        "LD_LIBRARY_PATH=" + bin.path, "PATH=/system/bin", "HOME=" + base.path)
+    /** The environment the command runs with, as KEY=value: proot's own, or the root shell's. */
+    fun env(): Array<String> = if (nativeMode) {
+        arrayOf("PATH=/system/bin:/system/xbin", "HOME=" + base.path)
+    } else {
+        arrayOf("PROOT_TMP_DIR=" + tmp.path, "PROOT_LOADER=" + File(bin, "loader").path,
+            "LD_LIBRARY_PATH=" + bin.path, "PATH=/system/bin", "HOME=" + base.path)
+    }
 
     /**
      * rish in the userland, as in Termux: Android's app_process running Shizuku's rish dex, taken
@@ -338,6 +437,8 @@ class Userland(context: Context) {
     private fun prepareFiles() {
         mkdirs(tmp)
         writeRish()
+        prepareMounts()
+        writeNativeScript()
         val dns = LinkedHashSet<String>()
         try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -366,6 +467,118 @@ class Userland(context: Context) {
         replace(File(procs, "vmstat"), "nr_free_pages 100000\n")
     }
 
+    /**
+     * The folders a native chroot mounts over (Android's own directories, storage), and a passwd
+     * and group entry for the app's uid, which the userland otherwise does not know.
+     */
+    @Throws(IOException::class)
+    private fun prepareMounts() {
+        for (d in MOUNT_DIRS) mkdirs(File(rootfs, d))
+        val uid = Os.getuid()
+        val gid = Os.getgid()
+        val passwd = File(rootfs, "etc/passwd")
+        val users = try {
+            read(FileInputStream(passwd))
+        } catch (e: IOException) {
+            ""
+        }
+        if (users.isNotEmpty() && users.lineSequence().none { it.split(':').getOrNull(2) == uid.toString() }) {
+            replace(passwd, (if (users.endsWith("\n")) users else users + "\n") + "ccapp:x:$uid:$gid:Claude Code:/root:/bin/bash\n")
+        }
+        val group = File(rootfs, "etc/group")
+        val groups = try {
+            read(FileInputStream(group))
+        } catch (e: IOException) {
+            ""
+        }
+        if (groups.isNotEmpty() && groups.lineSequence().none { it.split(':').getOrNull(2) == gid.toString() }) {
+            replace(group, (if (groups.endsWith("\n")) groups else groups + "\n") + "ccapp:x:$gid:\n")
+        }
+    }
+
+    /** This process's supplementary groups, as /proc/self/status lists them (none when unread). */
+    private fun processGroups(): IntArray = try {
+        val status = read(FileInputStream("/proc/self/status"))
+        val line = status.lineSequence().firstOrNull { it.startsWith("Groups:") }
+        if (line == null) IntArray(0) else line.removePrefix("Groups:").trim().split(Regex("\\s+"))
+            .mapNotNull { it.toIntOrNull() }.toIntArray()
+    } catch (e: IOException) {
+        IntArray(0)
+    }
+
+    /**
+     * Writes the script the root shell runs: a private mount namespace (when unshare works), the
+     * Android side mounted in (/proc, /sys, /dev, /system and the rest, storage), the chroot, then
+     * setpriv down to the app's own uid and gid so what the userland writes stays the app's (the
+     * bridge's socket is 0600 and must be this app's to connect to). Generated before each start:
+     * the uid, the groups and whether storage is shared may have changed.
+     */
+    private fun writeNativeScript() {
+        val uid = Os.getuid()
+        val gid = Os.getgid()
+        val groups = processGroups()
+        val sb = StringBuilder()
+        sb.append("#!/system/bin/sh\n")
+        sb.append("# Written by ClaudeCode-Android: the userland as a native chroot (the phone is rooted).\n")
+        sb.append("R=").append(shQuote(rootfs.path)).append('\n')
+        sb.append("PATH=/system/bin:/system/xbin\n").append("export PATH\n")
+        sb.append("if [ \"\$CCAPP_NS\" != 1 ]; then\n")
+        sb.append("  if /system/bin/toybox unshare -m /system/bin/toybox true 2>/dev/null; then\n")
+        sb.append("    CCAPP_NS=1; export CCAPP_NS\n")
+        sb.append("    exec /system/bin/toybox unshare -m /system/bin/sh \"\$0\" \"\$@\"\n")
+        sb.append("  fi\n")
+        sb.append("fi\n")
+        sb.append("T=/system/bin/toybox\n")
+        // The app's own mount namespace is a slave of init's (mountinfo: master:), so mounts
+        // made here go no further even when unshare is not available.
+        sb.append("\$T mount --bind /proc \"\$R/proc\" || { echo 'ccapp: cannot mount /proc' >&2; exit 1; }\n")
+        sb.append("\$T mount --bind /sys \"\$R/sys\" 2>/dev/null\n")
+        sb.append("\$T mount --bind /dev \"\$R/dev\" || { echo 'ccapp: cannot mount /dev' >&2; exit 1; }\n")
+        sb.append("[ -d /dev/pts ] && \$T mount --bind /dev/pts \"\$R/dev/pts\" 2>/dev/null\n")
+        sb.append("if [ \"\$CCAPP_NS\" = 1 ]; then\n")
+        sb.append("  mkdir -p /dev/shm 2>/dev/null\n")
+        sb.append("  \$T mount -t tmpfs tmpfs \"\$R/dev/shm\" 2>/dev/null\n")
+        sb.append("  chmod 1777 \"\$R/dev/shm\" 2>/dev/null\n")
+        sb.append("fi\n")
+        for (d in ANDROID_DIRS) {
+            val name = d.substring(1)
+            sb.append("[ -d ").append(d).append(" ] && \$T mount --bind ").append(d).append(" \"\$R/").append(name).append("\" 2>/dev/null\n")
+        }
+        if (storage() != null) {
+            sb.append("[ -d /sdcard ] && \$T mount --bind /sdcard \"\$R/sdcard\" 2>/dev/null\n")
+            sb.append("[ -d /storage ] && \$T mount --bind /storage \"\$R/storage\" 2>/dev/null\n")
+        }
+        sb.append("cd \"\$R/root\" || cd \"\$R\" || exit 1\n")
+        sb.append("exec /system/bin/toybox chroot \"\$R\" /bin/setpriv")
+        sb.append(" --reuid=").append(uid).append(" --regid=").append(gid)
+        val extra = groups.filter { it != gid }
+        if (extra.isEmpty()) sb.append(" --clear-groups")
+        else sb.append(" --groups=").append(extra.joinToString(","))
+        // No capability flags: util-linux may drop root before touching them, and a non-setuid
+        // exec at a nonzero uid clears them anyway.
+        sb.append(" /usr/bin/env -i")
+        for (kv in CHROOT_ENV) sb.append(' ').append(shQuote(kv))
+        sb.append(" \"\$@\"\n")
+        replace(nativeScript, sb.toString())
+        try {
+            Os.chmod(nativeScript.path, 448) // 0700
+        } catch (ignored: ErrnoException) {
+            // readable by its owner anyway
+        }
+    }
+
+    /** A word as the root shell's sh reads it back. */
+    private fun shQuote(s: String): String = "'" + s.replace("'", "'\\''") + "'"
+
+    /** A line for the run log (what root was, or was not, given), appended on the calling thread. */
+    private fun appendLog(text: String) {
+        try {
+            FileOutputStream(log, true).use { it.write(("[app] " + text + "\n").toByteArray()) }
+        } catch (ignored: IOException) {
+            // no log
+        }
+    }
+
     @Throws(IOException::class)
     fun writeBridge() {
         replace(File(rootfs, "opt/ccapp/bridge.py"), read(context.assets.open("bridge.py")))
@@ -388,7 +601,20 @@ class Userland(context: Context) {
     companion object {
         const val HOME = "/root"
         private val PROOT_FILES = arrayOf("proot", "loader", "libtalloc.so.2", "libandroid-shmem.so")
+        /** Where a rooted phone's su usually is; /system/bin/su is KernelSU's, made by its hook. */
+        private val SU_PATHS = arrayOf("/system/bin/su", "/system/xbin/su", "/sbin/su", "/su/bin/su", "/debug_ramdisk/su")
         private val ANDROID_DIRS = arrayOf("/system", "/apex", "/vendor", "/product", "/system_ext", "/odm", "/data")
+        /** Folders inside the userland that mounts go over (made before each chroot). */
+        private val MOUNT_DIRS = arrayOf("proc", "sys", "dev", "dev/pts", "tmp", "sdcard", "storage",
+            "system", "apex", "vendor", "product", "system_ext", "odm", "data", "linkerconfig", "opt/ccapp")
+        /** What the chroot runs with: the same as under proot. */
+        private val CHROOT_ENV = arrayOf(
+            "HOME=/root", "USER=root", "PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin",
+            "SHELL=/bin/bash", "LANG=C.UTF-8", "TERM=xterm-256color", "TMPDIR=/tmp",
+            // The userland's own uid is the app's, not root: let Claude Code skip prompts as it did.
+            "IS_SANDBOX=1",
+            // Claude Code changes only when claude-update is run.
+            "DISABLE_AUTOUPDATER=1", "USE_BUILTIN_RIPGREP=0")
         /** Shizuku's app: its APK carries the dex rish runs. */
         private const val SHIZUKU = "moe.shizuku.privileged.api"
         /** One at a time: the bridge's start and the terminal's may run together. */

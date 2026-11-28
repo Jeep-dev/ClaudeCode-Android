@@ -7,7 +7,8 @@ ARCH=$1
 OUT=$(realpath "$2")
 ALPINE=3.24
 ALPINE_RELEASE=3.24.2
-PACKAGES="bash python3 git ripgrep libgcc libstdc++ curl less"
+# setpriv: a native chroot start drops from root to the app's own uid (mounts need root first).
+PACKAGES="bash python3 git ripgrep libgcc libstdc++ curl less setpriv"
 MIRROR=https://dl-cdn.alpinelinux.org/alpine
 # What the app's apk installs from later (fast from China, works anywhere).
 APP_MIRROR=https://mirrors.aliyun.com/alpine
